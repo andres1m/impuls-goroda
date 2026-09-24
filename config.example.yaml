@@ -1,0 +1,36 @@
+logger:
+  stdout: true
+  level: info
+
+database:
+  host: ${DATABASE_URL}
+  connection-timeout: 5s
+  max-conns: 10
+  min-conns: 0
+  max-conn-lifetime: 30m
+
+redis:
+  mode: cluster
+  addresses:
+    - localhost:6379
+  password: ${REDIS_PASSWORD}
+  connection-timeout: 5s
+  read-timeout: 3s
+  write-timeout: 3s
+
+temporal:
+  host-port: localhost:7233
+  namespace: default
+  queue-name: catalog-sync
+  worker-count: 4
+
+grpc-server:
+  port: 9090
+  use_tls: false
+  max_recv_msg_size: 4194304
+
+grpc-client:
+  host: localhost
+  port: 9090
+  use_tls: false
+  max_recv_msg_size: 4194304
