@@ -4,27 +4,30 @@ Shared Go infrastructure for three independently deployed services:
 
 ```text
 services/
-  gateway/internal/
-  optimizer/internal/
-  syncer/internal/
+  gateway/{cmd/gateway,internal}/
+  optimizer/{cmd/optimizer,internal}/
+  syncer/{cmd/syncer,internal}/
 pkg/
   config/       strict YAML configuration and environment substitution
   db/           PostgreSQL connection pool
   logger/       structured Zap logging
   redis/        standalone and cluster clients
+  router/       HTTP route registration
   rpc/          gRPC client/server with optional mutual TLS
+  server/       echo HTTP server, health and metrics endpoints, probe
   svc/          component lifecycle and dependency ordering
   temporal/     Temporal client and worker registration
   zapadapter/   Temporal logging adapter
+docker/         images and configuration of the local stand
 proto/          shared service contracts
 migrations/     database migrations
-web/           Mini App
+web/            Mini App
 ```
 
 Go 1.27.1 or newer is required. One root module covers all backend services.
-The service directories are placeholders; application entry points and business
-handlers have not been implemented yet. Packages must not import another
-service's `internal` directory.
+Each service has an entry point that wires its infrastructure and serves
+`/healthz` and `/metrics`; business handlers are not implemented yet. Packages
+must not import another service's `internal` directory.
 
 ## Development
 
@@ -36,7 +39,37 @@ make verify
 `make verify` runs unit and local gRPC integration tests, race detection, vet,
 build, and module checksum verification. Tests do not require external services.
 Live PostgreSQL, Redis Cluster and Temporal integration is not covered yet.
-`make build` currently compiles libraries; it does not produce service binaries.
+
+## Local stand
+
+```sh
+cp .env.example .env   # then replace every value
+make up                # build images, start everything, wait until healthy
+```
+
+`make up` starts PostgreSQL with PostGIS and pgvector, applies migrations,
+creates service login users, a three-master Redis Cluster, single-node Kafka
+(KRaft), Temporal with its UI, the three services, an nginx edge, Prometheus and
+Jaeger. Host ports are bound to 127.0.0.1 only:
+
+| Port  | Service |
+|-------|---------|
+| 8080  | edge (proxies to gateway) |
+| 5432  | PostgreSQL |
+| 8233  | Temporal UI |
+| 9091  | Prometheus |
+| 16686 | Jaeger UI |
+
+`make down` stops the stand and keeps data; `make reset` also deletes volumes.
+PostgreSQL passwords are fixed when its volume is first initialized, so after
+changing them in `.env` run `make reset`. `make logs`, `make ps` and
+`make migrate` are shortcuts for the corresponding compose commands.
+
+Service images are built in Alpine and copied onto `scratch`: a static binary,
+CA certificates, time zones and an unprivileged user, without a shell. Container
+healthchecks therefore call the binary itself: `<service> healthcheck`.
+Configuration is mounted from `docker/<service>/config.yaml`; secrets come from
+the environment and are never baked into images.
 
 ## Configuration
 
@@ -120,3 +153,10 @@ Infrastructure packages were adapted from
 at commit `66d0a7212af75526c9c419afc332e3dbd06729ec`, with the source owner's permission.
 Adaptations include startup cleanup, log-level handling, independent configuration,
 Redis Cluster support, gRPC TLS/shutdown fixes and generic Temporal registration.
+
+The HTTP server, router, service entry-point structure and the Docker/compose
+layout come from the same source. Adaptations: echo v5, the port is bound during
+initialization, servers are named and declare their dependencies so a process can
+run an API and an ops server, health and metrics are mounted separately, CGO static
+builds with time zones, no configuration or secrets inside images, pinned image
+versions, healthchecks for every component and isolated networks.

@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: services
+    static_configs:
+      - targets:
+          - gateway:9090
+          - optimizer:9090
+          - syncer:9090

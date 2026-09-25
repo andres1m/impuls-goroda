@@ -1,0 +1,22 @@
+logger:
+  stdout: true
+  level: info
+
+database:
+  host: postgres://gateway_svc:${GATEWAY_DB_PASSWORD}@postgres:5432/impuls?sslmode=disable
+  connection-timeout: 5s
+  max-conns: 10
+  min-conns: 0
+  max-conn-lifetime: 30m
+
+api-server:
+  port: 8080
+  read-timeout: 10s
+  write-timeout: 30s
+  idle-timeout: 60s
+
+ops-server:
+  port: 9090
+  read-timeout: 5s
+  write-timeout: 10s
+  idle-timeout: 60s

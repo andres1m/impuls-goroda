@@ -1,0 +1,341 @@
+name: impuls-goroda
+
+x-service-env: &service-env
+  GATEWAY_DB_PASSWORD: ${GATEWAY_DB_PASSWORD:?set GATEWAY_DB_PASSWORD in .env}
+  OPTIMIZER_DB_PASSWORD: ${OPTIMIZER_DB_PASSWORD:?set OPTIMIZER_DB_PASSWORD in .env}
+  SYNCER_DB_PASSWORD: ${SYNCER_DB_PASSWORD:?set SYNCER_DB_PASSWORD in .env}
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+
+x-redis-node: &redis-node
+  image: redis:8.10.2-alpine
+  environment:
+    REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    REDISCLI_AUTH: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+  healthcheck:
+    test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+    interval: 5s
+    timeout: 3s
+    retries: 10
+  restart: unless-stopped
+
+services:
+  postgres:
+    build: docker/postgres
+    image: impuls-goroda/postgres:18.6-postgis3.6-pgvector0.8.6
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: impuls
+      TEMPORAL_DB_PASSWORD: ${TEMPORAL_DB_PASSWORD:?set TEMPORAL_DB_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./docker/postgres/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d impuls"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks: [data, published]
+    restart: unless-stopped
+
+  migrate:
+    image: migrate/migrate:v4.20.1
+    command:
+      - -path=/migrations
+      - -database=postgres://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/impuls?sslmode=disable
+      - up
+    volumes:
+      - ./migrations:/migrations:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [data]
+    restart: "no"
+
+  db-users:
+    image: impuls-goroda/postgres:18.6-postgis3.6-pgvector0.8.6
+    entrypoint: ["/bin/sh", "/scripts/app-users.sh"]
+    environment:
+      <<: *service-env
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - ./docker/postgres/app-users.sh:/scripts/app-users.sh:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [data]
+    restart: "no"
+
+  redis-1:
+    <<: *redis-node
+    command: &redis-command >
+      sh -c 'exec redis-server --port 6379
+      --cluster-enabled yes --cluster-config-file /data/nodes.conf --cluster-node-timeout 5000
+      --cluster-announce-hostname "$$(hostname)" --cluster-preferred-endpoint-type hostname
+      --appendonly yes --requirepass "$$REDIS_PASSWORD" --masterauth "$$REDIS_PASSWORD"'
+    hostname: redis-1
+    volumes:
+      - redis-1-data:/data
+    networks:
+      cache:
+        ipv4_address: 10.250.10.11
+
+  redis-2:
+    <<: *redis-node
+    command: *redis-command
+    hostname: redis-2
+    volumes:
+      - redis-2-data:/data
+    networks:
+      cache:
+        ipv4_address: 10.250.10.12
+
+  redis-3:
+    <<: *redis-node
+    command: *redis-command
+    hostname: redis-3
+    volumes:
+      - redis-3-data:/data
+    networks:
+      cache:
+        ipv4_address: 10.250.10.13
+
+  redis-init:
+    image: redis:8.10.2-alpine
+    entrypoint: ["/bin/sh", "/scripts/cluster-init.sh"]
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    volumes:
+      - ./docker/redis/cluster-init.sh:/scripts/cluster-init.sh:ro
+    depends_on:
+      redis-1:
+        condition: service_healthy
+      redis-2:
+        condition: service_healthy
+      redis-3:
+        condition: service_healthy
+    networks: [cache]
+    restart: "no"
+
+  kafka:
+    image: apache/kafka:4.3.1
+    hostname: kafka
+    environment:
+      CLUSTER_ID: r3eTU0UxQ3yUe42NkKjDnA
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: 1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    networks: [bus]
+    restart: unless-stopped
+
+  temporal-schema:
+    image: temporalio/admin-tools:1.32.0
+    entrypoint: ["/bin/sh", "/scripts/setup-schema.sh"]
+    environment:
+      SQL_PASSWORD: ${TEMPORAL_DB_PASSWORD:?set TEMPORAL_DB_PASSWORD in .env}
+    volumes:
+      - ./docker/temporal/setup-schema.sh:/scripts/setup-schema.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [data]
+    restart: "no"
+
+  temporal:
+    image: temporalio/server:1.32.0
+    hostname: temporal
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: ${TEMPORAL_DB_PASSWORD:?set TEMPORAL_DB_PASSWORD in .env}
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+      # The container sits on two networks; binding to the one address its hostname resolves to would hide it from the other.
+      BIND_ON_IP: 0.0.0.0
+    volumes:
+      - ./docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig:ro
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 7233"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 15s
+    depends_on:
+      temporal-schema:
+        condition: service_completed_successfully
+    networks: [data, bus]
+    restart: unless-stopped
+
+  temporal-namespace:
+    image: temporalio/admin-tools:1.32.0
+    entrypoint: ["/bin/sh", "/scripts/create-namespace.sh"]
+    environment:
+      TEMPORAL_NAMESPACE: impuls
+    volumes:
+      - ./docker/temporal/create-namespace.sh:/scripts/create-namespace.sh:ro
+    depends_on:
+      temporal:
+        condition: service_healthy
+    networks: [bus]
+    restart: "no"
+
+  temporal-ui:
+    image: temporalio/ui:2.54.1
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports:
+      - "127.0.0.1:${TEMPORAL_UI_PORT:-8233}:8080"
+    depends_on:
+      temporal:
+        condition: service_healthy
+    networks: [bus, published]
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: .
+      dockerfile: docker/gateway/Dockerfile
+    image: impuls-goroda/gateway:dev
+    environment:
+      <<: *service-env
+    volumes:
+      - ./docker/gateway/config.yaml:/app/config.yaml:ro
+    healthcheck: &service-healthcheck
+      test: ["CMD", "/app/gateway", "healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    depends_on:
+      db-users:
+        condition: service_completed_successfully
+    networks: [edge, app, data, obs, egress]
+    restart: unless-stopped
+
+  optimizer:
+    build:
+      context: .
+      dockerfile: docker/optimizer/Dockerfile
+    image: impuls-goroda/optimizer:dev
+    environment:
+      <<: *service-env
+    volumes:
+      - ./docker/optimizer/config.yaml:/app/config.yaml:ro
+    healthcheck:
+      <<: *service-healthcheck
+      test: ["CMD", "/app/optimizer", "healthcheck"]
+    depends_on:
+      db-users:
+        condition: service_completed_successfully
+      redis-init:
+        condition: service_completed_successfully
+    networks: [app, data, cache, obs]
+    restart: unless-stopped
+
+  syncer:
+    build:
+      context: .
+      dockerfile: docker/syncer/Dockerfile
+    image: impuls-goroda/syncer:dev
+    environment:
+      <<: *service-env
+    volumes:
+      - ./docker/syncer/config.yaml:/app/config.yaml:ro
+    healthcheck:
+      <<: *service-healthcheck
+      test: ["CMD", "/app/syncer", "healthcheck"]
+    depends_on:
+      db-users:
+        condition: service_completed_successfully
+      redis-init:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+      temporal-namespace:
+        condition: service_completed_successfully
+    networks: [app, data, cache, bus, obs, egress]
+    restart: unless-stopped
+
+  edge:
+    image: nginx:1.30.5-alpine
+    ports:
+      - "127.0.0.1:${EDGE_PORT:-8080}:8080"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      gateway:
+        condition: service_healthy
+    networks: [edge]
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9091}:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks: [obs, published]
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/jaeger:2.21.0
+    ports:
+      - "127.0.0.1:${JAEGER_UI_PORT:-16686}:16686"
+    networks: [obs, published]
+    restart: unless-stopped
+
+networks:
+  edge: {}
+  egress: {}
+  published: {}
+  app:
+    internal: true
+  data:
+    internal: true
+  cache:
+    internal: true
+    # The cluster bus reconnects to the IPs stored in nodes.conf, so node addresses must survive `down`.
+    ipam:
+      config:
+        - subnet: 10.250.10.0/24
+          ip_range: 10.250.10.128/25
+  bus:
+    internal: true
+  obs:
+    internal: true
+
+volumes:
+  postgres-data:
+  redis-1-data:
+  redis-2-data:
+  redis-3-data:
+  kafka-data:
