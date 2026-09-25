@@ -32,12 +32,18 @@ func WithRouterGroup(ctx context.Context, prefix string, routes ...router.Router
 	}
 }
 
-// WithOps serves liveness and Prometheus metrics at the root, outside the versioned API.
-func WithOps() Option {
+// WithHealth serves liveness at /healthz, outside the versioned API.
+func WithHealth() Option {
 	return func(s *Server) {
 		s.api.GET("/healthz", func(c *echo.Context) error {
 			return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 		})
+	}
+}
+
+// WithMetrics serves Prometheus metrics at /metrics; mount it only on a server that is not public.
+func WithMetrics() Option {
+	return func(s *Server) {
 		s.api.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 	}
 }

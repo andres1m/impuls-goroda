@@ -83,8 +83,19 @@ func TestRouterGroupAddsPrefix(t *testing.T) {
 	}
 }
 
+func TestHealthWithoutMetrics(t *testing.T) {
+	_, base := startServer(t, WithHealth())
+
+	if code, _ := get(t, base+"/healthz"); code != http.StatusOK {
+		t.Fatalf("healthz status = %d", code)
+	}
+	if code, _ := get(t, base+"/metrics"); code != http.StatusNotFound {
+		t.Fatalf("metrics exposed without WithMetrics: status %d", code)
+	}
+}
+
 func TestOpsEndpoints(t *testing.T) {
-	_, base := startServer(t, WithOps())
+	_, base := startServer(t, WithHealth(), WithMetrics())
 
 	code, body := get(t, base+"/healthz")
 	if code != http.StatusOK || !strings.Contains(body, `"status":"ok"`) {
@@ -103,7 +114,7 @@ func TestMiddlewareIsApplied(t *testing.T) {
 			return next(c)
 		}
 	}
-	_, base := startServer(t, WithMiddleware(header), WithOps())
+	_, base := startServer(t, WithMiddleware(header), WithHealth())
 
 	resp, err := http.Get(base + "/healthz")
 	if err != nil {
@@ -116,7 +127,7 @@ func TestMiddlewareIsApplied(t *testing.T) {
 }
 
 func TestProbe(t *testing.T) {
-	_, base := startServer(t, WithOps())
+	_, base := startServer(t, WithHealth())
 	ctx := context.Background()
 
 	if err := Probe(ctx, base+"/healthz"); err != nil {
