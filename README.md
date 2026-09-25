@@ -60,7 +60,11 @@ Jaeger. Host ports are bound to 127.0.0.1 only:
 | 9091  | Prometheus |
 | 16686 | Jaeger UI |
 
-`make down` stops the stand and keeps data; `make reset` also deletes volumes.
+Migrations, service login users, the Redis Cluster and Temporal schema and
+namespace are set up by one-shot jobs; `make up` removes their containers once
+everything is healthy and runs them again on the next start, where they are
+no-ops unless something changed. `make down` stops the stand and keeps data;
+`make reset` also deletes volumes.
 PostgreSQL passwords are fixed when its volume is first initialized, so after
 changing them in `.env` run `make reset`. `make logs`, `make ps` and
 `make migrate` are shortcuts for the corresponding compose commands.

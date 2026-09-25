@@ -18,8 +18,11 @@ build:
 verify: test race vet build
 	go mod verify
 
+INIT_JOBS := migrate db-users redis-init temporal-schema temporal-namespace
+
 up:
 	docker compose up -d --build --wait
+	docker compose rm -f $(INIT_JOBS)
 
 down:
 	docker compose down
