@@ -1,0 +1,10 @@
+.git
+.env
+.env.*
+config.local.yaml
+*.log
+bin
+coverage.*
+web
+docker
+migrations

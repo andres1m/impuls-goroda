@@ -1,0 +1,33 @@
+logger:
+  stdout: true
+  level: info
+
+database:
+  host: postgres://syncer_svc:${SYNCER_DB_PASSWORD}@postgres:5432/impuls?sslmode=disable
+  connection-timeout: 5s
+  max-conns: 10
+  min-conns: 0
+  max-conn-lifetime: 30m
+
+redis:
+  mode: cluster
+  addresses:
+    - redis-1:6379
+    - redis-2:6379
+    - redis-3:6379
+  password: ${REDIS_PASSWORD}
+  connection-timeout: 5s
+  read-timeout: 3s
+  write-timeout: 3s
+
+temporal:
+  host-port: temporal:7233
+  namespace: impuls
+  queue-name: catalog-sync
+  worker-count: 4
+
+ops-server:
+  port: 9090
+  read-timeout: 5s
+  write-timeout: 10s
+  idle-timeout: 60s
