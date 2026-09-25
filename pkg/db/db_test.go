@@ -58,7 +58,7 @@ func TestStopHonorsDeadlineWithBorrowedConnection(t *testing.T) {
 			}
 			backend.Send(&pgproto3.AuthenticationOk{})
 			backend.Send(&pgproto3.ParameterStatus{Name: "server_version", Value: "17.0"})
-			backend.Send(&pgproto3.BackendKeyData{ProcessID: 1, SecretKey: 1})
+			backend.Send(&pgproto3.BackendKeyData{ProcessID: 1, SecretKey: []byte{0, 0, 0, 1}})
 			backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
 			if err := backend.Flush(); err != nil {
 				return
