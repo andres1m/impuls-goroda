@@ -28,6 +28,13 @@ type Database struct {
 	MaxConnLifetime   time.Duration `yaml:"max-conn-lifetime"`
 }
 
+type HTTPServer struct {
+	Port         int           `yaml:"port"`
+	ReadTimeout  time.Duration `yaml:"read-timeout"`
+	WriteTimeout time.Duration `yaml:"write-timeout"`
+	IdleTimeout  time.Duration `yaml:"idle-timeout"`
+}
+
 type GRPCServer struct {
 	Port           int  `yaml:"port"`
 	MaxRecvMsgSize int  `yaml:"max_recv_msg_size"`
