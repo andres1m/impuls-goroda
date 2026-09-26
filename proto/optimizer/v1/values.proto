@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package optimizer.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/andres1m/impuls-goroda/proto/optimizer/v1;optimizerv1";
+
+// Identifiers are 16 raw UUID bytes. An empty value means the reference is absent.
+
+message Coordinate {
+  double longitude = 1;
+  double latitude = 2;
+}
+
+// Amounts are integer minor units of an ISO 4217 currency. A known zero is a real amount.
+message Money {
+  int64 amount_minor = 1;
+  string currency = 2;
+}
+
+enum PriceStatus {
+  PRICE_STATUS_UNSPECIFIED = 0;
+  PRICE_STATUS_FREE = 1;
+  PRICE_STATUS_FIXED = 2;
+  PRICE_STATUS_RANGE = 3;
+  // Bounds are absent; an unknown price is never treated as zero.
+  PRICE_STATUS_UNKNOWN = 4;
+}
+
+message Price {
+  PriceStatus status = 1;
+  string currency = 2;
+  optional int64 lower_minor = 3;
+  optional int64 upper_minor = 4;
+}
+
+enum DataMode {
+  DATA_MODE_UNSPECIFIED = 0;
+  DATA_MODE_LIVE = 1;
+  DATA_MODE_PREPARED = 2;
+  DATA_MODE_SYNTHETIC = 3;
+}
+
+enum Category {
+  CATEGORY_UNSPECIFIED = 0;
+  CATEGORY_CULTURE = 1;
+  CATEGORY_SPORT = 2;
+  CATEGORY_VOLUNTEER = 3;
+  CATEGORY_WALK = 4;
+  CATEGORY_TOURISM = 5;
+  CATEGORY_GASTRO = 6;
+}
+
+enum Archetype {
+  ARCHETYPE_UNSPECIFIED = 0;
+  ARCHETYPE_URBAN_AVANTGARDE = 1;
+  ARCHETYPE_HISTORY_HERITAGE = 2;
+  ARCHETYPE_ACTION_SOCIAL = 3;
+}
+
+enum ParticipationStatus {
+  PARTICIPATION_STATUS_UNSPECIFIED = 0;
+  PARTICIPATION_STATUS_NOT_REQUIRED = 1;
+  PARTICIPATION_STATUS_ACTION_REQUIRED = 2;
+  PARTICIPATION_STATUS_USER_REPORTED_CONFIRMED = 3;
+  PARTICIPATION_STATUS_PROVIDER_CONFIRMED = 4;
+  PARTICIPATION_STATUS_UNAVAILABLE = 5;
+}
+
+enum VerificationStatus {
+  VERIFICATION_STATUS_UNSPECIFIED = 0;
+  VERIFICATION_STATUS_VERIFIED = 1;
+  VERIFICATION_STATUS_ESTIMATED = 2;
+  VERIFICATION_STATUS_UNKNOWN = 3;
+  VERIFICATION_STATUS_UNAVAILABLE = 4;
+}
+
+// Origin of a catalog fact. A missing source update time is never replaced by the fetch time.
+message Provenance {
+  string source_name = 1;
+  optional string source_url = 2;
+  bytes source_record_id = 3;
+  google.protobuf.Timestamp source_updated_at = 4;
+  google.protobuf.Timestamp fetched_at = 5;
+  google.protobuf.Timestamp verified_at = 6;
+}
+
+message DataFreshness {
+  // The weakest mode among the facts used in the result.
+  DataMode data_mode = 1;
+  google.protobuf.Timestamp data_as_of = 2;
+  int64 catalog_revision = 3;
+}

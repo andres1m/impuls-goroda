@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package optimizer.v1;
+
+import "google/protobuf/timestamp.proto";
+import "optimizer/v1/values.proto";
+
+option go_package = "github.com/andres1m/impuls-goroda/proto/optimizer/v1;optimizerv1";
+
+enum BudgetMode {
+  BUDGET_MODE_UNSPECIFIED = 0;
+  BUDGET_MODE_NONE = 1;
+  BUDGET_MODE_ADVISORY = 2;
+  // Satisfied only when the upper bound of every price is known.
+  BUDGET_MODE_STRICT = 3;
+}
+
+message Budget {
+  BudgetMode mode = 1;
+  Money limit = 2;
+}
+
+// The balance is always user-reported and never confirms a benefit by itself.
+message ProgramBalance {
+  string program = 1;
+  Money balance = 2;
+}
+
+message RouteObligation {
+  bytes visit_id = 1;
+  bytes session_id = 2;
+  google.protobuf.Timestamp starts_at = 3;
+  int64 arrival_buffer_seconds = 4;
+  ParticipationStatus participation = 5;
+}
+
+message LunchWindow {
+  google.protobuf.Timestamp start_at = 1;
+  google.protobuf.Timestamp end_at = 2;
+  int64 min_duration_seconds = 3;
+}
+
+// User-confirmed input. Movement modes, load profile, programs and audiences are open code lists.
+message RouteConstraints {
+  uint64 interest_mask = 1;
+  repeated Category excluded_categories = 2;
+  repeated string movement_modes = 3;
+  string load_profile = 4;
+  Budget budget = 5;
+  repeated string benefit_programs = 6;
+  ProgramBalance program_balance = 7;
+  // User-reported audience claims such as student or senior.
+  repeated string audience_claims = 8;
+  repeated RouteObligation obligations = 9;
+  repeated string soft_preferences = 10;
+  LunchWindow lunch_window = 11;
+  repeated string accepted_unknowns = 12;
+}

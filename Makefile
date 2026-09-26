@@ -1,4 +1,8 @@
-.PHONY: fmt test race vet build verify up down reset logs ps migrate
+.PHONY: fmt gen test race vet build verify up down reset logs ps migrate
+
+gen:
+	buf lint
+	buf generate
 
 fmt:
 	gofmt -w pkg services

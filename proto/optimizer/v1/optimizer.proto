@@ -1,0 +1,168 @@
+syntax = "proto3";
+
+package optimizer.v1;
+
+import "google/protobuf/timestamp.proto";
+import "optimizer/v1/constraints.proto";
+import "optimizer/v1/plan.proto";
+import "optimizer/v1/values.proto";
+
+option go_package = "github.com/andres1m/impuls-goroda/proto/optimizer/v1;optimizerv1";
+
+// Stateless route computation. The caller propagates x-request-id and trace context in
+// metadata and sets the deadline. Infeasibility is a result status, never an RPC error.
+service OptimizerService {
+  rpc Optimize(OptimizeRequest) returns (OptimizeResponse);
+  rpc Recompute(RecomputeRequest) returns (RecomputeResponse);
+}
+
+message OptimizeRequest {
+  string city = 1;
+  // IANA time zone of the city.
+  string timezone = 2;
+  google.protobuf.Timestamp start_at = 3;
+  google.protobuf.Timestamp end_at = 4;
+  Coordinate origin = 5;
+  Coordinate destination = 6;
+  RouteConstraints constraints = 7;
+}
+
+message OptimizeResponse {
+  ResultStatus status = 1;
+  // Up to one route per archetype; identical plans are not repeated under different archetypes.
+  repeated RoutePlan routes = 2;
+  repeated Warning warnings = 3;
+  repeated Conflict conflicts = 4;
+  DataFreshness data = 5;
+  uint32 computation_time_ms = 6;
+}
+
+enum ExecutionStatus {
+  EXECUTION_STATUS_UNSPECIFIED = 0;
+  EXECUTION_STATUS_COMPLETED = 1;
+  EXECUTION_STATUS_SKIPPED = 2;
+}
+
+// Actual history of a visit. Visits without a record are still planned.
+message VisitExecution {
+  bytes visit_id = 1;
+  ExecutionStatus status = 2;
+  google.protobuf.Timestamp actual_started_at = 3;
+  google.protobuf.Timestamp actual_ended_at = 4;
+}
+
+enum DelayMode {
+  DELAY_MODE_UNSPECIFIED = 0;
+  DELAY_MODE_ALREADY_DELAYED = 1;
+  DELAY_MODE_FUTURE_WAIT = 2;
+}
+
+enum PositionSource {
+  POSITION_SOURCE_UNSPECIFIED = 0;
+  POSITION_SOURCE_DEVICE = 1;
+  POSITION_SOURCE_MANUAL = 2;
+}
+
+message DelayTrigger {
+  DelayMode mode = 1;
+  // Resolved by the caller: the reported time for an existing delay, or now plus the wait.
+  google.protobuf.Timestamp effective_start_at = 2;
+  Coordinate position = 3;
+  PositionSource position_source = 4;
+}
+
+message CancellationTrigger {
+  repeated bytes visit_ids = 1;
+  // The result must be computed on this catalog revision or a newer one.
+  int64 min_catalog_revision = 2;
+}
+
+enum RemovalMode {
+  REMOVAL_MODE_UNSPECIFIED = 0;
+  REMOVAL_MODE_REBUILD = 1;
+  REMOVAL_MODE_FREE_TIME = 2;
+}
+
+message RemovalTrigger {
+  bytes visit_id = 1;
+  RemovalMode mode = 2;
+}
+
+enum PinKind {
+  PIN_KIND_UNSPECIFIED = 0;
+  PIN_KIND_PREFERRED = 1;
+  PIN_KIND_OBLIGATION = 2;
+  PIN_KIND_NONE = 3;
+}
+
+message PinTrigger {
+  bytes visit_id = 1;
+  PinKind kind = 2;
+}
+
+message RecomputeRequest {
+  string city = 1;
+  string timezone = 2;
+  RoutePlan base_plan = 3;
+  RouteConstraints constraints = 4;
+  repeated VisitExecution history = 5;
+  oneof trigger {
+    DelayTrigger delay = 10;
+    CancellationTrigger cancellation = 11;
+    RemovalTrigger removal = 12;
+    PinTrigger pin = 13;
+  }
+}
+
+enum RecomputeStatus {
+  RECOMPUTE_STATUS_UNSPECIFIED = 0;
+  RECOMPUTE_STATUS_PROPOSED = 1;
+  RECOMPUTE_STATUS_UNCHANGED = 2;
+  RECOMPUTE_STATUS_CONFLICT = 3;
+}
+
+enum RouteChangeKind {
+  ROUTE_CHANGE_KIND_UNSPECIFIED = 0;
+  ROUTE_CHANGE_KIND_KEPT = 1;
+  ROUTE_CHANGE_KIND_REMOVED = 2;
+  ROUTE_CHANGE_KIND_REPLACED = 3;
+  ROUTE_CHANGE_KIND_TIME_SHIFTED = 4;
+  ROUTE_CHANGE_KIND_COST_CHANGED = 5;
+  ROUTE_CHANGE_KIND_PARTICIPATION_ACTION = 6;
+  ROUTE_CHANGE_KIND_VERIFICATION_CHANGED = 7;
+}
+
+message CostChange {
+  Money before = 1;
+  Money after = 2;
+}
+
+message VerificationChange {
+  VerificationStatus before = 1;
+  VerificationStatus after = 2;
+}
+
+message RouteChange {
+  RouteChangeKind kind = 1;
+  TargetScope scope = 2;
+  bytes before_visit_id = 3;
+  bytes after_visit_id = 4;
+  optional uint32 leg_position = 5;
+  string message = 6;
+  oneof details {
+    int64 time_shift_seconds = 10;
+    CostChange cost = 11;
+    string participation_action = 12;
+    VerificationChange verification = 13;
+  }
+}
+
+message RecomputeResponse {
+  RecomputeStatus status = 1;
+  // Absent when the status is UNCHANGED or when no feasible candidate exists.
+  RoutePlan candidate = 2;
+  repeated RouteChange changes = 3;
+  repeated Conflict conflicts = 4;
+  DataFreshness data = 5;
+  uint32 computation_time_ms = 6;
+}

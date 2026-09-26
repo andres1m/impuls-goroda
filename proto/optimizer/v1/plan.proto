@@ -1,0 +1,207 @@
+syntax = "proto3";
+
+package optimizer.v1;
+
+import "google/protobuf/timestamp.proto";
+import "optimizer/v1/values.proto";
+
+option go_package = "github.com/andres1m/impuls-goroda/proto/optimizer/v1;optimizerv1";
+
+enum ResultStatus {
+  RESULT_STATUS_UNSPECIFIED = 0;
+  RESULT_STATUS_READY = 1;
+  // Feasible only under unknown conditions the user explicitly accepted.
+  RESULT_STATUS_PARTIAL = 2;
+  RESULT_STATUS_NO_FEASIBLE_ROUTE = 3;
+  RESULT_STATUS_CONFLICT = 4;
+}
+
+enum AvailabilityStatus {
+  AVAILABILITY_STATUS_UNSPECIFIED = 0;
+  AVAILABILITY_STATUS_AVAILABLE = 1;
+  AVAILABILITY_STATUS_REGISTRATION_REQUIRED = 2;
+  AVAILABILITY_STATUS_SOLD_OUT = 3;
+  AVAILABILITY_STATUS_CANCELLED = 4;
+  AVAILABILITY_STATUS_UNKNOWN = 5;
+}
+
+message CatalogSnapshot {
+  bytes place_id = 1;
+  bytes entrance_id = 2;
+  bytes event_id = 3;
+  bytes session_id = 4;
+  string title = 5;
+  Category category = 6;
+  uint64 interest_mask = 7;
+  AvailabilityStatus availability = 8;
+  string registration_details = 9;
+  string age_requirements = 10;
+  google.protobuf.Timestamp session_starts_at = 11;
+  google.protobuf.Timestamp session_ends_at = 12;
+  string session_version = 13;
+  DataMode data_mode = 14;
+  Provenance provenance = 15;
+}
+
+message UnknownCostComponent {
+  string code = 1;
+  string message = 2;
+}
+
+message CostSnapshot {
+  bytes price_offer_id = 1;
+  string audience = 2;
+  Price price = 3;
+  // Absent when the personal share cannot be determined.
+  Money personal_amount = 4;
+  Money program_amount = 5;
+  repeated UnknownCostComponent unknown_components = 6;
+  Provenance provenance = 7;
+}
+
+enum BudgetConclusion {
+  BUDGET_CONCLUSION_UNSPECIFIED = 0;
+  BUDGET_CONCLUSION_NOT_APPLICABLE = 1;
+  BUDGET_CONCLUSION_SATISFIED = 2;
+  BUDGET_CONCLUSION_VIOLATED = 3;
+  BUDGET_CONCLUSION_UNKNOWN = 4;
+}
+
+message CostSummary {
+  // Includes known personal transport costs.
+  Money known_personal = 1;
+  Money known_transport = 2;
+  Money program_amount = 3;
+  Money total_lower = 4;
+  Money total_upper = 5;
+  repeated UnknownCostComponent unknown_components = 6;
+  BudgetConclusion budget_conclusion = 7;
+}
+
+enum ParticipationEvidence {
+  PARTICIPATION_EVIDENCE_UNSPECIFIED = 0;
+  PARTICIPATION_EVIDENCE_NONE = 1;
+  PARTICIPATION_EVIDENCE_USER = 2;
+  PARTICIPATION_EVIDENCE_PROVIDER = 3;
+}
+
+message ParticipationSnapshot {
+  ParticipationStatus status = 1;
+  ParticipationEvidence evidence = 2;
+}
+
+enum ConstraintStrength {
+  CONSTRAINT_STRENGTH_UNSPECIFIED = 0;
+  CONSTRAINT_STRENGTH_HARD = 1;
+  CONSTRAINT_STRENGTH_SOFT = 2;
+}
+
+enum ConstraintOutcome {
+  CONSTRAINT_OUTCOME_UNSPECIFIED = 0;
+  CONSTRAINT_OUTCOME_SATISFIED = 1;
+  CONSTRAINT_OUTCOME_CONDITIONAL = 2;
+}
+
+message AppliedConstraint {
+  string code = 1;
+  ConstraintStrength strength = 2;
+  ConstraintOutcome outcome = 3;
+  string message = 4;
+}
+
+enum VisitKind {
+  VISIT_KIND_UNSPECIFIED = 0;
+  VISIT_KIND_VISIT = 1;
+  VISIT_KIND_FREE_TIME = 2;
+}
+
+message RouteStep {
+  // Existing visits keep their identifier; new visits get a fresh UUIDv7 from the optimizer.
+  bytes visit_id = 1;
+  VisitKind kind = 2;
+  uint32 position = 3;
+  google.protobuf.Timestamp arrival_at = 4;
+  google.protobuf.Timestamp visit_start_at = 5;
+  google.protobuf.Timestamp visit_end_at = 6;
+  google.protobuf.Timestamp departure_at = 7;
+  int64 min_duration_seconds = 8;
+  bool pinned = 9;
+  bool obligation = 10;
+  ParticipationSnapshot participation = 11;
+  // Present for visits and absent for free time.
+  CatalogSnapshot catalog = 12;
+  CostSnapshot cost = 13;
+  repeated AppliedConstraint applied_constraints = 14;
+}
+
+enum LegEndpointKind {
+  LEG_ENDPOINT_KIND_UNSPECIFIED = 0;
+  LEG_ENDPOINT_KIND_ORIGIN = 1;
+  LEG_ENDPOINT_KIND_VISIT = 2;
+  LEG_ENDPOINT_KIND_DESTINATION = 3;
+}
+
+message LegEvidence {
+  string provider = 1;
+  string method = 2;
+  google.protobuf.Timestamp observed_at = 3;
+  string mode = 4;
+  repeated string limitations = 5;
+}
+
+message RouteLeg {
+  uint32 position = 1;
+  LegEndpointKind from_kind = 2;
+  LegEndpointKind to_kind = 3;
+  bytes from_visit_id = 4;
+  bytes to_visit_id = 5;
+  google.protobuf.Timestamp departure_at = 6;
+  google.protobuf.Timestamp arrival_at = 7;
+  string mode = 8;
+  optional double distance_meters = 9;
+  // Geometry never raises the verification status.
+  repeated Coordinate geometry = 10;
+  VerificationStatus verification = 11;
+  LegEvidence evidence = 12;
+  CostSnapshot cost = 13;
+}
+
+enum TargetScope {
+  TARGET_SCOPE_UNSPECIFIED = 0;
+  TARGET_SCOPE_ROUTE = 1;
+  TARGET_SCOPE_VISIT = 2;
+  TARGET_SCOPE_LEG = 3;
+}
+
+message Warning {
+  string code = 1;
+  TargetScope scope = 2;
+  bytes visit_id = 3;
+  optional uint32 leg_position = 4;
+  string message = 5;
+}
+
+// An incompatibility between hard constraints, not a stale route revision.
+message Conflict {
+  string code = 1;
+  repeated bytes visit_ids = 2;
+  // Referenced when the conflicting obligation has no visit yet.
+  repeated bytes session_ids = 3;
+  string message = 4;
+}
+
+message RoutePlan {
+  Archetype archetype = 1;
+  google.protobuf.Timestamp start_at = 2;
+  google.protobuf.Timestamp end_at = 3;
+  Coordinate origin = 4;
+  Coordinate destination = 5;
+  int64 catalog_revision = 6;
+  ResultStatus result = 7;
+  repeated Warning warnings = 8;
+  repeated Conflict conflicts = 9;
+  CostSummary cost = 10;
+  repeated Coordinate geometry = 11;
+  repeated RouteStep steps = 12;
+  repeated RouteLeg legs = 13;
+}
