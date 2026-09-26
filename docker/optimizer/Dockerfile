@@ -10,6 +10,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY pkg ./pkg
+COPY proto ./proto
 COPY services/optimizer ./services/optimizer
 
 RUN CGO_ENABLED=1 GOOS=linux go build -tags netgo,osusergo -trimpath \
@@ -27,5 +28,5 @@ COPY --from=build /out/optimizer /app/optimizer
 WORKDIR /app
 USER 65532:65532
 
-EXPOSE 9090
+EXPOSE 9090 50051
 ENTRYPOINT ["/app/optimizer"]

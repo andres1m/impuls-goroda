@@ -20,6 +20,11 @@ redis:
   read-timeout: 3s
   write-timeout: 3s
 
+grpc-server:
+  port: 50051
+  max_recv_msg_size: 4194304
+  use_tls: false
+
 ops-server:
   port: 9090
   read-timeout: 5s

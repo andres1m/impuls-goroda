@@ -11,24 +11,29 @@ import (
 	"github.com/andres1m/impuls-goroda/pkg/db"
 	"github.com/andres1m/impuls-goroda/pkg/logger"
 	"github.com/andres1m/impuls-goroda/pkg/redis"
+	"github.com/andres1m/impuls-goroda/pkg/rpc"
 	"github.com/andres1m/impuls-goroda/pkg/server"
 	"github.com/andres1m/impuls-goroda/pkg/svc"
+	grpchandler "github.com/andres1m/impuls-goroda/services/optimizer/internal/grpc-handler"
+	"github.com/andres1m/impuls-goroda/services/optimizer/internal/usecase"
 )
 
 const configPath = "config.yaml"
 
 type appConfig struct {
-	Logger    config.Logger     `yaml:"logger"`
-	Database  config.Database   `yaml:"database"`
-	Redis     config.Redis      `yaml:"redis"`
-	OpsServer config.HTTPServer `yaml:"ops-server"`
+	Logger     config.Logger     `yaml:"logger"`
+	Database   config.Database   `yaml:"database"`
+	Redis      config.Redis      `yaml:"redis"`
+	GRPCServer config.GRPCServer `yaml:"grpc-server"`
+	OpsServer  config.HTTPServer `yaml:"ops-server"`
 }
 
 type infrastructureComponents struct {
-	cfg   *appConfig
-	log   *logger.Log
-	pool  *db.PostgresClient
-	redis *redis.RedisClient
+	cfg        *appConfig
+	log        *logger.Log
+	pool       *db.PostgresClient
+	redis      *redis.RedisClient
+	grpcServer *rpc.Server
 }
 
 func main() {
@@ -55,6 +60,11 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("init infrastructure error: %w", err)
 	}
 
+	handler := grpchandler.NewHandler(infra.log.Log, usecase.NewPlanner())
+	infra.grpcServer.OnInit(func(s *rpc.Server) {
+		handler.Register(s.GetServer())
+	})
+
 	opsServer := server.New("ops-server", infra.cfg.OpsServer,
 		server.WithHealth(),
 		server.WithMetrics(),
@@ -64,6 +74,7 @@ func run(ctx context.Context) error {
 		infra.log,
 		infra.pool,
 		infra.redis,
+		infra.grpcServer,
 		opsServer,
 	}); err != nil {
 		return fmt.Errorf("run service error: %w", err)
@@ -93,11 +104,16 @@ func initInfrastructure() (*infrastructureComponents, error) {
 		return nil, fmt.Errorf("create redis error: %w", err)
 	}
 
+	grpcServer := rpc.NewServer("optimizer", zapLog.Log, &cfg.GRPCServer,
+		rpc.WithUnaryInterceptors(grpchandler.RequestLogging(zapLog.Log), grpchandler.Recovery(zapLog.Log)),
+	)
+
 	return &infrastructureComponents{
-		cfg:   &cfg,
-		log:   zapLog,
-		pool:  pool,
-		redis: redisClient,
+		cfg:        &cfg,
+		log:        zapLog,
+		pool:       pool,
+		redis:      redisClient,
+		grpcServer: grpcServer,
 	}, nil
 }
 
