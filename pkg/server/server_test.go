@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -123,6 +124,48 @@ func TestMiddlewareIsApplied(t *testing.T) {
 	resp.Body.Close()
 	if resp.Header.Get("X-Test") != "1" {
 		t.Fatal("middleware header missing")
+	}
+}
+
+func TestCustomHTTPErrorHandlerHandlesErrorsAndRecoveredPanics(t *testing.T) {
+	routes := testRouter{routes: []router.Route{
+		router.NewRoute(http.MethodGet, "/error", func() echo.HandlerFunc {
+			return func(*echo.Context) error { return errors.New("handler failed") }
+		}),
+		router.NewRoute(http.MethodGet, "/panic", func() echo.HandlerFunc {
+			return func(*echo.Context) error { panic("handler panicked") }
+		}),
+	}}
+	handler := func(c *echo.Context, _ error) {
+		_ = c.String(http.StatusTeapot, "safe error")
+	}
+	_, base := startServer(t,
+		WithRouter(context.Background(), routes),
+		WithHTTPErrorHandler(handler),
+	)
+
+	for _, path := range []string{"/error", "/panic"} {
+		code, body := get(t, base+"/api/v1"+path)
+		if code != http.StatusTeapot || body != "safe error" {
+			t.Fatalf("%s: got %d %q", path, code, body)
+		}
+	}
+}
+
+func TestNilHTTPErrorHandlerKeepsDefault(t *testing.T) {
+	routes := testRouter{routes: []router.Route{
+		router.NewRoute(http.MethodGet, "/error", func() echo.HandlerFunc {
+			return func(*echo.Context) error { return echo.ErrBadRequest }
+		}),
+	}}
+	_, base := startServer(t,
+		WithRouter(context.Background(), routes),
+		WithHTTPErrorHandler(nil),
+	)
+
+	code, _ := get(t, base+"/api/v1/error")
+	if code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", code)
 	}
 }
 

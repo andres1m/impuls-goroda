@@ -98,6 +98,14 @@ func WithLogger(log *zap.Logger) Option {
 	}
 }
 
+func WithHTTPErrorHandler(handler echo.HTTPErrorHandler) Option {
+	return func(s *Server) {
+		if handler != nil {
+			s.api.HTTPErrorHandler = handler
+		}
+	}
+}
+
 func WithMiddleware(middlewares ...echo.MiddlewareFunc) Option {
 	return func(s *Server) {
 		s.api.Use(middlewares...)
