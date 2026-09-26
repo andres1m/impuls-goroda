@@ -26,6 +26,7 @@ type Server struct {
 	server *grpc.Server
 
 	onInit   []func(*Server)
+	unary    []grpc.UnaryServerInterceptor
 	stopOnce sync.Once
 	stopped  chan struct{}
 }
@@ -94,6 +95,10 @@ func (s *Server) Init(ctx context.Context) error {
 		opts = append(opts, grpc.Creds(credentials.NewTLS(tlsConfig)))
 	}
 
+	if len(s.unary) > 0 {
+		opts = append(opts, grpc.ChainUnaryInterceptor(s.unary...))
+	}
+
 	server := grpc.NewServer(opts...)
 
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", s.cfg.Port))
@@ -152,7 +157,16 @@ func (s *Server) Stop(ctx context.Context) error {
 	}
 }
 
-func NewServer(name string, log *zap.Logger, cfg *config.GRPCServer) *Server {
+type ServerOption func(*Server)
+
+// WithUnaryInterceptors chains the interceptors in the given order; the first one runs outermost.
+func WithUnaryInterceptors(interceptors ...grpc.UnaryServerInterceptor) ServerOption {
+	return func(s *Server) {
+		s.unary = append(s.unary, interceptors...)
+	}
+}
+
+func NewServer(name string, log *zap.Logger, cfg *config.GRPCServer, opts ...ServerOption) *Server {
 	if log == nil {
 		log = zap.NewNop()
 	}
@@ -160,11 +174,15 @@ func NewServer(name string, log *zap.Logger, cfg *config.GRPCServer) *Server {
 		cfg = &config.GRPCServer{}
 	}
 	copied := *cfg
-	return &Server{
+	s := &Server{
 		name: name,
 		log:  log,
 		cfg:  &copied,
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 var _ svc.Service = (*Server)(nil)

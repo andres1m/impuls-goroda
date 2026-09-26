@@ -3,6 +3,8 @@ package rpc
 import (
 	"context"
 	"net"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -104,5 +106,45 @@ func TestClientStopIsIdempotent(t *testing.T) {
 		if err := c.Stop(context.Background()); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestServerRunsUnaryInterceptorsInOrder(t *testing.T) {
+	var mu sync.Mutex
+	var calls []string
+	record := func(label string) grpc.UnaryServerInterceptor {
+		return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+			mu.Lock()
+			calls = append(calls, label)
+			mu.Unlock()
+			return handler(ctx, req)
+		}
+	}
+	s := NewServer("test", zap.NewNop(), &config.GRPCServer{Port: 0}, WithUnaryInterceptors(record("first"), record("second")))
+	h := health.NewServer()
+	s.OnInit(func(s *Server) { pb.RegisterHealthServer(s.GetServer(), h) })
+	if err := s.Init(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = s.Run(context.Background()) }()
+	defer s.server.Stop()
+	conn, err := grpc.NewClient(s.lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithNoProxy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := pb.NewHealthClient(conn).Check(ctx, &pb.HealthCheckRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Status != pb.HealthCheckResponse_SERVING {
+		t.Fatal(out)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Equal(calls, []string{"first", "second"}) {
+		t.Fatalf("interceptors ran as %v", calls)
 	}
 }
