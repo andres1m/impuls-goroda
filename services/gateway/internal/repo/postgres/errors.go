@@ -8,6 +8,7 @@ import (
 )
 
 var ErrNotFound = errors.New("not found")
+var ErrAccountDisabled = errors.New("account is disabled")
 
 func mapQueryError(operation string, err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -96,6 +97,58 @@ func TestIdentityRepositoryIntegration(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("rolled back account count = %d", count)
+	}
+
+	testUserID := domain.UserID(randomID(t))
+	testAccount := domain.UserAccount{
+		ID:         testUserID,
+		MaxUserID:  fmt.Sprintf("test:integration:%x", testUserID),
+		State:      domain.AccountActive,
+		Kind:       domain.AccountTest,
+		CreatedAt:  now,
+		LastSeenAt: now,
+	}
+	testSession := domain.AuthSession{
+		ID:        domain.SessionID(randomID(t)),
+		UserID:    testUserID,
+		TokenHash: randomHash(t),
+		IssuedVia: domain.SessionFromTest,
+		CreatedAt: now,
+		ExpiresAt: now.Add(time.Minute),
+	}
+	storedTestAccount, _, err := transactor.IssueTestSession(ctx, testAccount, testSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundTestAccount, err := queries.FindTestAccount(ctx, testAccount.MaxUserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if foundTestAccount.ID != storedTestAccount.ID {
+		t.Fatal("test account lookup returned another account")
+	}
+	deleted, err := queries.DeleteExpiredSessions(ctx, now.Add(2*time.Minute), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted sessions = %d, want 1", deleted)
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE identity.user_account SET account_state = 'disabled' WHERE id = $1`, encodeUUID([16]byte(userID))); err != nil {
+		t.Fatal(err)
+	}
+	disabledSession := session
+	disabledSession.ID = domain.SessionID(randomID(t))
+	disabledSession.TokenHash = randomHash(t)
+	if _, _, err := transactor.IssueMaxSession(ctx, account, disabledSession); !errors.Is(err, ErrAccountDisabled) {
+		t.Fatalf("disabled account issue error = %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM identity.auth_session WHERE token_hash = $1`, disabledSession.TokenHash[:]).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatal("disabled account received a session")
 	}
 }
 

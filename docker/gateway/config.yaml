@@ -20,3 +20,25 @@ ops-server:
   read-timeout: 5s
   write-timeout: 10s
   idle-timeout: 60s
+
+gateway:
+  auth:
+    bot-token: ${MAX_BOT_TOKEN}
+    webhook-secret: ${MAX_WEBHOOK_SECRET}
+    init-data-max-age: 1h
+    init-data-future-gap: 1m
+    session-ttl: 24h
+    session-cache-ttl: 1m
+    session-cache-size: 100000
+    cleanup-interval: 10m
+    cleanup-batch-size: 1000
+  cors:
+    allowed-origin: https://impuls-goroda.github.io
+  rate-limit:
+    anonymous:
+      requests-per-minute: 30
+      burst: 10
+    authenticated:
+      requests-per-minute: 120
+      burst: 30
+    idle-ttl: 10m
