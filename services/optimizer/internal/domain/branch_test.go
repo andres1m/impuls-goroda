@@ -3,6 +3,7 @@ package domain
 import (
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestNewBranch(t *testing.T) {
@@ -22,8 +23,14 @@ func TestNewBranch(t *testing.T) {
 func populatedBranch() *Branch {
 	plan := validPlan()
 	b := NewBranch(plan.Origin, plan.Start, rub)
-	b.Steps = []Step{plan.Steps[0]}
-	b.Legs = []Leg{plan.Legs[0]}
+	candidate := validEventCandidate()
+	b.Visits = []SearchVisit{{
+		Candidate: &candidate,
+		Transit:   TransitEstimate{Mode: MovementWalk, DistanceMeters: 800, Duration: 13 * time.Minute, Verification: VerificationEstimated},
+		ArrivalAt: at(10, 13),
+		StartAt:   at(10, 13),
+		EndAt:     at(11, 0),
+	}}
 	b.Position = Coordinate{Longitude: 37.6, Latitude: 55.7}
 	b.Now = at(11, 0)
 	b.VisitedPlaces[PlaceID{1}] = struct{}{}
@@ -43,14 +50,9 @@ func TestBranchCloneIsIndependent(t *testing.T) {
 		t.Fatal("clone differs from its parent before any change")
 	}
 
-	clone.Steps[0].VisitEndAt = at(12, 0)
-	clone.Steps[0].Catalog.Title = "Changed"
-	clone.Steps[0].Cost.PersonalAmount.AmountMinor = 1
-	clone.Steps[0].AppliedConstraints[0].Code = "CHANGED"
-	clone.Steps = append(clone.Steps, freeTimeStep())
-	clone.Legs[0].Geometry[0].Latitude = 1
-	*clone.Legs[0].DistanceMeters = 1
-	clone.Legs[0].Evidence.Limitations = append(clone.Legs[0].Evidence.Limitations, "changed")
+	clone.Visits[0].EndAt = at(12, 0)
+	clone.Visits[0].Transit.Mode = MovementTransit
+	clone.Visits = append(clone.Visits, clone.Visits[0])
 	clone.VisitedPlaces[PlaceID{9}] = struct{}{}
 	clone.UsedSessions[SessionID{9}] = struct{}{}
 	clone.AddCategory(CategoryCulture)
@@ -64,14 +66,10 @@ func TestBranchCloneIsIndependent(t *testing.T) {
 	}
 }
 
-func TestBranchCloneCopiesNestedPointers(t *testing.T) {
+func TestBranchCloneSharesCandidates(t *testing.T) {
 	parent := populatedBranch()
-	clone := parent.Clone()
-	if clone.Steps[0].Catalog == parent.Steps[0].Catalog || clone.Steps[0].Cost == parent.Steps[0].Cost ||
-		clone.Steps[0].Catalog.EventID == parent.Steps[0].Catalog.EventID ||
-		clone.Legs[0].DistanceMeters == parent.Legs[0].DistanceMeters ||
-		clone.Legs[0].ToVisitID == parent.Legs[0].ToVisitID {
-		t.Fatal("clone shares a pointer with its parent")
+	if parent.Clone().Visits[0].Candidate != parent.Visits[0].Candidate {
+		t.Fatal("clone copied a read-only candidate")
 	}
 }
 

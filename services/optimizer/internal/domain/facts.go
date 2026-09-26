@@ -127,9 +127,17 @@ func (s VerificationStatus) Validate() error {
 
 type MovementMode string
 
+const (
+	MovementWalk    MovementMode = "walk"
+	MovementTransit MovementMode = "transit"
+	MovementCar     MovementMode = "car"
+)
+
 func (m MovementMode) Validate() error {
-	if strings.TrimSpace(string(m)) == "" {
-		return errors.New("movement mode is required")
+	switch m {
+	case MovementWalk, MovementTransit, MovementCar:
+		return nil
+	default:
+		return errors.New("invalid movement mode")
 	}
-	return nil
 }

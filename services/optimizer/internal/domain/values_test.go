@@ -232,3 +232,16 @@ func TestSimpleValueValidation(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func TestMovementModeValidate(t *testing.T) {
+	for _, mode := range []MovementMode{MovementWalk, MovementTransit, MovementCar} {
+		if err := mode.Validate(); err != nil {
+			t.Fatalf("%q rejected: %v", mode, err)
+		}
+	}
+	for _, mode := range []MovementMode{"", " ", "bike", "WALK"} {
+		if mode.Validate() == nil {
+			t.Fatalf("%q accepted", mode)
+		}
+	}
+}
