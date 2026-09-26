@@ -5,16 +5,18 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/andres1m/impuls-goroda/services/gateway/internal/domain"
 	"github.com/labstack/echo/v5"
 )
 
 type Error struct {
-	Status     int
-	Code       string
-	Message    string
-	Retryable  bool
-	RetryAfter int
-	Cause      error
+	Status          int
+	Code            string
+	Message         string
+	Retryable       bool
+	RetryAfter      int
+	CurrentRevision domain.RouteRevisionNumber
+	Cause           error
 }
 
 func (e *Error) Error() string {
@@ -27,10 +29,11 @@ func (e *Error) Error() string {
 func (e *Error) Unwrap() error { return e.Cause }
 
 type errorResponse struct {
-	Code      string `json:"code"`
-	Message   string `json:"message"`
-	RequestID string `json:"request_id"`
-	Retryable bool   `json:"retryable"`
+	Code            string `json:"code"`
+	Message         string `json:"message"`
+	RequestID       string `json:"request_id"`
+	Retryable       bool   `json:"retryable"`
+	CurrentRevision string `json:"current_revision,omitempty"`
 }
 
 func ErrorHandler(c *echo.Context, err error) {
@@ -41,12 +44,15 @@ func ErrorHandler(c *echo.Context, err error) {
 	if apiError.RetryAfter > 0 {
 		c.Response().Header().Set("Retry-After", strconv.Itoa(apiError.RetryAfter))
 	}
-	_ = c.JSON(apiError.Status, errorResponse{
-		Code:      apiError.Code,
-		Message:   apiError.Message,
-		RequestID: RequestID(c),
-		Retryable: apiError.Retryable,
-	})
+	response := errorResponse{
+		Code: apiError.Code, Message: apiError.Message,
+		RequestID: RequestID(c), Retryable: apiError.Retryable,
+	}
+	if apiError.CurrentRevision > 0 {
+		response.CurrentRevision = strconv.FormatInt(int64(apiError.CurrentRevision), 10)
+		c.Response().Header().Set("ETag", `"`+response.CurrentRevision+`"`)
+	}
+	_ = c.JSON(apiError.Status, response)
 }
 
 func classifyError(err error) *Error {
