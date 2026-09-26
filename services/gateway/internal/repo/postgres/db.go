@@ -72,20 +72,46 @@ func (t *Transactor) IssueMaxSession(
 	account domain.UserAccount,
 	session domain.AuthSession,
 ) (domain.UserAccount, domain.AuthSession, error) {
+	if account.Kind != domain.AccountMax || session.IssuedVia != domain.SessionFromMax {
+		return domain.UserAccount{}, domain.AuthSession{}, errors.New("MAX account and session issuer are required")
+	}
+	return t.issueSession(ctx, account, session, (*Queries).UpsertMaxAccount)
+}
+
+func (t *Transactor) IssueTestSession(
+	ctx context.Context,
+	account domain.UserAccount,
+	session domain.AuthSession,
+) (domain.UserAccount, domain.AuthSession, error) {
+	if account.Kind != domain.AccountTest || session.IssuedVia != domain.SessionFromTest {
+		return domain.UserAccount{}, domain.AuthSession{}, errors.New("test account and session issuer are required")
+	}
+	return t.issueSession(ctx, account, session, (*Queries).UpsertTestAccount)
+}
+
+func (t *Transactor) issueSession(
+	ctx context.Context,
+	account domain.UserAccount,
+	session domain.AuthSession,
+	upsert func(*Queries, context.Context, domain.UserAccount) (domain.UserAccount, error),
+) (domain.UserAccount, domain.AuthSession, error) {
 	var storedAccount domain.UserAccount
 	var storedSession domain.AuthSession
 	err := t.WithinTx(ctx, pgx.TxOptions{}, func(queries *Queries) error {
 		var err error
-		storedAccount, err = queries.UpsertMaxAccount(ctx, account)
+		storedAccount, err = upsert(queries, ctx, account)
 		if err != nil {
 			return err
+		}
+		if storedAccount.State != domain.AccountActive {
+			return ErrAccountDisabled
 		}
 		session.UserID = storedAccount.ID
 		storedSession, err = queries.CreateSession(ctx, session)
 		return err
 	})
 	if err != nil {
-		return domain.UserAccount{}, domain.AuthSession{}, fmt.Errorf("issue MAX session: %w", err)
+		return domain.UserAccount{}, domain.AuthSession{}, fmt.Errorf("issue session: %w", err)
 	}
 	return storedAccount, storedSession, nil
 }

@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"time"
@@ -12,6 +15,9 @@ import (
 	"github.com/andres1m/impuls-goroda/pkg/logger"
 	"github.com/andres1m/impuls-goroda/pkg/server"
 	"github.com/andres1m/impuls-goroda/pkg/svc"
+	"github.com/andres1m/impuls-goroda/services/gateway/internal/app"
+	"github.com/andres1m/impuls-goroda/services/gateway/internal/auth"
+	"github.com/andres1m/impuls-goroda/services/gateway/internal/httpapi"
 )
 
 const configPath = "config.yaml"
@@ -21,6 +27,40 @@ type appConfig struct {
 	Database  config.Database   `yaml:"database"`
 	APIServer config.HTTPServer `yaml:"api-server"`
 	OpsServer config.HTTPServer `yaml:"ops-server"`
+	Gateway   gatewayConfig     `yaml:"gateway"`
+}
+
+type gatewayConfig struct {
+	Auth      gatewayAuthConfig `yaml:"auth"`
+	CORS      gatewayCORSConfig `yaml:"cors"`
+	RateLimit rateLimitConfig   `yaml:"rate-limit"`
+}
+
+type gatewayAuthConfig struct {
+	BotToken          string        `yaml:"bot-token"`
+	WebhookSecret     string        `yaml:"webhook-secret"`
+	InitDataMaxAge    time.Duration `yaml:"init-data-max-age"`
+	InitDataFutureGap time.Duration `yaml:"init-data-future-gap"`
+	SessionTTL        time.Duration `yaml:"session-ttl"`
+	SessionCacheTTL   time.Duration `yaml:"session-cache-ttl"`
+	SessionCacheSize  int64         `yaml:"session-cache-size"`
+	CleanupInterval   time.Duration `yaml:"cleanup-interval"`
+	CleanupBatchSize  int           `yaml:"cleanup-batch-size"`
+}
+
+type gatewayCORSConfig struct {
+	AllowedOrigin string `yaml:"allowed-origin"`
+}
+
+type rateLimitConfig struct {
+	Anonymous     bucketConfig  `yaml:"anonymous"`
+	Authenticated bucketConfig  `yaml:"authenticated"`
+	IdleTTL       time.Duration `yaml:"idle-ttl"`
+}
+
+type bucketConfig struct {
+	RequestsPerMinute int `yaml:"requests-per-minute"`
+	Burst             int `yaml:"burst"`
 }
 
 type infrastructureComponents struct {
@@ -39,6 +79,13 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "issue-test-token" {
+		if err := issueTestToken(ctx, os.Args[2:], os.Stdout); err != nil {
+			log.Printf("issue test token failed: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if err := run(ctx); err != nil {
 		log.Fatalf("application error: %v", err)
@@ -53,9 +100,20 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("init infrastructure error: %w", err)
 	}
 
+	authRuntime, err := newAuthRuntime(infra)
+	if err != nil {
+		return fmt.Errorf("create gateway auth: %w", err)
+	}
+	cors, err := httpapi.CORS(infra.cfg.Gateway.CORS.AllowedOrigin)
+	if err != nil {
+		return fmt.Errorf("create CORS middleware: %w", err)
+	}
 	apiServer := server.New("api-server", infra.cfg.APIServer,
 		server.WithLogger(infra.log.Log),
-		server.WithDependsOn("logger", "db"),
+		server.WithDependsOn("logger", "db", "gateway-auth"),
+		server.WithHTTPErrorHandler(httpapi.ErrorHandler),
+		server.WithMiddleware(httpapi.RequestIDMiddleware, cors),
+		server.WithRouter(ctx, httpapi.NewAuthRouter(authRuntime)),
 		server.WithHealth(),
 	)
 	opsServer := server.New("ops-server", infra.cfg.OpsServer,
@@ -66,6 +124,7 @@ func run(ctx context.Context) error {
 	if err := svc.Run(ctx, infra.log.Log, []svc.Service{
 		infra.log,
 		infra.pool,
+		authRuntime,
 		apiServer,
 		opsServer,
 	}); err != nil {
@@ -73,6 +132,72 @@ func run(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func newAuthRuntime(infra *infrastructureComponents) (*app.Runtime, error) {
+	cfg := infra.cfg.Gateway
+	return app.NewRuntime(infra.pool, infra.log.Log, app.Config{
+		BotToken:          cfg.Auth.BotToken,
+		WebhookSecret:     cfg.Auth.WebhookSecret,
+		InitDataMaxAge:    cfg.Auth.InitDataMaxAge,
+		InitDataFutureGap: cfg.Auth.InitDataFutureGap,
+		SessionTTL:        cfg.Auth.SessionTTL,
+		SessionCacheTTL:   cfg.Auth.SessionCacheTTL,
+		SessionCacheSize:  cfg.Auth.SessionCacheSize,
+		CleanupInterval:   cfg.Auth.CleanupInterval,
+		CleanupBatchSize:  cfg.Auth.CleanupBatchSize,
+		AnonymousLimit: auth.RateLimitConfig{
+			RequestsPerMinute: cfg.RateLimit.Anonymous.RequestsPerMinute,
+			Burst:             cfg.RateLimit.Anonymous.Burst,
+			IdleTTL:           cfg.RateLimit.IdleTTL,
+		},
+		AuthenticatedLimit: auth.RateLimitConfig{
+			RequestsPerMinute: cfg.RateLimit.Authenticated.RequestsPerMinute,
+			Burst:             cfg.RateLimit.Authenticated.Burst,
+			IdleTTL:           cfg.RateLimit.IdleTTL,
+		},
+	})
+}
+
+func issueTestToken(ctx context.Context, args []string, output io.Writer) error {
+	flags := flag.NewFlagSet("issue-test-token", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	maxUserID := flags.String("account", "", "test account identifier")
+	expiresAtValue := flags.String("expires-at", "", "RFC3339 expiry")
+	if err := flags.Parse(args); err != nil {
+		return errors.New("invalid issue-test-token arguments")
+	}
+	if *maxUserID == "" || *expiresAtValue == "" || flags.NArg() != 0 {
+		return errors.New("--account and --expires-at are required")
+	}
+	expiresAt, err := time.Parse(time.RFC3339, *expiresAtValue)
+	if err != nil {
+		return errors.New("invalid --expires-at value")
+	}
+
+	infra, err := initInfrastructure()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = infra.log.Stop(context.Background()) }()
+	if err := infra.pool.Init(ctx); err != nil {
+		return err
+	}
+	defer func() { _ = infra.pool.Stop(context.Background()) }()
+	runtime, err := newAuthRuntime(infra)
+	if err != nil {
+		return err
+	}
+	if err := runtime.Init(ctx); err != nil {
+		return err
+	}
+	defer func() { _ = runtime.Stop(context.Background()) }()
+	issued, err := runtime.IssueTest(ctx, *maxUserID, expiresAt)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(output, issued.AccessToken)
+	return err
 }
 
 func initInfrastructure() (*infrastructureComponents, error) {

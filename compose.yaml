@@ -222,6 +222,8 @@ services:
     image: impuls-goroda/gateway:dev
     environment:
       <<: *service-env
+      MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:?set MAX_BOT_TOKEN in .env}
+      MAX_WEBHOOK_SECRET: ${MAX_WEBHOOK_SECRET:?set MAX_WEBHOOK_SECRET in .env}
     volumes:
       - ./docker/gateway/config.yaml:/app/config.yaml:ro
     healthcheck: &service-healthcheck

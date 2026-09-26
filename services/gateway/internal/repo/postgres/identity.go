@@ -19,6 +19,14 @@ ON CONFLICT (max_user_id) DO UPDATE
 SET last_seen_at = GREATEST(user_account.last_seen_at, EXCLUDED.last_seen_at)
 RETURNING id, max_user_id, created_at, last_seen_at, account_state, account_kind`
 
+const upsertTestAccountSQL = `
+INSERT INTO identity.user_account (
+    id, max_user_id, created_at, last_seen_at, account_state, account_kind
+) VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (max_user_id) DO UPDATE
+SET last_seen_at = GREATEST(user_account.last_seen_at, EXCLUDED.last_seen_at)
+RETURNING id, max_user_id, created_at, last_seen_at, account_state, account_kind`
+
 const createSessionSQL = `
 INSERT INTO identity.auth_session (
     id, user_id, token_hash, issued_via, platform, created_at, expires_at, revoked_at
@@ -45,6 +53,17 @@ SELECT id, max_user_id, created_at, last_seen_at, account_state, account_kind
 FROM identity.user_account
 WHERE max_user_id = $1 AND account_kind = 'test'`
 
+const deleteExpiredSessionsSQL = `
+DELETE FROM identity.auth_session
+WHERE id IN (
+    SELECT id
+    FROM identity.auth_session
+    WHERE expires_at <= $1
+    ORDER BY expires_at
+    LIMIT $2
+)
+RETURNING id`
+
 type SessionAccount struct {
 	Session domain.AuthSession
 	Account domain.UserAccount
@@ -70,6 +89,30 @@ func (q *Queries) UpsertMaxAccount(ctx context.Context, account domain.UserAccou
 	))
 	if err != nil {
 		return domain.UserAccount{}, mapQueryError("upsert MAX account", err)
+	}
+	return stored, nil
+}
+
+func (q *Queries) UpsertTestAccount(ctx context.Context, account domain.UserAccount) (domain.UserAccount, error) {
+	if err := account.Validate(); err != nil {
+		return domain.UserAccount{}, fmt.Errorf("validate test account: %w", err)
+	}
+	if account.Kind != domain.AccountTest {
+		return domain.UserAccount{}, errors.New("test account kind is required")
+	}
+
+	stored, err := scanAccount(q.db.QueryRow(
+		ctx,
+		upsertTestAccountSQL,
+		encodeUUID([16]byte(account.ID)),
+		account.MaxUserID,
+		account.CreatedAt,
+		account.LastSeenAt,
+		account.State,
+		account.Kind,
+	))
+	if err != nil {
+		return domain.UserAccount{}, mapQueryError("upsert test account", err)
 	}
 	return stored, nil
 }
@@ -145,6 +188,30 @@ func (q *Queries) FindTestAccount(ctx context.Context, maxUserID string) (domain
 		return domain.UserAccount{}, mapQueryError("find test account", err)
 	}
 	return account, nil
+}
+
+func (q *Queries) DeleteExpiredSessions(ctx context.Context, before time.Time, limit int) (int, error) {
+	if before.IsZero() || limit <= 0 {
+		return 0, errors.New("expiry cutoff and positive limit are required")
+	}
+	rows, err := q.db.Query(ctx, deleteExpiredSessionsSQL, before, limit)
+	if err != nil {
+		return 0, mapQueryError("delete expired sessions", err)
+	}
+	defer rows.Close()
+
+	count := 0
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return 0, mapQueryError("scan expired session", err)
+		}
+		count++
+	}
+	if err := rows.Err(); err != nil {
+		return 0, mapQueryError("iterate expired sessions", err)
+	}
+	return count, nil
 }
 
 func scanAccount(row interface{ Scan(...any) error }) (domain.UserAccount, error) {
