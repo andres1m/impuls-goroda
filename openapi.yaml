@@ -1,0 +1,2317 @@
+openapi: 3.1.1
+info:
+  title: Impuls Goroda Gateway API
+  version: 0.1.0
+  description: Public REST API consumed by the MAX Mini App and web client.
+  license:
+    name: MIT
+    identifier: MIT
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+servers:
+  - url: /
+    description: Current gateway origin
+tags:
+  - name: Authentication
+    description: MAX initData exchange for opaque gateway sessions.
+  - name: Context
+    description: Owner-only scenario recovery state.
+  - name: Routes
+    description: Route creation, reading, lifecycle, and deletion.
+  - name: Proposals
+    description: Explicit route changes that require apply or reject.
+  - name: Visits
+    description: Visit pins, participation, and execution.
+  - name: Sharing
+    description: Revocable anonymous projections and independent copies.
+  - name: Operations
+    description: User-facing capability readiness.
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/auth/max:
+    post:
+      tags: [Authentication]
+      operationId: exchangeMaxInitData
+      summary: Exchange verified MAX initData for an opaque session token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaxAuthRequest'
+      responses:
+        '200':
+          description: Session token issued
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/me/context:
+    get:
+      tags: [Context]
+      operationId: getScenarioContext
+      summary: Restore the current user's last confirmed scenario context
+      responses:
+        '200':
+          description: Scenario context
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScenarioContextResponse'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/routes:
+    get:
+      tags: [Routes]
+      operationId: listRoutes
+      summary: List routes owned by the current user
+      parameters:
+        - $ref: '#/components/parameters/LifecycleFilter'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Page of owner route summaries
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouteListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/routes/optimize:
+    post:
+      tags: [Routes]
+      operationId: optimizeRoutes
+      summary: Create private draft route variants from confirmed constraints
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OptimizeRequest'
+      responses:
+        '200':
+          description: Domain result, including an explained refusal
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OptimizeResponse'
+              examples:
+                noFeasibleRoute:
+                  $ref: '#/components/examples/NoFeasibleRoute'
+                conflictingObligations:
+                  $ref: '#/components/examples/DomainConflict'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '409':
+          $ref: '#/components/responses/CommandConflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/routes/{route_id}:
+    parameters:
+      - $ref: '#/components/parameters/RouteID'
+    get:
+      tags: [Routes]
+      operationId: getRoute
+      summary: Read the current owner projection of a route
+      responses:
+        '200':
+          description: Current owner route
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+            ETag:
+              $ref: '#/components/headers/RouteETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerRouteResponse'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/routes/{route_id}/save:
+    parameters:
+      - $ref: '#/components/parameters/RouteID'
+    post:
+      tags: [Routes]
+      operationId: saveRoute
+      summary: Save a draft route without changing its identifier
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          $ref: '#/components/responses/RouteCommandSucceeded'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CommandConflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/routes/reroute/panic:
+    post:
+      tags: [Proposals]
+      operationId: proposePanicReroute
+      summary: Propose a reroute from the user's effective current position and time
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PanicRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/ProposalCommandSucceeded'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CommandConflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/routes/{route_id}/apply:
+    parameters:
+      - $ref: '#/components/parameters/RouteID'
+    post:
+      tags: [Proposals]
+      operationId: applyRouteProposal
+      summary: Apply a pending proposal atomically
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplyProposalRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/RouteCommandSucceeded'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CommandConflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/routes/{route_id}/proposals/{proposal_id}/reject:
+    parameters:
+      - $ref: '#/components/parameters/RouteID'
+      - $ref: '#/components/parameters/ProposalID'
+    post:
+      tags: [Proposals]
+      operationId: rejectRouteProposal
+      summary: Reject a proposal without changing the accepted route revision
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          $ref: '#/components/responses/ProposalCommandSucceeded'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CommandConflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/routes/{route_id}/visits/{visit_id}/pin:
+    parameters:
+      - $ref: '#/components/parameters/RouteID'
+      - $ref: '#/components/parameters/VisitID'
+    post:
+      tags: [Visits]
+      operationId: setVisitPin
+      summary: Set, change, or remove a user pin and recompute the route
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PinVisitRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/RouteCommandSucceeded'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CommandConflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/routes/{route_id}/visits/{visit_id}/removal-proposal:
+    parameters:
+      - $ref: '#/components/parameters/RouteID'
+      - $ref: '#/components/parameters/VisitID'
+    post:
+      tags: [Proposals, Visits]
+      operationId: proposeVisitRemoval
+      summary: Propose removing a visit by rebuilding its window or leaving free time
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemovalProposalRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/ProposalCommandSucceeded'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CommandConflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/routes/{route_id}/visits/{visit_id}/participation:
+    parameters:
+      - $ref: '#/components/parameters/RouteID'
+      - $ref: '#/components/parameters/VisitID'
+    post:
+      tags: [Visits]
+      operationId: updateVisitParticipation
+      summary: Record a user participation action without impersonating provider evidence
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ParticipationRequest'
+      responses:
+        '200':
+          description: Participation updated or link opening recorded
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+            ETag:
+              $ref: '#/components/headers/RouteETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParticipationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CommandConflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/routes/{route_id}/visits/{visit_id}/execution:
+    parameters:
+      - $ref: '#/components/parameters/RouteID'
+      - $ref: '#/components/parameters/VisitID'
+    post:
+      tags: [Visits]
+      operationId: updateVisitExecution
+      summary: Record user-reported completion or skipping of a visit
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecutionRequest'
+      responses:
+        '200':
+          description: Execution state updated
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+            ETag:
+              $ref: '#/components/headers/RouteETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CommandConflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/routes/{route_id}/share:
+    parameters:
+      - $ref: '#/components/parameters/RouteID'
+    post:
+      tags: [Sharing]
+      operationId: createRouteShare
+      summary: Create or explicitly reissue a share capability
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateShareRequest'
+      responses:
+        '200':
+          description: Active share capability
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+            ETag:
+              $ref: '#/components/headers/RouteETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateShareResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CommandConflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    delete:
+      tags: [Sharing]
+      operationId: revokeRouteShare
+      summary: Revoke the current share capability without deleting independent copies
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Share is revoked or was already absent
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CommandConflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/shared-routes/{share_token}:
+    parameters:
+      - $ref: '#/components/parameters/ShareToken'
+    get:
+      tags: [Sharing]
+      operationId: getSharedRoute
+      summary: Read an allowlisted shared route projection
+      security: []
+      responses:
+        '200':
+          description: Current shared route projection
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+            ETag:
+              $ref: '#/components/headers/RouteETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharedRouteResponse'
+        '404':
+          $ref: '#/components/responses/ShareNotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/shared-routes/{share_token}/copy:
+    parameters:
+      - $ref: '#/components/parameters/ShareToken'
+    post:
+      tags: [Sharing]
+      operationId: copySharedRoute
+      summary: Create an independent private draft from a shared route
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CopySharedRouteRequest'
+      responses:
+        '200':
+          description: Independent private draft created
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+            ETag:
+              $ref: '#/components/headers/RouteETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CopySharedRouteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/ShareNotFound'
+        '409':
+          $ref: '#/components/responses/CommandConflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/routes/{route_id}/delete:
+    parameters:
+      - $ref: '#/components/parameters/RouteID'
+    post:
+      tags: [Routes]
+      operationId: deleteRoute
+      summary: Delete an owned route aggregate after explicit acknowledgement
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteRouteRequest'
+      responses:
+        '204':
+          description: Route aggregate deleted
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CommandConflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/health/ready:
+    get:
+      tags: [Operations]
+      operationId: getReadiness
+      summary: Report readiness for user-facing capabilities
+      security: []
+      responses:
+        '200':
+          description: Capability readiness, including degraded operation
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          description: No core user-facing capability is ready
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Opaque gateway session token. It is not a JWT.
+  parameters:
+    RouteID:
+      name: route_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/UUID'
+    VisitID:
+      name: visit_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/UUID'
+    ProposalID:
+      name: proposal_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/UUID'
+    ShareToken:
+      name: share_token
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/ShareToken'
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: UUID scoped by the authenticated actor and operation. Results are replayable for at least 24 hours.
+      schema:
+        $ref: '#/components/schemas/UUID'
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: Quoted decimal revision from the latest ETag, for example `"7"`.
+      schema:
+        type: string
+        pattern: '^"[1-9][0-9]*"$'
+        example: '"7"'
+    LifecycleFilter:
+      name: lifecycle
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/RouteLifecycle'
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 512
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 100
+        default: 20
+  headers:
+    XRequestID:
+      description: Request correlation identifier.
+      schema:
+        $ref: '#/components/schemas/RequestID'
+    RouteETag:
+      description: Quoted decimal current route revision.
+      schema:
+        type: string
+        pattern: '^"[1-9][0-9]*"$'
+        example: '"7"'
+  responses:
+    BadRequest:
+      description: Malformed request or invalid path/query/header value
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/XRequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: MALFORMED_REQUEST
+            message: Request cannot be parsed
+            request_id: 11111111-1111-4111-8111-111111111111
+            retryable: false
+    AuthRequired:
+      description: Authentication is missing, expired, or invalid
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/XRequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: AUTH_REQUIRED
+            message: Authentication is required
+            request_id: 11111111-1111-4111-8111-111111111111
+            retryable: false
+    NotFound:
+      description: Resource is unavailable without disclosing another owner
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/XRequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: ROUTE_NOT_FOUND
+            message: Route is unavailable
+            request_id: 11111111-1111-4111-8111-111111111111
+            retryable: false
+    ShareNotFound:
+      description: Share capability is invalid, expired, or revoked
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/XRequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: SHARE_NOT_FOUND
+            message: Shared route is unavailable
+            request_id: 11111111-1111-4111-8111-111111111111
+            retryable: false
+    CommandConflict:
+      description: Stale revision, reused key with another command, or invalid proposal state
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/XRequestID'
+        ETag:
+          $ref: '#/components/headers/RouteETag'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CommandConflictError'
+          examples:
+            staleRevision:
+              $ref: '#/components/examples/StaleRevision'
+            reusedKey:
+              value:
+                code: IDEMPOTENCY_KEY_REUSED
+                message: Idempotency key was already used for another command
+                request_id: 11111111-1111-4111-8111-111111111111
+                retryable: false
+    ValidationFailed:
+      description: Parsed request violates field or cross-field constraints
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/XRequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorResponse'
+          example:
+            code: VALIDATION_FAILED
+            message: Request validation failed
+            request_id: 11111111-1111-4111-8111-111111111111
+            retryable: false
+            fields:
+              - field: end_at
+                code: MUST_BE_AFTER_START
+    RateLimited:
+      description: Request rate limit exceeded
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/XRequestID'
+        Retry-After:
+          description: Seconds until the request may be retried.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: RATE_LIMITED
+            message: Too many requests
+            request_id: 11111111-1111-4111-8111-111111111111
+            retryable: true
+    ServiceUnavailable:
+      description: Required technical dependency is unavailable
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/XRequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: OPTIMIZER_UNAVAILABLE
+            message: Route calculation is temporarily unavailable
+            request_id: 11111111-1111-4111-8111-111111111111
+            retryable: true
+    RouteCommandSucceeded:
+      description: Route command processed, including domain conflict or unchanged result
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/XRequestID'
+        ETag:
+          $ref: '#/components/headers/RouteETag'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/RouteCommandResponse'
+    ProposalCommandSucceeded:
+      description: Proposal command processed without silently changing the accepted route
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/XRequestID'
+        ETag:
+          $ref: '#/components/headers/RouteETag'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProposalResponse'
+  schemas:
+    UUID:
+      type: string
+      format: uuid
+    RequestID:
+      type: string
+      minLength: 1
+      maxLength: 128
+      example: 11111111-1111-4111-8111-111111111111
+    Revision:
+      type: string
+      pattern: '^[1-9][0-9]*$'
+      example: '7'
+    CatalogRevision:
+      type: string
+      pattern: '^(0|[1-9][0-9]*)$'
+      example: '42'
+    AmountMinor:
+      type: string
+      pattern: '^(0|[1-9][0-9]*)$'
+      example: '150000'
+    InterestMask:
+      type: string
+      pattern: '^0x[0-9a-fA-F]{16}$'
+      example: '0x0000000000000203'
+    ShareToken:
+      type: string
+      pattern: '^[A-Za-z0-9_-]{43}$'
+      example: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+    RouteLifecycle:
+      type: string
+      enum: [draft, saved]
+    DataMode:
+      type: string
+      enum: [live, prepared, synthetic]
+    Coordinate:
+      type: object
+      additionalProperties: false
+      required: [longitude, latitude]
+      properties:
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+    Money:
+      type: object
+      additionalProperties: false
+      required: [amount_minor, currency]
+      properties:
+        amount_minor:
+          $ref: '#/components/schemas/AmountMinor'
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+          example: RUB
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [code, message, request_id, retryable]
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]*$'
+        message:
+          type: string
+          minLength: 1
+          maxLength: 512
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        retryable:
+          type: boolean
+    CommandConflictError:
+      type: object
+      additionalProperties: false
+      required: [code, message, request_id, retryable]
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]*$'
+        message:
+          type: string
+          minLength: 1
+          maxLength: 512
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        retryable:
+          type: boolean
+        current_revision:
+          $ref: '#/components/schemas/Revision'
+    ValidationFieldError:
+      type: object
+      additionalProperties: false
+      required: [field, code]
+      properties:
+        field:
+          type: string
+          minLength: 1
+          maxLength: 128
+        code:
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]*$'
+    ValidationErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [code, message, request_id, retryable, fields]
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]*$'
+        message:
+          type: string
+          minLength: 1
+          maxLength: 512
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        retryable:
+          type: boolean
+        fields:
+          type: array
+          maxItems: 64
+          items:
+            $ref: '#/components/schemas/ValidationFieldError'
+    MaxAuthRequest:
+      type: object
+      additionalProperties: false
+      required: [init_data]
+      properties:
+        init_data:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          writeOnly: true
+    AuthResponse:
+      type: object
+      additionalProperties: false
+      required: [access_token, token_type, expires_at, request_id]
+      properties:
+        access_token:
+          type: string
+          minLength: 43
+          readOnly: true
+        token_type:
+          type: string
+          const: Bearer
+        expires_at:
+          type: string
+          format: date-time
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+    ScenarioContextResponse:
+      type: object
+      additionalProperties: false
+      required: [request_id, confirmed_input, updated_at]
+      properties:
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        confirmed_input:
+          $ref: '#/components/schemas/ConfirmedRouteInput'
+        selected_route_id:
+          $ref: '#/components/schemas/UUID'
+        selected_revision:
+          $ref: '#/components/schemas/Revision'
+        updated_at:
+          type: string
+          format: date-time
+    ConfirmedRouteInput:
+      type: object
+      additionalProperties: false
+      required: [city, timezone, start_at, end_at, origin, constraints]
+      properties:
+        city:
+          type: string
+          minLength: 1
+          maxLength: 64
+          example: moscow
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 64
+          example: Europe/Moscow
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+        origin:
+          $ref: '#/components/schemas/Coordinate'
+        destination:
+          $ref: '#/components/schemas/Coordinate'
+        constraints:
+          $ref: '#/components/schemas/RouteConstraints'
+    OptimizeRequest:
+      $ref: '#/components/schemas/ConfirmedRouteInput'
+    Budget:
+      type: object
+      additionalProperties: false
+      required: [mode]
+      properties:
+        mode:
+          type: string
+          enum: [none, advisory, strict]
+        limit:
+          $ref: '#/components/schemas/Money'
+      description: limit is absent for none and required for advisory or strict mode.
+    ProgramBalance:
+      type: object
+      additionalProperties: false
+      required: [program, balance, evidence]
+      properties:
+        program:
+          type: string
+          minLength: 1
+          maxLength: 64
+        balance:
+          $ref: '#/components/schemas/Money'
+        evidence:
+          type: string
+          const: user_reported
+    AudienceClaim:
+      type: object
+      additionalProperties: false
+      required: [audience, evidence]
+      properties:
+        audience:
+          type: string
+          minLength: 1
+          maxLength: 64
+        evidence:
+          type: string
+          const: user_reported
+    RouteObligation:
+      type: object
+      additionalProperties: false
+      required: [arrival_buffer_seconds, participation]
+      properties:
+        visit_id:
+          $ref: '#/components/schemas/UUID'
+        session_id:
+          $ref: '#/components/schemas/UUID'
+        starts_at:
+          type: string
+          format: date-time
+        arrival_buffer_seconds:
+          type: integer
+          format: int32
+          minimum: 0
+        participation:
+          $ref: '#/components/schemas/ParticipationStatus'
+      anyOf:
+        - required: [visit_id]
+        - required: [session_id]
+    LunchWindow:
+      type: object
+      additionalProperties: false
+      required: [start_at, end_at, min_duration_seconds]
+      properties:
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+        min_duration_seconds:
+          type: integer
+          format: int32
+          minimum: 1
+    RouteConstraints:
+      type: object
+      additionalProperties: false
+      required: [interest_mask, excluded_categories, movement_modes, load_profile, budget, benefit_programs, audience_claims, obligations, soft_preferences, accepted_unknowns]
+      properties:
+        interest_mask:
+          $ref: '#/components/schemas/InterestMask'
+        excluded_categories:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [culture, sport, volunteer, walk, tourism, gastro]
+        movement_modes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+        load_profile:
+          type: string
+          minLength: 1
+          maxLength: 64
+        budget:
+          $ref: '#/components/schemas/Budget'
+        benefit_programs:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+        program_balance:
+          $ref: '#/components/schemas/ProgramBalance'
+        audience_claims:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/AudienceClaim'
+        obligations:
+          type: array
+          items:
+            $ref: '#/components/schemas/RouteObligation'
+        soft_preferences:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        lunch_window:
+          $ref: '#/components/schemas/LunchWindow'
+        accepted_unknowns:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+    Price:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [status, currency, lower_minor, upper_minor]
+          properties:
+            status:
+              type: string
+              const: free
+            currency:
+              type: string
+              pattern: '^[A-Z]{3}$'
+            lower_minor:
+              type: string
+              const: '0'
+            upper_minor:
+              type: string
+              const: '0'
+        - type: object
+          additionalProperties: false
+          required: [status, currency, lower_minor, upper_minor]
+          properties:
+            status:
+              type: string
+              const: fixed
+            currency:
+              type: string
+              pattern: '^[A-Z]{3}$'
+            lower_minor:
+              $ref: '#/components/schemas/AmountMinor'
+            upper_minor:
+              $ref: '#/components/schemas/AmountMinor'
+          description: For fixed prices lower_minor and upper_minor have the same value.
+        - type: object
+          additionalProperties: false
+          required: [status, currency, lower_minor, upper_minor]
+          properties:
+            status:
+              type: string
+              const: range
+            currency:
+              type: string
+              pattern: '^[A-Z]{3}$'
+            lower_minor:
+              $ref: '#/components/schemas/AmountMinor'
+            upper_minor:
+              $ref: '#/components/schemas/AmountMinor'
+          description: upper_minor is greater than or equal to lower_minor.
+        - type: object
+          additionalProperties: false
+          required: [status, currency]
+          properties:
+            status:
+              type: string
+              const: unknown
+            currency:
+              type: string
+              pattern: '^[A-Z]{3}$'
+    UnknownCostComponent:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]*$'
+        message:
+          type: string
+          minLength: 1
+          maxLength: 256
+    PublicProvenance:
+      type: object
+      additionalProperties: false
+      required: [source_name, fetched_at]
+      properties:
+        source_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        source_url:
+          type: string
+          format: uri
+          maxLength: 2048
+        source_updated_at:
+          type: string
+          format: date-time
+        fetched_at:
+          type: string
+          format: date-time
+        verified_at:
+          type: string
+          format: date-time
+    CostSnapshot:
+      type: object
+      additionalProperties: false
+      required: [price, unknown_components, provenance]
+      properties:
+        price_offer_id:
+          $ref: '#/components/schemas/UUID'
+        audience:
+          type: string
+          maxLength: 64
+        price:
+          $ref: '#/components/schemas/Price'
+        personal_amount:
+          $ref: '#/components/schemas/Money'
+        program_amount:
+          $ref: '#/components/schemas/Money'
+        unknown_components:
+          type: array
+          items:
+            $ref: '#/components/schemas/UnknownCostComponent'
+        provenance:
+          $ref: '#/components/schemas/PublicProvenance'
+    CostSummary:
+      type: object
+      additionalProperties: false
+      required: [known_personal, known_transport, program_amount, unknown_components, budget_conclusion]
+      properties:
+        known_personal:
+          $ref: '#/components/schemas/Money'
+        known_transport:
+          $ref: '#/components/schemas/Money'
+        program_amount:
+          $ref: '#/components/schemas/Money'
+        total_lower:
+          $ref: '#/components/schemas/Money'
+        total_upper:
+          $ref: '#/components/schemas/Money'
+        unknown_components:
+          type: array
+          items:
+            $ref: '#/components/schemas/UnknownCostComponent'
+        budget_conclusion:
+          type: string
+          enum: [not_applicable, satisfied, violated, unknown]
+    ParticipationStatus:
+      type: string
+      enum: [not_required, action_required, user_reported_confirmed, provider_confirmed, unavailable]
+    ParticipationSnapshot:
+      type: object
+      additionalProperties: false
+      required: [status, evidence]
+      properties:
+        status:
+          $ref: '#/components/schemas/ParticipationStatus'
+        evidence:
+          type: string
+          enum: [none, user, provider]
+    AvailabilityStatus:
+      type: string
+      enum: [available, registration_required, sold_out, cancelled, unknown]
+    CatalogSnapshot:
+      type: object
+      additionalProperties: false
+      required: [title, interest_mask, availability, data_mode, provenance]
+      properties:
+        place_id:
+          $ref: '#/components/schemas/UUID'
+        event_id:
+          $ref: '#/components/schemas/UUID'
+        session_id:
+          $ref: '#/components/schemas/UUID'
+        title:
+          type: string
+          minLength: 1
+          maxLength: 512
+        category:
+          type: string
+          enum: [culture, sport, volunteer, walk, tourism, gastro]
+        interest_mask:
+          $ref: '#/components/schemas/InterestMask'
+        availability:
+          $ref: '#/components/schemas/AvailabilityStatus'
+        registration_details:
+          type: string
+          maxLength: 2048
+        age_requirements:
+          type: string
+          maxLength: 512
+        session_starts_at:
+          type: string
+          format: date-time
+        session_ends_at:
+          type: string
+          format: date-time
+        session_version:
+          type: string
+          maxLength: 128
+        data_mode:
+          $ref: '#/components/schemas/DataMode'
+        provenance:
+          $ref: '#/components/schemas/PublicProvenance'
+    AppliedConstraint:
+      type: object
+      additionalProperties: false
+      required: [code, strength, outcome, message]
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]*$'
+        strength:
+          type: string
+          enum: [hard, soft]
+        outcome:
+          type: string
+          enum: [satisfied, conditional]
+        message:
+          type: string
+          minLength: 1
+          maxLength: 512
+    RouteStep:
+      type: object
+      additionalProperties: false
+      required: [visit_id, kind, position, arrival_at, visit_start_at, visit_end_at, departure_at, min_duration_seconds, pinned, obligation, participation, applied_constraints]
+      properties:
+        visit_id:
+          $ref: '#/components/schemas/UUID'
+        kind:
+          type: string
+          enum: [visit, free_time]
+        position:
+          type: integer
+          format: int32
+          minimum: 1
+        arrival_at:
+          type: string
+          format: date-time
+        visit_start_at:
+          type: string
+          format: date-time
+        visit_end_at:
+          type: string
+          format: date-time
+        departure_at:
+          type: string
+          format: date-time
+        min_duration_seconds:
+          type: integer
+          format: int32
+          minimum: 0
+        pinned:
+          type: boolean
+        obligation:
+          type: boolean
+        participation:
+          $ref: '#/components/schemas/ParticipationSnapshot'
+        catalog:
+          $ref: '#/components/schemas/CatalogSnapshot'
+        cost:
+          $ref: '#/components/schemas/CostSnapshot'
+        applied_constraints:
+          type: array
+          items:
+            $ref: '#/components/schemas/AppliedConstraint'
+      description: catalog and cost are required for visit and absent for free_time.
+    LegEvidence:
+      type: object
+      additionalProperties: false
+      required: [provider, method, observed_at, mode, limitations]
+      properties:
+        provider:
+          type: string
+          minLength: 1
+          maxLength: 128
+        method:
+          type: string
+          minLength: 1
+          maxLength: 128
+        observed_at:
+          type: string
+          format: date-time
+        mode:
+          type: string
+          minLength: 1
+          maxLength: 64
+        limitations:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 256
+    RouteLeg:
+      type: object
+      additionalProperties: false
+      required: [position, from_kind, to_kind, departure_at, arrival_at, mode, verification, evidence, cost]
+      properties:
+        position:
+          type: integer
+          format: int32
+          minimum: 1
+        from_kind:
+          type: string
+          enum: [origin, visit]
+        to_kind:
+          type: string
+          enum: [visit, destination]
+        from_visit_id:
+          $ref: '#/components/schemas/UUID'
+        to_visit_id:
+          $ref: '#/components/schemas/UUID'
+        departure_at:
+          type: string
+          format: date-time
+        arrival_at:
+          type: string
+          format: date-time
+        mode:
+          type: string
+          minLength: 1
+          maxLength: 64
+        distance_meters:
+          type: number
+          format: double
+          minimum: 0
+        geometry:
+          type: array
+          minItems: 2
+          items:
+            $ref: '#/components/schemas/Coordinate'
+        verification:
+          type: string
+          enum: [verified, estimated, unknown, unavailable]
+        evidence:
+          $ref: '#/components/schemas/LegEvidence'
+        cost:
+          $ref: '#/components/schemas/CostSnapshot'
+    Warning:
+      type: object
+      additionalProperties: false
+      required: [code, scope, message]
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]*$'
+        scope:
+          type: string
+          enum: [route, visit, leg]
+        visit_id:
+          $ref: '#/components/schemas/UUID'
+        leg_position:
+          type: integer
+          format: int32
+          minimum: 1
+        message:
+          type: string
+          minLength: 1
+          maxLength: 512
+    Conflict:
+      type: object
+      additionalProperties: false
+      required: [code, visit_ids, message]
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]*$'
+        visit_ids:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/UUID'
+        message:
+          type: string
+          minLength: 1
+          maxLength: 512
+    RouteIssue:
+      type: object
+      additionalProperties: false
+      required: [issue_id, type, state, code, message, created_at]
+      properties:
+        issue_id:
+          $ref: '#/components/schemas/UUID'
+        visit_id:
+          $ref: '#/components/schemas/UUID'
+        type:
+          type: string
+          enum: [cancelled, unreachable, stale, unknown]
+        state:
+          type: string
+          enum: [open, acknowledged, resolved]
+        code:
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]*$'
+        message:
+          type: string
+          minLength: 1
+          maxLength: 512
+        catalog_revision:
+          $ref: '#/components/schemas/CatalogRevision'
+        created_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+    RoutePlan:
+      type: object
+      additionalProperties: false
+      required: [schema_version, lifecycle, archetype_id, timezone, start_at, end_at, origin, constraints, catalog_revision, result, warnings, conflicts, cost, geometry, steps, legs]
+      properties:
+        schema_version:
+          type: integer
+          format: int32
+          minimum: 1
+        lifecycle:
+          $ref: '#/components/schemas/RouteLifecycle'
+        archetype_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 64
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+        origin:
+          $ref: '#/components/schemas/Coordinate'
+        destination:
+          $ref: '#/components/schemas/Coordinate'
+        constraints:
+          $ref: '#/components/schemas/RouteConstraints'
+        catalog_revision:
+          $ref: '#/components/schemas/CatalogRevision'
+        result:
+          type: string
+          enum: [READY, PARTIAL, NO_FEASIBLE_ROUTE, CONFLICT]
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Warning'
+        conflicts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Conflict'
+        cost:
+          $ref: '#/components/schemas/CostSummary'
+        geometry:
+          type: array
+          items:
+            $ref: '#/components/schemas/Coordinate'
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/RouteStep'
+        legs:
+          type: array
+          items:
+            $ref: '#/components/schemas/RouteLeg'
+    OwnerParticipation:
+      type: object
+      additionalProperties: false
+      required: [visit_id, status, evidence, updated_in_revision, updated_at]
+      properties:
+        visit_id:
+          $ref: '#/components/schemas/UUID'
+        status:
+          $ref: '#/components/schemas/ParticipationStatus'
+        evidence:
+          type: string
+          enum: [none, user, provider]
+        private_reference:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          readOnly: true
+        external_link_opened_at:
+          type: string
+          format: date-time
+        updated_in_revision:
+          $ref: '#/components/schemas/Revision'
+        updated_at:
+          type: string
+          format: date-time
+    OwnerExecution:
+      type: object
+      additionalProperties: false
+      required: [visit_id, status, confirmation_kind, updated_in_revision, updated_at]
+      properties:
+        visit_id:
+          $ref: '#/components/schemas/UUID'
+        status:
+          type: string
+          enum: [planned, completed, skipped]
+        actual_started_at:
+          type: string
+          format: date-time
+        actual_ended_at:
+          type: string
+          format: date-time
+        confirmation_kind:
+          type: string
+          enum: [user_reported, provider_confirmed]
+        updated_in_revision:
+          $ref: '#/components/schemas/Revision'
+        updated_at:
+          type: string
+          format: date-time
+    OwnerRoute:
+      type: object
+      additionalProperties: false
+      required: [route_id, revision, lifecycle, city, plan, participation, execution, issues, created_at, updated_at]
+      properties:
+        route_id:
+          $ref: '#/components/schemas/UUID'
+        revision:
+          $ref: '#/components/schemas/Revision'
+        lifecycle:
+          $ref: '#/components/schemas/RouteLifecycle'
+        city:
+          type: string
+          minLength: 1
+          maxLength: 64
+        plan:
+          $ref: '#/components/schemas/RoutePlan'
+        participation:
+          type: array
+          items:
+            $ref: '#/components/schemas/OwnerParticipation'
+        execution:
+          type: array
+          items:
+            $ref: '#/components/schemas/OwnerExecution'
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/RouteIssue'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    OwnerRouteResponse:
+      type: object
+      additionalProperties: false
+      required: [request_id, route]
+      properties:
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        route:
+          $ref: '#/components/schemas/OwnerRoute'
+    RouteSummary:
+      type: object
+      additionalProperties: false
+      required: [route_id, revision, lifecycle, city, timezone, start_at, end_at, result, archetype_id, cost, updated_at]
+      properties:
+        route_id:
+          $ref: '#/components/schemas/UUID'
+        revision:
+          $ref: '#/components/schemas/Revision'
+        lifecycle:
+          $ref: '#/components/schemas/RouteLifecycle'
+        city:
+          type: string
+          minLength: 1
+          maxLength: 64
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 64
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+        result:
+          type: string
+          enum: [READY, PARTIAL]
+        archetype_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+        cost:
+          $ref: '#/components/schemas/CostSummary'
+        updated_at:
+          type: string
+          format: date-time
+    RouteListResponse:
+      type: object
+      additionalProperties: false
+      required: [request_id, routes]
+      properties:
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        routes:
+          type: array
+          items:
+            $ref: '#/components/schemas/RouteSummary'
+        next_cursor:
+          type: string
+          minLength: 1
+          maxLength: 512
+    OptimizeResponse:
+      type: object
+      additionalProperties: false
+      required: [status, request_id, data_mode, warnings, computation_time_ms, routes, conflicts]
+      properties:
+        status:
+          type: string
+          enum: [READY, PARTIAL, NO_FEASIBLE_ROUTE, CONFLICT]
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        data_mode:
+          $ref: '#/components/schemas/DataMode'
+        data_as_of:
+          type: string
+          format: date-time
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Warning'
+        computation_time_ms:
+          type: integer
+          format: int32
+          minimum: 0
+        routes:
+          type: array
+          maxItems: 3
+          items:
+            $ref: '#/components/schemas/OwnerRoute'
+        conflicts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Conflict'
+    SharedRouteLeg:
+      type: object
+      additionalProperties: false
+      required: [position, from_kind, to_kind, departure_at, arrival_at, mode, verification, cost]
+      properties:
+        position:
+          type: integer
+          format: int32
+          minimum: 1
+        from_kind:
+          type: string
+          enum: [origin, visit]
+        to_kind:
+          type: string
+          enum: [visit, destination]
+        from_visit_id:
+          $ref: '#/components/schemas/UUID'
+        to_visit_id:
+          $ref: '#/components/schemas/UUID'
+        departure_at:
+          type: string
+          format: date-time
+        arrival_at:
+          type: string
+          format: date-time
+        mode:
+          type: string
+          minLength: 1
+          maxLength: 64
+        distance_meters:
+          type: number
+          format: double
+          minimum: 0
+        geometry:
+          description: Present only for public visit-to-visit legs. Private edge geometries are omitted.
+          type: array
+          minItems: 2
+          items:
+            $ref: '#/components/schemas/Coordinate'
+        verification:
+          type: string
+          enum: [verified, estimated, unknown, unavailable]
+        cost:
+          $ref: '#/components/schemas/CostSnapshot'
+    SharedRoute:
+      type: object
+      additionalProperties: false
+      required: [revision, city, timezone, start_at, end_at, result, archetype_id, cost, warnings, issues, steps, legs, updated_at]
+      properties:
+        revision:
+          $ref: '#/components/schemas/Revision'
+        city:
+          type: string
+          minLength: 1
+          maxLength: 64
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 64
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+        result:
+          type: string
+          enum: [READY, PARTIAL]
+        archetype_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+        cost:
+          $ref: '#/components/schemas/CostSummary'
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Warning'
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/RouteIssue'
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/RouteStep'
+        legs:
+          type: array
+          items:
+            $ref: '#/components/schemas/SharedRouteLeg'
+        updated_at:
+          type: string
+          format: date-time
+    SharedRouteResponse:
+      type: object
+      additionalProperties: false
+      required: [request_id, route]
+      properties:
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        route:
+          $ref: '#/components/schemas/SharedRoute'
+    RouteChange:
+      type: object
+      additionalProperties: false
+      required: [kind, scope, message]
+      properties:
+        kind:
+          type: string
+          enum: [kept, removed, replaced, time_shifted, cost_changed, participation_action, verification_changed]
+        scope:
+          type: string
+          enum: [route, visit, leg]
+        before_visit_id:
+          $ref: '#/components/schemas/UUID'
+        after_visit_id:
+          $ref: '#/components/schemas/UUID'
+        leg_position:
+          type: integer
+          format: int32
+          minimum: 1
+        time_shift_seconds:
+          type: integer
+          format: int32
+        before_cost:
+          $ref: '#/components/schemas/Money'
+        after_cost:
+          $ref: '#/components/schemas/Money'
+        action:
+          type: string
+          maxLength: 128
+        before_verification:
+          type: string
+          enum: [verified, estimated, unknown, unavailable]
+        after_verification:
+          type: string
+          enum: [verified, estimated, unknown, unavailable]
+        message:
+          type: string
+          minLength: 1
+          maxLength: 512
+    RouteProposal:
+      type: object
+      additionalProperties: false
+      required: [proposal_id, base_revision, base_catalog_revision, reason, state, candidate, changes, conflicts, created_at]
+      properties:
+        proposal_id:
+          $ref: '#/components/schemas/UUID'
+        base_revision:
+          $ref: '#/components/schemas/Revision'
+        base_catalog_revision:
+          $ref: '#/components/schemas/CatalogRevision'
+        reason:
+          type: string
+          enum: [delay, cancel, delete, pin, weather]
+        state:
+          type: string
+          enum: [pending, applied, rejected, invalidated]
+        candidate:
+          $ref: '#/components/schemas/RoutePlan'
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/RouteChange'
+        conflicts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Conflict'
+        effective_start_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+        applied_revision:
+          $ref: '#/components/schemas/Revision'
+    RouteCommandResponse:
+      type: object
+      additionalProperties: false
+      required: [status, request_id, route_id, revision, conflicts]
+      properties:
+        status:
+          type: string
+          enum: [READY, PARTIAL, CONFLICT, UNCHANGED]
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        route_id:
+          $ref: '#/components/schemas/UUID'
+        revision:
+          $ref: '#/components/schemas/Revision'
+        route:
+          $ref: '#/components/schemas/OwnerRoute'
+        conflicts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Conflict'
+    ProposalResponse:
+      type: object
+      additionalProperties: false
+      required: [status, request_id, route_id, revision, changes, conflicts]
+      properties:
+        status:
+          type: string
+          enum: [PROPOSED, CONFLICT, UNCHANGED]
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        route_id:
+          $ref: '#/components/schemas/UUID'
+        revision:
+          $ref: '#/components/schemas/Revision'
+        proposal:
+          $ref: '#/components/schemas/RouteProposal'
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/RouteChange'
+        conflicts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Conflict'
+    ApplyProposalRequest:
+      type: object
+      additionalProperties: false
+      required: [proposal_id]
+      properties:
+        proposal_id:
+          $ref: '#/components/schemas/UUID'
+    PanicRequest:
+      type: object
+      additionalProperties: false
+      required: [route_id, delay_mode, position]
+      properties:
+        route_id:
+          $ref: '#/components/schemas/UUID'
+        delay_mode:
+          type: string
+          enum: [already_delayed, future_wait]
+        effective_start_at:
+          type: string
+          format: date-time
+        delay_seconds:
+          type: integer
+          format: int32
+          minimum: 1
+        position:
+          $ref: '#/components/schemas/Coordinate'
+        position_source:
+          type: string
+          enum: [device, manual]
+      description: already_delayed requires only effective_start_at; future_wait requires only delay_seconds.
+    PinVisitRequest:
+      type: object
+      additionalProperties: false
+      required: [pin_kind]
+      properties:
+        pin_kind:
+          type: string
+          enum: [preferred, obligation, none]
+    RemovalProposalRequest:
+      type: object
+      additionalProperties: false
+      required: [mode, acknowledge_external_commitment]
+      properties:
+        mode:
+          type: string
+          enum: [rebuild, free_time]
+        acknowledge_external_commitment:
+          type: boolean
+    ParticipationRequest:
+      type: object
+      additionalProperties: false
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [external_link_opened, user_reported_confirmed, user_reported_unavailable, clear_user_report]
+        private_reference:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          writeOnly: true
+    ParticipationResponse:
+      type: object
+      additionalProperties: false
+      required: [status, request_id, route_id, revision, participation]
+      properties:
+        status:
+          type: string
+          enum: [READY, UNCHANGED]
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        route_id:
+          $ref: '#/components/schemas/UUID'
+        revision:
+          $ref: '#/components/schemas/Revision'
+        participation:
+          $ref: '#/components/schemas/OwnerParticipation'
+    ExecutionRequest:
+      type: object
+      additionalProperties: false
+      required: [status, confirmation_kind]
+      properties:
+        status:
+          type: string
+          enum: [completed, skipped]
+        actual_started_at:
+          type: string
+          format: date-time
+        actual_ended_at:
+          type: string
+          format: date-time
+        confirmation_kind:
+          type: string
+          const: user_reported
+    ExecutionResponse:
+      type: object
+      additionalProperties: false
+      required: [status, request_id, route_id, revision, execution]
+      properties:
+        status:
+          type: string
+          enum: [READY, UNCHANGED]
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        route_id:
+          $ref: '#/components/schemas/UUID'
+        revision:
+          $ref: '#/components/schemas/Revision'
+        execution:
+          $ref: '#/components/schemas/OwnerExecution'
+    CreateShareRequest:
+      type: object
+      additionalProperties: false
+      required: [share_token]
+      properties:
+        share_token:
+          allOf:
+            - $ref: '#/components/schemas/ShareToken'
+          writeOnly: true
+        expires_at:
+          type: string
+          format: date-time
+    CreateShareResponse:
+      type: object
+      additionalProperties: false
+      required: [status, request_id, revision, share_token, deep_link, created_at]
+      properties:
+        status:
+          type: string
+          enum: [READY, UNCHANGED]
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        revision:
+          $ref: '#/components/schemas/Revision'
+        share_token:
+          allOf:
+            - $ref: '#/components/schemas/ShareToken'
+          readOnly: true
+        deep_link:
+          type: string
+          format: uri
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+    CopySharedRouteRequest:
+      type: object
+      additionalProperties: false
+      required: [origin, accepted_unknowns]
+      properties:
+        origin:
+          $ref: '#/components/schemas/Coordinate'
+        destination:
+          $ref: '#/components/schemas/Coordinate'
+        accepted_unknowns:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+    CopySharedRouteResponse:
+      type: object
+      additionalProperties: false
+      required: [status, request_id, route]
+      properties:
+        status:
+          type: string
+          enum: [READY, PARTIAL]
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        route:
+          $ref: '#/components/schemas/OwnerRoute'
+    DeleteRouteRequest:
+      type: object
+      additionalProperties: false
+      required: [acknowledge_external_commitments]
+      properties:
+        acknowledge_external_commitments:
+          type: boolean
+    CapabilityStatus:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [available, degraded, unavailable]
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 256
+    ReadinessResponse:
+      type: object
+      additionalProperties: false
+      required: [request_id, status, checked_at, capabilities]
+      properties:
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        status:
+          type: string
+          enum: [ready, degraded, unavailable]
+        checked_at:
+          type: string
+          format: date-time
+        capabilities:
+          type: object
+          additionalProperties: false
+          required: [read_saved_routes, mutate_routes, optimize, catalog_updates]
+          properties:
+            read_saved_routes:
+              $ref: '#/components/schemas/CapabilityStatus'
+            mutate_routes:
+              $ref: '#/components/schemas/CapabilityStatus'
+            optimize:
+              $ref: '#/components/schemas/CapabilityStatus'
+            catalog_updates:
+              $ref: '#/components/schemas/CapabilityStatus'
+  examples:
+    NoFeasibleRoute:
+      summary: Valid request with no feasible route
+      value:
+        status: NO_FEASIBLE_ROUTE
+        request_id: 11111111-1111-4111-8111-111111111111
+        data_mode: prepared
+        data_as_of: '2026-09-26T10:00:00Z'
+        warnings:
+          - code: NO_AVAILABLE_SESSIONS
+            scope: route
+            message: No visits satisfy the confirmed time window
+        computation_time_ms: 18
+        routes: []
+        conflicts: []
+    DomainConflict:
+      summary: Mutually incompatible obligations are a domain result
+      value:
+        status: CONFLICT
+        request_id: 11111111-1111-4111-8111-111111111111
+        data_mode: live
+        data_as_of: '2026-09-26T10:00:00Z'
+        warnings: []
+        computation_time_ms: 7
+        routes: []
+        conflicts:
+          - code: OVERLAPPING_OBLIGATIONS
+            visit_ids:
+              - 22222222-2222-4222-8222-222222222222
+              - 33333333-3333-4333-8333-333333333333
+            message: Confirmed visits overlap
+    StaleRevision:
+      summary: The route changed after the client read it
+      value:
+        code: REVISION_CONFLICT
+        message: Route revision is stale
+        request_id: 11111111-1111-4111-8111-111111111111
+        retryable: false
+        current_revision: '8'
