@@ -37,6 +37,7 @@ type Runtime struct {
 
 	service       *auth.Service
 	queries       *postgres.Queries
+	commands      *postgres.CommandExecutor
 	webhook       *auth.WebhookVerifier
 	anonymous     *auth.RateLimiter
 	authenticated *auth.RateLimiter
@@ -69,6 +70,10 @@ func (r *Runtime) Init(context.Context) error {
 		return err
 	}
 	transactor, err := postgres.NewTransactor(r.db.Pool)
+	if err != nil {
+		return err
+	}
+	commands, err := postgres.NewCommandExecutor(transactor)
 	if err != nil {
 		return err
 	}
@@ -117,6 +122,7 @@ func (r *Runtime) Init(context.Context) error {
 	}
 
 	r.queries = queries
+	r.commands = commands
 	r.service = service
 	r.webhook = webhook
 	r.anonymous = anonymous
@@ -125,7 +131,7 @@ func (r *Runtime) Init(context.Context) error {
 }
 
 func (r *Runtime) HealthCheck(context.Context) error {
-	if r.service == nil || r.queries == nil || r.webhook == nil || r.anonymous == nil || r.authenticated == nil {
+	if r.service == nil || r.queries == nil || r.commands == nil || r.webhook == nil || r.anonymous == nil || r.authenticated == nil {
 		return errors.New("gateway auth is not initialized")
 	}
 	return nil

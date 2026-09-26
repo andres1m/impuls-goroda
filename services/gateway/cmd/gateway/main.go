@@ -113,7 +113,7 @@ func run(ctx context.Context) error {
 		server.WithDependsOn("logger", "db", "gateway-auth"),
 		server.WithHTTPErrorHandler(httpapi.ErrorHandler),
 		server.WithMiddleware(httpapi.RequestIDMiddleware, cors),
-		server.WithRouter(ctx, httpapi.NewAuthRouter(authRuntime)),
+		server.WithRouter(ctx, httpapi.NewAuthRouter(authRuntime), httpapi.NewVisitRouter(authRuntime)),
 		server.WithHealth(),
 	)
 	opsServer := server.New("ops-server", infra.cfg.OpsServer,

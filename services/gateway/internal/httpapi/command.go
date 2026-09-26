@@ -75,6 +75,9 @@ func MapCommandError(err error) error {
 	if errors.Is(err, postgres.ErrNotFound) {
 		return &Error{Status: http.StatusNotFound, Code: "NOT_FOUND", Message: "Resource not found"}
 	}
+	if errors.Is(err, postgres.ErrInvalidVisitAction) {
+		return &Error{Status: http.StatusUnprocessableEntity, Code: "VALIDATION_FAILED", Message: "Visit action is invalid"}
+	}
 	return &Error{Status: http.StatusServiceUnavailable, Code: "DATABASE_UNAVAILABLE", Message: "Service is temporarily unavailable", Retryable: true, Cause: err}
 }
 
