@@ -238,9 +238,12 @@ func (r searchRun) complete(b *domain.Branch) bool {
 	return true
 }
 
-// done tells whether the branch visited the anchor; anchors always have sessions, and another
-// session at the same venue does not count.
+// Another session at the same venue does not satisfy a session commitment.
 func done(b *domain.Branch, anchor *domain.Candidate) bool {
+	if anchor.Session == nil {
+		_, used := b.VisitedPlaces[anchor.Place.ID]
+		return used
+	}
 	_, used := b.UsedSessions[anchor.Session.ID]
 	return used
 }

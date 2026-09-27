@@ -212,12 +212,6 @@ func TestOptimizeRejectsBudgetInAnotherCurrency(t *testing.T) {
 	}
 }
 
-func TestRecomputeIsNotImplemented(t *testing.T) {
-	if _, err := newPlanner(t, CatalogNotReady{}, estimated()).Recompute(context.Background(), domain.RecomputeRequest{}); !errors.Is(err, ErrNotImplemented) {
-		t.Fatalf("err = %v", err)
-	}
-}
-
 func TestNewPlannerRejectsInvalidSetup(t *testing.T) {
 	bad := config()
 	bad.BeamWidth = 0

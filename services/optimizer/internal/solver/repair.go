@@ -40,7 +40,11 @@ type Repair struct {
 // fits is shortened to its minimum when it has an open window, and otherwise left out, unless it is
 // an anchor: then the repair reports it instead of dropping a commitment. Pauses keep their length.
 func (s *Solver) Repair(ctx context.Context, p Problem, steps []RepairStep) (Repair, error) {
-	if err := p.Validate(); err != nil {
+	check := p
+	if !p.Start.IsZero() && !p.End.IsZero() && !p.End.After(p.Start) {
+		check.End = p.Start.Add(time.Minute)
+	}
+	if err := check.Validate(); err != nil {
 		return Repair{}, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -67,7 +71,7 @@ func (s *Solver) Repair(ctx context.Context, p Problem, steps []RepairStep) (Rep
 		if a != nil {
 			step.Candidate = &a.Candidate
 		}
-		next, ok := run.keep(b, step)
+		next, ok := run.keep(b, step, a != nil)
 		if ok {
 			out.Stops = append(out.Stops, RepairStop{Step: i, Visit: &next.Visits[len(next.Visits)-1]})
 			b = next
@@ -95,8 +99,14 @@ func (s *Solver) Repair(ctx context.Context, p Problem, steps []RepairStep) (Rep
 }
 
 // keep places the step's visit next, at its usual length or else at its minimum.
-func (r searchRun) keep(b *domain.Branch, step RepairStep) (*domain.Branch, bool) {
+func (r searchRun) keep(b *domain.Branch, step RepairStep, anchor bool) (*domain.Branch, bool) {
 	c := step.Candidate
+	if _, visited := b.VisitedPlaces[c.Place.ID]; visited {
+		return nil, false
+	}
+	if !anchor && slices.ContainsFunc(r.problem.Anchors, func(a Anchor) bool { return a.Candidate.Place.ID == c.Place.ID }) {
+		return nil, false
+	}
 	leg, ok := r.transit.Estimate(b.Position, c.Place.Location, b.Now, r.problem.Modes)
 	if !ok {
 		return nil, false
@@ -107,7 +117,10 @@ func (r searchRun) keep(b *domain.Branch, step RepairStep) (*domain.Branch, bool
 	if !step.NotBefore.IsZero() {
 		placeFrom = later(arrival, step.NotBefore.Add(-c.Window.ArrivalBuffer))
 	}
-	quote, _ := r.problem.Pricing.Quote(c)
+	quote, allowed := r.problem.Pricing.Quote(c)
+	if !allowed || !r.problem.Pricing.Fits(b.KnownCost, quote) {
+		return nil, false
+	}
 	attempt := func(deadline time.Time) (*domain.Branch, time.Time, bool) {
 		slot, finish, ok := r.placeBy(c, placeFrom, deadline)
 		if ok && !step.NotBefore.IsZero() && slot.StartAt.Before(step.NotBefore) {
@@ -135,7 +148,7 @@ func (r searchRun) keep(b *domain.Branch, step RepairStep) (*domain.Branch, bool
 // pause keeps a pause of the same length where the user stands, from its planned time or now.
 func (r searchRun) pause(b *domain.Branch, step RepairStep) (*domain.Branch, bool) {
 	end := later(b.Now, step.NotBefore).Add(step.Pause)
-	if end.After(r.problem.End) {
+	if step.Pause <= 0 || end.After(r.problem.End) {
 		return nil, false
 	}
 	next := b.Clone()
@@ -151,10 +164,12 @@ func (r searchRun) pause(b *domain.Branch, step RepairStep) (*domain.Branch, boo
 }
 
 func anchorFor(anchors []Anchor, c *domain.Candidate) *Anchor {
-	if c.Session == nil {
-		return nil
-	}
-	i := slices.IndexFunc(anchors, func(a Anchor) bool { return a.Candidate.Session.ID == c.Session.ID })
+	i := slices.IndexFunc(anchors, func(a Anchor) bool {
+		if a.Candidate.Session == nil || c.Session == nil {
+			return a.Candidate.Session == nil && c.Session == nil && a.Candidate.Place.ID == c.Place.ID
+		}
+		return a.Candidate.Session.ID == c.Session.ID
+	})
 	if i < 0 {
 		return nil
 	}

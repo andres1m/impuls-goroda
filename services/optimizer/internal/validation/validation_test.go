@@ -62,9 +62,6 @@ func TestAllowedVariationsPass(t *testing.T) {
 			p.Steps[1].Obligation = true
 			p.Steps[1].Participation = domain.Participation{Status: domain.ParticipationUserReported, Evidence: domain.EvidenceUser}
 		},
-		"obligation that names only a visit of another plan": func(_ *domain.Plan, in *Input) {
-			in.Constraints.Obligations = []domain.Obligation{{VisitID: &domain.VisitID{8}, Participation: domain.ParticipationActionRequired}}
-		},
 		"late entrant arriving inside the buffer": func(p *domain.Plan, in *Input) {
 			c := in.Candidates[concertVisit]
 			c.Window.LateEntryAllowed = ptr(true)
@@ -112,6 +109,31 @@ func TestAllowedVariationsPass(t *testing.T) {
 			p.Cost.UnknownComponents = nil
 			p.Cost.TotalLower, p.Cost.TotalUpper = ptr(rub(50000)), ptr(rub(50000))
 		},
+		"history the window would not allow": func(p *domain.Plan, in *Input) {
+			c := in.Candidates[museumVisit]
+			c.Window.Start = at(10, 30)
+			in.Candidates[museumVisit] = c
+			in.History = map[domain.VisitID]struct{}{museumVisit: {}}
+		},
+		"history whose place left the catalog": func(p *domain.Plan, in *Input) {
+			delete(in.Candidates, concertVisit)
+			in.History = map[domain.VisitID]struct{}{concertVisit: {}}
+		},
+		"history bought at a tariff gone since": func(p *domain.Plan, in *Input) {
+			c := in.Candidates[concertVisit]
+			c.Offers = nil
+			in.Candidates[concertVisit] = c
+			in.History = map[domain.VisitID]struct{}{concertVisit: {}}
+		},
+		"history of a session cancelled since": func(p *domain.Plan, in *Input) {
+			setAvailability(in, domain.AvailabilityCancelled)
+			in.History = map[domain.VisitID]struct{}{concertVisit: {}}
+		},
+		"history reached over a leg routing now cannot confirm": func(p *domain.Plan, in *Input) {
+			in.Degraded = true
+			in.History = map[domain.VisitID]struct{}{museumVisit: {}}
+			p.Legs[1].Verification, p.Legs[2].Verification = domain.VerificationUnknown, domain.VerificationUnknown
+		},
 		"degraded routing marks legs unknown": func(p *domain.Plan, in *Input) {
 			in.Degraded = true
 			for i := range p.Legs {
@@ -134,9 +156,20 @@ func TestEveryRuleCatchesItsViolation(t *testing.T) {
 		code   string
 		change func(*domain.Plan, *Input)
 	}{
+		{"missing visit obligation", "OBLIGATION_MISSING", func(_ *domain.Plan, in *Input) {
+			in.Constraints.Obligations = []domain.Obligation{{VisitID: &domain.VisitID{8}, Participation: domain.ParticipationActionRequired}}
+		}},
 		{"malformed plan", "PLAN_MALFORMED", func(p *domain.Plan, _ *Input) { p.Steps[0].Position = 5 }},
 		{"step without a candidate", "STEP_WITHOUT_CANDIDATE", func(_ *domain.Plan, in *Input) { delete(in.Candidates, museumVisit) }},
 		{"snapshot of another place", "STEP_CATALOG_MISMATCH", func(p *domain.Plan, _ *Input) { p.Steps[0].Catalog.PlaceID = domain.PlaceID{9} }},
+		{"planned return to a place already visited", "PLACE_REPEATED", func(p *domain.Plan, in *Input) {
+			c := in.Candidates[concertVisit]
+			c.Place.ID = domain.PlaceID{1}
+			in.Candidates[concertVisit] = c
+			p.Steps[1].Catalog.PlaceID = domain.PlaceID{1}
+			delete(in.Candidates, museumVisit)
+			in.History = map[domain.VisitID]struct{}{museumVisit: {}}
+		}},
 		{"same place twice", "PLACE_REPEATED", func(p *domain.Plan, in *Input) {
 			c := in.Candidates[concertVisit]
 			c.Place.ID = domain.PlaceID{1}

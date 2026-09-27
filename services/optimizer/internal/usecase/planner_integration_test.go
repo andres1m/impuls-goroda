@@ -50,6 +50,16 @@ func TestOptimizeOverLiveRoutingIntegration(t *testing.T) {
 	if err := res.Validate(); err != nil || res.Status != domain.ResultReady || len(res.Routes) == 0 {
 		t.Fatalf("status %s routes %d conflicts %v warnings %v err %v", res.Status, len(res.Routes), res.Conflicts, res.Warnings, err)
 	}
+	late, err := p.Recompute(ctx, domain.RecomputeRequest{
+		City: req.City, Timezone: req.Timezone, Base: res.Routes[0], Constraints: req.Constraints,
+		Trigger: domain.DelayTrigger{Mode: domain.DelayAlreadyDelayed, EffectiveStart: req.Start.Add(30 * time.Minute), Position: centre, PositionSource: domain.PositionDevice},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := late.Validate(); err != nil || late.Status == domain.RecomputeConflict {
+		t.Fatalf("recompute after a delay: status %s conflicts %v err %v", late.Status, late.Conflicts, err)
+	}
 	for _, route := range res.Routes {
 		if !slices.ContainsFunc(route.Steps, func(s domain.Step) bool { return s.Obligation }) {
 			t.Fatal("route lost the committed session")

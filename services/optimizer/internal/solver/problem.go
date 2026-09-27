@@ -52,8 +52,8 @@ func (p Problem) Validate() error {
 		if err := a.Candidate.Validate(); err != nil {
 			return fmt.Errorf("anchor: %w", err)
 		}
-		if a.Candidate.Session == nil {
-			return errors.New("anchor must be a session")
+		if a.Candidate.Session == nil && a.Obligation.VisitID == nil {
+			return errors.New("anchor requires a session or a visit")
 		}
 	}
 	return p.Pricing.Validate()

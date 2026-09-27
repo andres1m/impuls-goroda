@@ -146,7 +146,7 @@ func TestServerRefusesWithoutCatalog(t *testing.T) {
 	_, err := srv.client.Optimize(ctx, pbOptimizeRequest())
 	requireCode(t, err, codes.FailedPrecondition)
 	_, err = srv.client.Recompute(ctx, pbRecomputeRequest())
-	requireCode(t, err, codes.Unimplemented)
+	requireCode(t, err, codes.FailedPrecondition)
 }
 
 func TestServerReturnsPlannerResults(t *testing.T) {

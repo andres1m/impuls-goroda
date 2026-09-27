@@ -227,3 +227,30 @@ func TestCostSatisfiesPlanBudgetRules(t *testing.T) {
 		}
 	}
 }
+
+func TestSummarizeAddsUpSnapshots(t *testing.T) {
+	p := policy()
+	p.Programs = []string{domain.ProgramPushkinCard}
+	p.Budget = strict(200000)
+	p.AcceptUnknownPrice = true
+	visits := []domain.Candidate{
+		concert(offer(1, fixed(40000), domain.AudienceGeneral)),
+		concert(offer(2, between(10000, 30000), domain.AudienceGeneral, domain.ProgramPushkinCard)),
+		museum(),
+	}
+	snapshots, summary := cost(t, p, visits...)
+	again, err := p.Summarize(snapshots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.KnownPersonal != summary.KnownPersonal || again.ProgramAmount != summary.ProgramAmount ||
+		(again.TotalUpper == nil) != (summary.TotalUpper == nil) || again.BudgetConclusion != summary.BudgetConclusion ||
+		len(again.UnknownComponents) != len(summary.UnknownComponents) {
+		t.Fatalf("summarize %+v, cost %+v", again, summary)
+	}
+	known, _ := cost(t, p, visits[:2]...)
+	total, err := p.Summarize(known)
+	if err != nil || total.TotalLower.AmountMinor != 50000 || total.TotalUpper.AmountMinor != 70000 || total.BudgetConclusion != domain.BudgetSatisfied {
+		t.Fatalf("summary %+v err %v", total, err)
+	}
+}

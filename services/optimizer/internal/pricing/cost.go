@@ -16,11 +16,7 @@ func (p Policy) Cost(visits []*domain.Candidate) ([]domain.CostSnapshot, domain.
 	if err := p.Validate(); err != nil {
 		return nil, domain.CostSummary{}, err
 	}
-	zero := domain.Money{Currency: p.Currency}
-	summary := domain.CostSummary{KnownPersonal: zero, KnownTransport: zero, ProgramAmount: zero}
 	snapshots := make([]domain.CostSnapshot, len(visits))
-	var lower, upper int64
-	allKnown := true
 	for i, c := range visits {
 		q := p.priced(c)
 		s := domain.CostSnapshot{Price: q.Price, Provenance: provenance(c, q.Offer)}
@@ -29,28 +25,51 @@ func (p Policy) Cost(visits []*domain.Candidate) ([]domain.CostSnapshot, domain.
 			s.PriceOfferID = &id
 			s.Audience = q.Offer.Audience
 		}
-		bound, known := q.Price.UpperBound()
-		top := bound.AmountMinor
+		top, known := q.Price.UpperBound()
 		switch {
 		case !known:
-			allKnown = false
 			s.UnknownComponents = []domain.UnknownCostComponent{unknownPrice}
-		default:
-			// Every other sum is bounded by the upper total, so checking it alone is enough.
-			if top > math.MaxInt64-upper {
-				return nil, domain.CostSummary{}, errors.New("route cost overflows")
-			}
-			lower += *q.Price.LowerMinor
-			upper += top
-			if q.Program != "" && top > 0 {
-				s.ProgramAmount = &domain.Money{AmountMinor: top, Currency: p.Currency}
-				summary.ProgramAmount.AmountMinor += top
-			} else if q.Price.Status != domain.PriceRange {
-				s.PersonalAmount = &domain.Money{AmountMinor: top, Currency: p.Currency}
-				summary.KnownPersonal.AmountMinor += top
-			}
+		case q.Program != "" && top.AmountMinor > 0:
+			s.ProgramAmount = &domain.Money{AmountMinor: top.AmountMinor, Currency: p.Currency}
+		case q.Price.Status != domain.PriceRange:
+			s.PersonalAmount = &domain.Money{AmountMinor: top.AmountMinor, Currency: p.Currency}
 		}
 		snapshots[i] = s
+	}
+	summary, err := p.Summarize(snapshots)
+	if err != nil {
+		return nil, domain.CostSummary{}, err
+	}
+	return snapshots, summary, nil
+}
+
+// Summarize adds up the visits' cost snapshots, such as a plan's kept history and its new steps.
+func (p Policy) Summarize(snapshots []domain.CostSnapshot) (domain.CostSummary, error) {
+	if err := p.Validate(); err != nil {
+		return domain.CostSummary{}, err
+	}
+	zero := domain.Money{Currency: p.Currency}
+	summary := domain.CostSummary{KnownPersonal: zero, KnownTransport: zero, ProgramAmount: zero}
+	var lower, upper int64
+	allKnown := true
+	for _, s := range snapshots {
+		top, known := s.Price.UpperBound()
+		if !known {
+			allKnown = false
+			continue
+		}
+		// Every other sum is bounded by the upper total, so checking it alone is enough.
+		if top.AmountMinor > math.MaxInt64-upper {
+			return domain.CostSummary{}, errors.New("route cost overflows")
+		}
+		lower += *s.Price.LowerMinor
+		upper += top.AmountMinor
+		if s.ProgramAmount != nil {
+			summary.ProgramAmount.AmountMinor += s.ProgramAmount.AmountMinor
+		}
+		if s.PersonalAmount != nil {
+			summary.KnownPersonal.AmountMinor += s.PersonalAmount.AmountMinor
+		}
 	}
 	if allKnown {
 		summary.TotalLower = &domain.Money{AmountMinor: lower, Currency: p.Currency}
@@ -59,7 +78,7 @@ func (p Policy) Cost(visits []*domain.Candidate) ([]domain.CostSnapshot, domain.
 		summary.UnknownComponents = []domain.UnknownCostComponent{unknownPrice}
 	}
 	summary.BudgetConclusion = p.conclude(allKnown, upper)
-	return snapshots, summary, nil
+	return summary, nil
 }
 
 // priced still prices a visit the constraints would exclude, so an older plan gets an honest cost.

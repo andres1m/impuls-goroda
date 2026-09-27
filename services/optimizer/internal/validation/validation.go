@@ -17,6 +17,8 @@ type Input struct {
 	Candidates map[domain.VisitID]domain.Candidate
 	// Routing fell back to straight lines, so no leg may claim to be more than unknown.
 	Degraded bool
+	// Visits already done: their actual times and the travel to them are history, not plan.
+	History map[domain.VisitID]struct{}
 }
 
 // Violation is a broken rule; a plan with any is not a result.
@@ -53,13 +55,13 @@ func (c *checker) add(code string, visit *domain.VisitID, message string) {
 	c.violations = append(c.violations, Violation{Code: code, VisitID: visit, Message: message})
 }
 
-func (c *checker) obligation(session *domain.SessionID) (domain.Obligation, bool) {
-	if session == nil {
-		return domain.Obligation{}, false
-	}
-	i := slices.IndexFunc(c.in.Constraints.Obligations, func(o domain.Obligation) bool {
-		return o.SessionID != nil && *o.SessionID == *session
-	})
+func matchesObligation(o domain.Obligation, step domain.Step) bool {
+	return (o.VisitID != nil && *o.VisitID == step.VisitID) ||
+		(o.SessionID != nil && step.Catalog != nil && step.Catalog.SessionID != nil && *o.SessionID == *step.Catalog.SessionID)
+}
+
+func (c *checker) obligation(step domain.Step) (domain.Obligation, bool) {
+	i := slices.IndexFunc(c.in.Constraints.Obligations, func(o domain.Obligation) bool { return matchesObligation(o, step) })
 	if i < 0 {
 		return domain.Obligation{}, false
 	}
@@ -73,6 +75,10 @@ func (c *checker) visits() {
 			continue
 		}
 		id := &c.plan.Steps[i].VisitID
+		if _, done := c.in.History[step.VisitID]; done {
+			places[step.Catalog.PlaceID] = struct{}{}
+			continue
+		}
 		cand, ok := c.in.Candidates[step.VisitID]
 		if !ok {
 			c.add("STEP_WITHOUT_CANDIDATE", id, "The visit has no catalog candidate behind it")
@@ -85,7 +91,7 @@ func (c *checker) visits() {
 			c.add("PLACE_REPEATED", id, "The route visits the same place twice")
 		}
 		places[cand.Place.ID] = struct{}{}
-		obligation, pinned := c.obligation(step.Catalog.SessionID)
+		obligation, pinned := c.obligation(step)
 		// A session the user committed to outranks a category the user excluded.
 		if !pinned && slices.Contains(c.in.Constraints.ExcludedCategories, cand.Category()) {
 			c.add("CATEGORY_EXCLUDED", id, "The visit belongs to a category the user excluded")
@@ -148,6 +154,11 @@ func (c *checker) timing(id *domain.VisitID, step domain.Step, w domain.VisitWin
 
 func (c *checker) legs() {
 	for _, leg := range c.plan.Legs {
+		if leg.ToVisitID != nil {
+			if _, done := c.in.History[*leg.ToVisitID]; done {
+				continue
+			}
+		}
 		if !slices.Contains(c.in.Constraints.MovementModes, leg.Mode) {
 			c.add("LEG_MODE_NOT_ALLOWED", leg.ToVisitID, "The user did not allow this way of travelling")
 		}
@@ -161,23 +172,22 @@ func (c *checker) legs() {
 func (c *checker) obligations() {
 	for i, step := range c.plan.Steps {
 		if step.Obligation && step.Catalog != nil {
-			if _, ok := c.obligation(step.Catalog.SessionID); !ok {
+			if _, ok := c.obligation(step); !ok {
 				c.add("OBLIGATION_UNEXPECTED", &c.plan.Steps[i].VisitID, "The visit is marked as an obligation the user never made")
 			}
 		}
 	}
 	seen := make(map[domain.SessionID]struct{}, len(c.in.Constraints.Obligations))
 	for _, o := range c.in.Constraints.Obligations {
-		if o.SessionID == nil {
-			continue
-		}
 		// A repeated obligation adds nothing; the first one for a session is the one that counts.
-		if _, repeated := seen[*o.SessionID]; repeated {
-			continue
+		if o.SessionID != nil {
+			if _, repeated := seen[*o.SessionID]; repeated {
+				continue
+			}
+			seen[*o.SessionID] = struct{}{}
 		}
-		seen[*o.SessionID] = struct{}{}
 		i := slices.IndexFunc(c.plan.Steps, func(s domain.Step) bool {
-			return s.Catalog != nil && s.Catalog.SessionID != nil && *s.Catalog.SessionID == *o.SessionID
+			return matchesObligation(o, s)
 		})
 		if i < 0 {
 			c.add("OBLIGATION_MISSING", nil, "A session the user committed to is not in the route")
@@ -203,19 +213,35 @@ func (c *checker) cost() {
 		if step.Kind != domain.StepVisit {
 			continue
 		}
-		cand, ok := c.in.Candidates[step.VisitID]
-		if !ok {
-			continue
-		}
 		id := &c.plan.Steps[i].VisitID
 		snapshot := step.Cost
-		offer := c.offer(id, cand, snapshot)
+		// What was paid for a visit already done is history: it counts, but is not judged again.
+		_, done := c.in.History[step.VisitID]
+		var offer *domain.PriceOffer
+		if !done {
+			cand, ok := c.in.Candidates[step.VisitID]
+			if !ok {
+				continue
+			}
+			offer = c.offer(id, cand, snapshot)
+		}
 		if snapshot.PersonalAmount != nil {
 			personal += snapshot.PersonalAmount.AmountMinor
 		}
 		top, known := snapshot.Price.UpperBound()
 		if snapshot.ProgramAmount != nil {
 			program += snapshot.ProgramAmount.AmountMinor
+		}
+		if !known {
+			unknown = true
+		} else {
+			lower += *snapshot.Price.LowerMinor
+			upper += top.AmountMinor
+		}
+		if done {
+			continue
+		}
+		if snapshot.ProgramAmount != nil {
 			if snapshot.PersonalAmount != nil {
 				c.add("PROGRAM_SHARE_PROMISED", id, "The user's share is stated although a program may pay and nobody confirmed it")
 			}
@@ -228,14 +254,11 @@ func (c *checker) cost() {
 			c.add("PERSONAL_SHARE_MISMATCH", id, "The user's share differs from the known price")
 		}
 		if !known {
-			unknown = true
 			if (strict || cons.PushkinCardOnly) && !acceptedUnknown {
 				c.add("UNKNOWN_PRICE_NOT_ACCEPTED", id, "The price is unknown and the user did not accept that")
 			}
 			continue
 		}
-		lower += *snapshot.Price.LowerMinor
-		upper += top.AmountMinor
 		if cons.PushkinCardOnly && top.AmountMinor > 0 && (offer == nil || !slices.Contains(offer.BenefitPrograms, domain.ProgramPushkinCard)) {
 			c.add("PUSHKIN_CARD_NOT_ACCEPTED", id, "A paid visit does not accept the Pushkin card")
 		}

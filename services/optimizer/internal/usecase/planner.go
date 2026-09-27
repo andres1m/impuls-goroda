@@ -168,10 +168,6 @@ func (p *Planner) Optimize(ctx context.Context, req domain.OptimizeRequest) (dom
 	return done(domain.OptimizeResult{Status: status, Routes: plans, Warnings: warnings})
 }
 
-func (*Planner) Recompute(context.Context, domain.RecomputeRequest) (domain.RecomputeResult, error) {
-	return domain.RecomputeResult{}, ErrNotImplemented
-}
-
 type route struct {
 	archetype domain.Archetype
 	branch    *domain.Branch
