@@ -141,8 +141,14 @@ func TestOptimizeReportsObligationConflicts(t *testing.T) {
 }
 
 func TestOptimizeWithoutCandidates(t *testing.T) {
-	if res := optimize(t, nil, estimated(), nil); res.Status != domain.ResultNoFeasibleRoute {
-		t.Fatalf("status %s", res.Status)
+	res := optimize(t, nil, estimated(), nil)
+	if res.Status != domain.ResultNoFeasibleRoute || !slices.Contains(warningCodes(res.Warnings), "NO_FEASIBLE_ROUTE") {
+		t.Fatalf("status %s warnings %v", res.Status, warningCodes(res.Warnings))
+	}
+	unreachable := session(3, domain.CategoryCulture, north(origin, 600), at(19, 0), at(20, 0), 50000)
+	res = optimize(t, []domain.Candidate{unreachable}, estimated(), nil)
+	if res.Status != domain.ResultNoFeasibleRoute || !slices.Contains(warningCodes(res.Warnings), "NO_FEASIBLE_ROUTE") {
+		t.Fatalf("status %s warnings %v", res.Status, warningCodes(res.Warnings))
 	}
 }
 
@@ -178,10 +184,76 @@ func TestOptimizeDropsPlansTheValidatorRejects(t *testing.T) {
 }
 
 func TestOptimizeCollapsesIdenticalRoutes(t *testing.T) {
-	res := optimize(t, []domain.Candidate{place(1, domain.CategoryCulture, north(origin, 300))}, estimated(), nil)
-	if len(res.Routes) != 1 {
-		t.Fatalf("%d routes for a single possible visit", len(res.Routes))
+	untagged := place(1, domain.CategoryWalk, north(origin, 100))
+	h1 := place(2, domain.CategoryCulture, north(origin, 300))
+	h1.Place.InterestMask = domain.Interests(domain.InterestClassicalArt)
+	h2 := place(3, domain.CategoryTourism, north(origin, 350))
+	h2.Place.InterestMask = domain.Interests(domain.InterestExcursions)
+	res := optimize(t, []domain.Candidate{untagged, h1, h2}, estimated(), nil)
+	if len(res.Routes) != 1 || res.Routes[0].Archetype != domain.ArchetypeHistoryHeritage {
+		t.Fatalf("routes %+v", res.Routes)
 	}
+	if !slices.Contains(warningCodes(res.Warnings), "FEWER_ARCHETYPES") {
+		t.Fatalf("warnings %v", warningCodes(res.Warnings))
+	}
+}
+
+func TestOptimizeContrastingArchetypes(t *testing.T) {
+	avantgarde := place(1, domain.CategoryCulture, north(origin, 300))
+	avantgarde.Place.InterestMask = domain.Interests(domain.InterestContemporaryArt)
+	heritage := place(2, domain.CategoryTourism, north(origin, 350))
+	heritage.Place.InterestMask = domain.Interests(domain.InterestClassicalArt)
+	social := place(3, domain.CategorySport, north(origin, 400))
+	social.Place.InterestMask = domain.Interests(domain.InterestScienceTech)
+
+	res := optimize(t, []domain.Candidate{avantgarde, heritage, social}, estimated(), func(r *domain.OptimizeRequest) {
+		r.Constraints.InterestMask = domain.Interests(domain.InterestContemporaryArt)
+	})
+	if len(res.Routes) != 3 || slices.Contains(warningCodes(res.Warnings), "FEWER_ARCHETYPES") {
+		t.Fatalf("routes %d warnings %v", len(res.Routes), warningCodes(res.Warnings))
+	}
+	wantPlace := map[domain.Archetype]domain.PlaceID{
+		domain.ArchetypeUrbanAvantgarde: {1},
+		domain.ArchetypeHistoryHeritage: {2},
+		domain.ArchetypeActionSocial:    {3},
+	}
+	for i, route := range res.Routes {
+		if route.Archetype != archetypes[i] {
+			t.Fatalf("route %d archetype %s, want %s", i, route.Archetype, archetypes[i])
+		}
+		target := wantPlace[route.Archetype]
+		if !slices.ContainsFunc(route.Steps, func(s domain.Step) bool {
+			return s.Catalog.PlaceID == target && hasSoftConstraint(s.AppliedConstraints, "ARCHETYPE_MATCH")
+		}) {
+			t.Fatalf("route %s steps %+v", route.Archetype, route.Steps)
+		}
+		for _, s := range route.Steps {
+			gotInterest := hasSoftConstraint(s.AppliedConstraints, "INTEREST_MATCH")
+			if wantInterest := s.Catalog.PlaceID == (domain.PlaceID{1}); gotInterest != wantInterest {
+				t.Fatalf("step at %v applied constraints %+v", s.Catalog.PlaceID, s.AppliedConstraints)
+			}
+		}
+	}
+
+	// When a high-value candidate carries tags of two archetypes, the colliding archetype falls back
+	// to a branch that introduces its own unvisited place.
+	shared := place(4, domain.CategoryCulture, north(origin, 250))
+	shared.Place.InterestMask = domain.Interests(domain.InterestContemporaryArt, domain.InterestClassicalArt)
+	southHeritage := place(5, domain.CategoryTourism, north(origin, -300))
+	southHeritage.Place.InterestMask = domain.Interests(domain.InterestClassicalArt)
+	res = optimize(t, []domain.Candidate{shared, southHeritage}, estimated(), nil)
+	if len(res.Routes) != 2 || res.Routes[0].Archetype != domain.ArchetypeUrbanAvantgarde || res.Routes[1].Archetype != domain.ArchetypeHistoryHeritage {
+		t.Fatalf("routes %+v", res.Routes)
+	}
+	if !slices.Contains(warningCodes(res.Warnings), "FEWER_ARCHETYPES") {
+		t.Fatalf("warnings %v", warningCodes(res.Warnings))
+	}
+}
+
+func hasSoftConstraint(cs []domain.AppliedConstraint, code string) bool {
+	return slices.ContainsFunc(cs, func(c domain.AppliedConstraint) bool {
+		return c.Code == code && c.Strength == domain.StrengthSoft && c.Outcome == domain.OutcomeSatisfied
+	})
 }
 
 func TestOptimizeWarnsAboutTravelCosts(t *testing.T) {

@@ -46,11 +46,12 @@ func (p *Planner) assemble(req domain.OptimizeRequest, policy pricing.Policy, r 
 		step := domain.Step{
 			VisitID: id, Kind: domain.StepVisit, Position: i + 1,
 			ArrivalAt: v.ArrivalAt, VisitStartAt: v.StartAt, VisitEndAt: v.EndAt, DepartureAt: v.EndAt,
-			MinDuration:   c.Window.MinDuration,
-			Obligation:    obligation != nil,
-			Participation: participation(c, obligation),
-			Catalog:       snapshot(c),
-			Cost:          &costs[i],
+			MinDuration:        c.Window.MinDuration,
+			Obligation:         obligation != nil,
+			Participation:      participation(c, obligation),
+			Catalog:            snapshot(c),
+			Cost:               &costs[i],
+			AppliedConstraints: softConstraints(c, r.archetype, req.Constraints.InterestMask),
 		}
 		if obligation != nil {
 			// No transition is verified yet, so reaching a committed session is always an estimate.
@@ -168,4 +169,21 @@ func snapshot(c *domain.Candidate) *domain.CatalogSnapshot {
 		s.SessionVersion = strconv.FormatInt(c.Session.Version, 10)
 	}
 	return s
+}
+
+func softConstraints(c *domain.Candidate, archetype domain.Archetype, interests domain.InterestMask) []domain.AppliedConstraint {
+	var out []domain.AppliedConstraint
+	if c.InterestMask().Matches(archetype.Mask()) > 0 {
+		out = append(out, domain.AppliedConstraint{
+			Code: "ARCHETYPE_MATCH", Strength: domain.StrengthSoft, Outcome: domain.OutcomeSatisfied,
+			Message: "The visit matches the route archetype",
+		})
+	}
+	if !interests.IsEmpty() && c.InterestMask().Matches(interests) > 0 {
+		out = append(out, domain.AppliedConstraint{
+			Code: "INTEREST_MATCH", Strength: domain.StrengthSoft, Outcome: domain.OutcomeSatisfied,
+			Message: "The visit matches the requested interests",
+		})
+	}
+	return out
 }

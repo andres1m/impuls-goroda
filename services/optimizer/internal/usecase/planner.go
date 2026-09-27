@@ -129,22 +129,9 @@ func (p *Planner) Optimize(ctx context.Context, req domain.OptimizeRequest) (dom
 		return done(domain.OptimizeResult{Status: domain.ResultConflict, Conflicts: conflicts})
 	}
 
-	routes, err := p.routes(ctx, s, problem, pool)
+	plans, err := p.plans(ctx, req, policy, s, problem, pool, degraded, data)
 	if err != nil {
 		return domain.OptimizeResult{}, err
-	}
-	var plans []domain.Plan
-	for _, route := range routes {
-		plan, in, err := p.assemble(req, policy, route, degraded, data)
-		if err != nil {
-			return domain.OptimizeResult{}, err
-		}
-		if violations := validation.Check(plan, in); len(violations) > 0 {
-			rejectedPlans.WithLabelValues(violations[0].Code).Inc()
-			p.log.Error("planned route failed validation", zap.String("archetype", string(route.archetype)), zap.Any("violations", violations))
-			continue
-		}
-		plans = append(plans, plan)
 	}
 
 	var warnings []domain.Warning
@@ -159,7 +146,11 @@ func (p *Planner) Optimize(ctx context.Context, req domain.OptimizeRequest) (dom
 			}
 			return done(domain.OptimizeResult{Status: domain.ResultConflict, Warnings: warnings, Conflicts: []domain.Conflict{obligationsInfeasible(obligations)}})
 		}
+		warnings = append(warnings, noFeasibleWarning(pool))
 		return done(domain.OptimizeResult{Status: domain.ResultNoFeasibleRoute, Warnings: warnings})
+	}
+	if len(plans) < len(archetypes) {
+		warnings = append(warnings, fewerArchetypesWarning())
 	}
 	status := domain.ResultPartial
 	if slices.ContainsFunc(plans, func(plan domain.Plan) bool { return plan.Result == domain.ResultReady }) {
@@ -173,35 +164,150 @@ type route struct {
 	branch    *domain.Branch
 }
 
-// routes runs one search per archetype and keeps each distinct sequence of visits once, under the
-// archetype that scored it highest.
-func (p *Planner) routes(ctx context.Context, s *solver.Solver, problem solver.Problem, pool []domain.Candidate) ([]route, error) {
-	var found []route
+type planned struct {
+	branch *domain.Branch
+	plan   domain.Plan
+}
+
+type archetypeBeam struct {
+	archetype domain.Archetype
+	branches  []*domain.Branch
+	next      int
+}
+
+func (p *Planner) plans(ctx context.Context, req domain.OptimizeRequest, policy pricing.Policy, s *solver.Solver, problem solver.Problem, pool []domain.Candidate, degraded bool, data domain.DataFreshness) ([]domain.Plan, error) {
+	beams := make([]archetypeBeam, 0, len(archetypes))
 	for _, a := range archetypes {
 		problem.Archetype = a
 		branches, err := s.Search(ctx, problem, pool)
 		if err != nil {
 			return nil, err
 		}
-		if len(branches) == 0 {
-			continue
-		}
-		best := branches[0]
-		i := slices.IndexFunc(found, func(r route) bool { return sameVisits(r.branch, best) })
-		switch {
-		case i < 0:
-			found = append(found, route{archetype: a, branch: best})
-		case best.Score > found[i].branch.Score:
-			found[i] = route{archetype: a, branch: best}
+		if len(branches) > 0 {
+			beams = append(beams, archetypeBeam{archetype: a, branches: branches})
 		}
 	}
-	return found, nil
+	selected := make([]*planned, len(beams))
+	for i := range beams {
+		mask := beams[i].archetype.Mask()
+		for beams[i].next < len(beams[i].branches) {
+			cand := beams[i].branches[beams[i].next]
+			beams[i].next++
+			if !hasArchetypeMatch(cand, mask) {
+				continue
+			}
+			prev := slices.IndexFunc(selected, func(other *planned) bool { return other != nil && sameVisits(other.branch, cand) })
+			if prev >= 0 && cand.Score <= selected[prev].branch.Score {
+				break
+			}
+			plan, ok, err := p.buildValid(req, policy, route{archetype: beams[i].archetype, branch: cand}, degraded, data)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				continue
+			}
+			if prev >= 0 {
+				selected[prev] = nil
+			}
+			selected[i] = &planned{branch: cand, plan: plan}
+			break
+		}
+	}
+	// When user interests or shared candidates dominate the top branch across beams, an archetype
+	// falls back to its next branch only if it introduces a visit of its own archetype not yet chosen.
+	for i := range beams {
+		if selected[i] != nil {
+			continue
+		}
+		mask := beams[i].archetype.Mask()
+		for ; beams[i].next < len(beams[i].branches); beams[i].next++ {
+			cand := beams[i].branches[beams[i].next]
+			if !contrasts(cand, mask, selected) {
+				continue
+			}
+			plan, ok, err := p.buildValid(req, policy, route{archetype: beams[i].archetype, branch: cand}, degraded, data)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				selected[i] = &planned{branch: cand, plan: plan}
+				break
+			}
+		}
+	}
+	var out []domain.Plan
+	for _, s := range selected {
+		if s != nil {
+			out = append(out, s.plan)
+		}
+	}
+	if len(out) > 0 {
+		return out, nil
+	}
+	return p.fallbackPlan(req, policy, beams, degraded, data)
+}
+
+func (p *Planner) fallbackPlan(req domain.OptimizeRequest, policy pricing.Policy, beams []archetypeBeam, degraded bool, data domain.DataFreshness) ([]domain.Plan, error) {
+	for _, b := range beams {
+		for _, cand := range b.branches {
+			plan, ok, err := p.buildValid(req, policy, route{archetype: b.archetype, branch: cand}, degraded, data)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				return []domain.Plan{plan}, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+func (p *Planner) buildValid(req domain.OptimizeRequest, policy pricing.Policy, r route, degraded bool, data domain.DataFreshness) (domain.Plan, bool, error) {
+	plan, in, err := p.assemble(req, policy, r, degraded, data)
+	if err != nil {
+		return domain.Plan{}, false, err
+	}
+	if violations := validation.Check(plan, in); len(violations) > 0 {
+		rejectedPlans.WithLabelValues(violations[0].Code).Inc()
+		p.log.Error("planned route failed validation", zap.String("archetype", string(r.archetype)), zap.Any("violations", violations))
+		return domain.Plan{}, false, nil
+	}
+	return plan, true, nil
+}
+
+func hasArchetypeMatch(cand *domain.Branch, mask domain.InterestMask) bool {
+	return slices.ContainsFunc(cand.Visits, func(v domain.SearchVisit) bool {
+		return v.Candidate.InterestMask().Matches(mask) > 0
+	})
+}
+
+func contrasts(cand *domain.Branch, mask domain.InterestMask, selected []*planned) bool {
+	for _, other := range selected {
+		if other != nil && sameVisits(other.branch, cand) {
+			return false
+		}
+	}
+	return slices.ContainsFunc(cand.Visits, func(v domain.SearchVisit) bool {
+		return v.Candidate.InterestMask().Matches(mask) > 0 && !visitedIn(v, selected)
+	})
+}
+
+func visitedIn(v domain.SearchVisit, selected []*planned) bool {
+	for _, s := range selected {
+		if s != nil && slices.ContainsFunc(s.branch.Visits, func(other domain.SearchVisit) bool { return sameVisit(v, other) }) {
+			return true
+		}
+	}
+	return false
 }
 
 func sameVisits(a, b *domain.Branch) bool {
-	return slices.EqualFunc(a.Visits, b.Visits, func(x, y domain.SearchVisit) bool {
-		return x.Candidate.Place.ID == y.Candidate.Place.ID && sessionOf(x.Candidate) == sessionOf(y.Candidate)
-	})
+	return slices.EqualFunc(a.Visits, b.Visits, sameVisit)
+}
+
+func sameVisit(a, b domain.SearchVisit) bool {
+	return a.Candidate.Place.ID == b.Candidate.Place.ID && sessionOf(a.Candidate) == sessionOf(b.Candidate)
 }
 
 func sessionOf(c *domain.Candidate) domain.SessionID {
@@ -273,5 +379,23 @@ func degradedWarning() domain.Warning {
 	return domain.Warning{
 		Code: "ROUTING_DEGRADED", Scope: domain.ScopeRoute,
 		Message: "Travel times are straight-line estimates; rivers and closed areas were not checked",
+	}
+}
+
+func fewerArchetypesWarning() domain.Warning {
+	return domain.Warning{
+		Code: "FEWER_ARCHETYPES", Scope: domain.ScopeRoute,
+		Message: "The candidate pool does not support three distinct archetype routes under the given constraints",
+	}
+}
+
+func noFeasibleWarning(pool []domain.Candidate) domain.Warning {
+	msg := "No candidate fits the time window, travel modes, and budget"
+	if len(pool) == 0 {
+		msg = "No available candidates match the requested constraints"
+	}
+	return domain.Warning{
+		Code: "NO_FEASIBLE_ROUTE", Scope: domain.ScopeRoute,
+		Message: msg,
 	}
 }

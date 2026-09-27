@@ -145,6 +145,7 @@ func (w *rework) fill(ctx context.Context, s *solver.Solver, transit solver.Tran
 			step: domain.Step{
 				VisitID: id, Kind: domain.StepVisit, ArrivalAt: v.ArrivalAt, VisitStartAt: v.StartAt, VisitEndAt: v.EndAt, DepartureAt: v.EndAt,
 				MinDuration: c.Window.MinDuration, Participation: participation(c, nil), Catalog: snapshot(c),
+				AppliedConstraints: softConstraints(c, w.req.Base.Archetype, w.req.Constraints.InterestMask),
 			},
 			candidate: c, transit: &transit, location: c.Place.Location, ahead: -1, fresh: true,
 		})
