@@ -81,6 +81,9 @@ func clockMinutes(value string, endOfDayAllowed bool) (int, error) {
 	if value == "24:00" && endOfDayAllowed {
 		return 24 * 60, nil
 	}
+	if len(value) != 5 {
+		return 0, fmt.Errorf("time %q is not HH:MM", value)
+	}
 	parsed, err := time.Parse("15:04", value)
 	if err != nil {
 		return 0, fmt.Errorf("time %q is not HH:MM", value)

@@ -33,6 +33,7 @@ func TestOpeningRulesValidate(t *testing.T) {
 		"overlap":          func(r *OpeningRules) { r.Weekly["tue"] = [][2]string{{"10:00", "14:00"}, {"13:00", "18:00"}} },
 		"unsorted":         func(r *OpeningRules) { r.Weekly["tue"] = [][2]string{{"14:00", "18:00"}, {"10:00", "12:00"}} },
 		"bad clock":        func(r *OpeningRules) { r.Weekly["tue"] = [][2]string{{"10:00", "25:00"}} },
+		"single-digit hour": func(r *OpeningRules) { r.Weekly["tue"] = [][2]string{{"9:00", "18:00"}} },
 		"bad closed date":  func(r *OpeningRules) { r.ClosedDates = []string{"05.10.2026"} },
 	}
 	for name, mutate := range cases {
