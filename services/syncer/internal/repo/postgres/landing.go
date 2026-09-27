@@ -24,9 +24,17 @@ func NewLanding(pool *pgxpool.Pool) *Landing {
 	return &Landing{pool: pool}
 }
 
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 func (l *Landing) EnsureSource(ctx context.Context, source domain.Source) (ingest.SourceID, error) {
+	return upsertSource(ctx, l.pool, source)
+}
+
+func upsertSource(ctx context.Context, q rowQuerier, source domain.Source) (ingest.SourceID, error) {
 	var id pgtype.UUID
-	err := l.pool.QueryRow(ctx, `
+	err := q.QueryRow(ctx, `
 		INSERT INTO integration.source
 			(id, source_key, name, documentation_url, access_mode, license_info, schema_version, is_enabled)
 		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, true)
