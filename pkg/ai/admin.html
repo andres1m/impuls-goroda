@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Модели</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 720px; margin: 32px auto; padding: 0 16px; color: #1d1d1f; background: #fafafa; }
+  section { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  h1 { font-size: 20px; } h2 { font-size: 16px; margin: 0 0 8px; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0 0 12px; }
+  dt { color: #666; } dd { margin: 0; font-family: ui-monospace, monospace; word-break: break-all; }
+  .row { display: flex; gap: 8px; } select { flex: 1; min-width: 0; padding: 6px; } button { padding: 6px 14px; }
+  .status { margin-top: 8px; min-height: 1.5em; } .error { color: #b00020; } .ok { color: #1b7f3b; }
+  .warn { background: #fff4e5; border-color: #f0c36d; }
+</style>
+</head>
+<body>
+<h1>Модели векторизации и текста</h1>
+<section id="key" class="warn" hidden>API-ключ не задан в конфиге: API-модели недоступны, выбрать модель эмбеддингов нельзя.</section>
+<section data-kind="embedding">
+  <h2>Эмбеддинги</h2>
+  <dl><dt>Провайдер</dt><dd data-field="provider"></dd><dt>Модель</dt><dd data-field="model"></dd><dt>Пространство</dt><dd data-field="space"></dd></dl>
+  <div class="row"><select></select><button>Выбрать</button></div>
+  <div class="status"></div>
+</section>
+<section data-kind="text">
+  <h2>Текст</h2>
+  <dl><dt>Провайдер</dt><dd data-field="provider"></dd><dt>Модель</dt><dd data-field="model"></dd></dl>
+  <div class="row"><select></select><button>Выбрать</button></div>
+  <div class="status"></div>
+</section>
+<script>
+const sections = document.querySelectorAll("section[data-kind]");
+
+function status(section, text, cls) {
+  const el = section.querySelector(".status");
+  el.textContent = text;
+  el.className = "status " + (cls || "");
+}
+
+function render(state) {
+  document.getElementById("key").hidden = state.api_key_set;
+  for (const section of sections) {
+    const view = state[section.dataset.kind];
+    section.querySelector('[data-field="provider"]').textContent = view.provider;
+    section.querySelector('[data-field="model"]').textContent = view.model;
+    const space = section.querySelector('[data-field="space"]');
+    if (space) space.textContent = view.space.key + " · " + view.space.version;
+    section.querySelector("select").value = view.model;
+  }
+}
+
+async function request(url, options) {
+  const resp = await fetch(url, options);
+  const body = await resp.json();
+  if (!resp.ok) throw new Error(body.error || resp.statusText);
+  return body;
+}
+
+async function loadModels(section, current) {
+  const select = section.querySelector("select");
+  const button = section.querySelector("button");
+  try {
+    const models = await request("/api/models?kind=" + section.dataset.kind);
+    select.replaceChildren(...models.map(m => new Option(m.name ? m.id + " — " + m.name : m.id, m.id)));
+    if (!models.some(m => m.id === current)) select.prepend(new Option(current, current));
+    select.value = current;
+    const selectable = models.length > 0;
+    select.disabled = button.disabled = !selectable;
+    if (!selectable) status(section, "Провайдер не предлагает моделей для выбора");
+  } catch (e) {
+    select.disabled = button.disabled = true;
+    status(section, "Список моделей недоступен: " + e.message, "error");
+  }
+}
+
+for (const section of sections) {
+  section.querySelector("button").addEventListener("click", async () => {
+    const model = section.querySelector("select").value;
+    status(section, "Проверяю модель…");
+    try {
+      const state = await request("/api/selection", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: section.dataset.kind, model }),
+      });
+      render(state);
+      status(section, "Выбрана " + model, "ok");
+    } catch (e) {
+      status(section, "Не выбрана: " + e.message, "error");
+    }
+  });
+}
+
+(async () => {
+  try {
+    const state = await request("/api/state");
+    await Promise.all([...sections].map(s => loadModels(s, state[s.dataset.kind].model)));
+    render(state);
+  } catch (e) {
+    for (const section of sections) status(section, "Состояние недоступно: " + e.message, "error");
+  }
+})();
+</script>
+</body>
+</html>
