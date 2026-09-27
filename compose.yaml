@@ -268,8 +268,25 @@ services:
       - routing-data:/data
       - ./docker/osrm/regions.conf:/etc/osrm/regions.conf:ro
       - ./docker/osrm/build.sh:/etc/osrm/build.sh:ro
+      - ./docker/osrm/scenic.conf:/etc/osrm/scenic.conf:ro
       - ./docker/osrm/fetch.sh:/scripts/fetch.sh:ro
     networks: [egress]
+    restart: "no"
+
+  # Turns the staged green and water areas into the optimizer's scenic layers.
+  scenic-grid:
+    build:
+      context: .
+      dockerfile: docker/optimizer/Dockerfile
+    image: impuls-goroda/optimizer:dev
+    profiles: [routing-build]
+    entrypoint: ["/app/scenic-grid"]
+    # The routing data volume is written by root, like the other build jobs.
+    user: "0:0"
+    volumes:
+      - routing-data:/data
+      - ./docker/osrm/scenic.conf:/etc/osrm/scenic.conf:ro
+    network_mode: none
     restart: "no"
 
   routing-build:

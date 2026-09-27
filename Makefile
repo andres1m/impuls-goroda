@@ -47,8 +47,9 @@ reset:
 	docker volume rm -f $$(docker compose config --volumes | grep -vx routing-data | sed 's/^/impuls-goroda_/')
 
 routing-data:
-	docker compose --profile routing-build build routing-fetch
+	docker compose --profile routing-build build routing-fetch scenic-grid
 	docker compose --profile routing-build run --rm routing-fetch
+	docker compose --profile routing-build run --rm scenic-grid
 	docker compose --profile routing-build run --rm routing-build
 	$(ROUTING) up -d --wait --force-recreate $(ROUTING_SERVICES)
 

@@ -15,7 +15,10 @@ COPY services/optimizer ./services/optimizer
 
 RUN CGO_ENABLED=1 GOOS=linux go build -tags netgo,osusergo -trimpath \
         -ldflags "-s -w -linkmode external -extldflags -static" \
-        -o /out/optimizer ./services/optimizer/cmd/optimizer
+        -o /out/optimizer ./services/optimizer/cmd/optimizer \
+    && CGO_ENABLED=1 GOOS=linux go build -tags netgo,osusergo -trimpath \
+        -ldflags "-s -w -linkmode external -extldflags -static" \
+        -o /out/scenic-grid ./services/optimizer/cmd/scenic-grid
 
 FROM scratch
 
@@ -24,6 +27,7 @@ COPY --from=build /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=build /tmp/passwd /etc/passwd
 COPY --from=build /tmp/group /etc/group
 COPY --from=build /out/optimizer /app/optimizer
+COPY --from=build /out/scenic-grid /app/scenic-grid
 
 WORKDIR /app
 USER 65532:65532

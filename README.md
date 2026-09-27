@@ -82,7 +82,7 @@ OpenStreetMap data (© OpenStreetMap contributors, ODbL). Its graphs are built
 once, before the first `make up` that should use them:
 
 ```sh
-make routing-data   # downloads extracts, builds graphs, starts osrm-foot and osrm-car
+make routing-data   # downloads extracts, builds graphs and scenic layers, starts osrm-foot and osrm-car
 ```
 
 The first run downloads the Geofabrik extracts of the federal districts that
@@ -92,8 +92,13 @@ Dijkstra); expect roughly half an hour and 4 GB of free memory while cutting the
 cities out. Later runs download an extract only if the mirror has a newer one
 and skip the build when that data version is already built.
 
+The same data version also yields each city's scenic layer: the green and water
+areas listed in `docker/osrm/scenic.conf` are measured per H3 resolution 8 cell
+by the optimizer's `scenic-grid` and stored as `scenic/<city>.csv`. The optimizer
+reads the layers when it starts, so restart it after a new version is built.
+
 Graphs are versioned by the timestamp of their OpenStreetMap data and a hash of
-the city list and build recipe, and kept in the `routing-data` volume; every
+the city list, build recipe and scenic area list, and kept in the `routing-data` volume; every
 router response reports that version as `data_version`; `current` points at the
 version the routers serve and the two newest built versions are kept. `make up` starts the routers only when graphs
 exist, so a fresh stand comes up without them. `make reset` keeps the volume;
