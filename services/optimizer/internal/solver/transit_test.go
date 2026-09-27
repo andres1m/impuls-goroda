@@ -2,6 +2,7 @@ package solver
 
 import (
 	"math"
+	"slices"
 	"testing"
 	"time"
 
@@ -50,8 +51,12 @@ func TestBaselineTransit(t *testing.T) {
 	}
 	for _, tc := range cases {
 		got, ok := transit.Estimate(origin, north(origin, tc.meters), at(10, 0), tc.modes)
-		if !ok || got.Mode != tc.mode || got.Duration != tc.duration || got.Verification != domain.VerificationEstimated {
+		if !ok || got.Mode != tc.mode || got.Duration != tc.duration || got.Verification != domain.VerificationUnknown {
 			t.Fatalf("%s: got %+v ok=%v", tc.name, got, ok)
+		}
+		if err := got.Evidence.Validate(); err != nil || got.Evidence.Mode != string(tc.mode) ||
+			!slices.Contains(got.Evidence.Limitations, "obstacles_not_checked") {
+			t.Fatalf("%s: evidence %+v: %v", tc.name, got.Evidence, err)
 		}
 		if math.Abs(got.DistanceMeters-tc.meters) > 1e-6 {
 			t.Fatalf("%s: distance %f", tc.name, got.DistanceMeters)

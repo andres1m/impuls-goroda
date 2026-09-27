@@ -11,6 +11,7 @@ type TransitEstimate struct {
 	DistanceMeters float64
 	Duration       time.Duration
 	Verification   VerificationStatus
+	Evidence       LegEvidence
 }
 
 // SearchVisit is a visit chosen by the search. Cost and visit identity are attached when the plan is built.

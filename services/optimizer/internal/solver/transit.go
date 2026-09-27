@@ -14,6 +14,7 @@ type Transit interface {
 }
 
 // BaselineTransit is a straight-line estimate that ignores the departure time, bridges and entrances.
+// It cannot tell whether a river or a fence lies in the way, so its estimates are unknown.
 type BaselineTransit struct {
 	params TransitParams
 }
@@ -25,7 +26,7 @@ func NewBaselineTransit(params TransitParams) (*BaselineTransit, error) {
 	return &BaselineTransit{params: params}, nil
 }
 
-func (t *BaselineTransit) Estimate(from, to domain.Coordinate, _ time.Time, modes []domain.MovementMode) (domain.TransitEstimate, bool) {
+func (t *BaselineTransit) Estimate(from, to domain.Coordinate, departAt time.Time, modes []domain.MovementMode) (domain.TransitEstimate, bool) {
 	walk := slices.Contains(modes, domain.MovementWalk)
 	transit := slices.Contains(modes, domain.MovementTransit)
 	d := distanceMeters(from, to)
@@ -45,7 +46,15 @@ func (t *BaselineTransit) Estimate(from, to domain.Coordinate, _ time.Time, mode
 		Mode:           mode,
 		DistanceMeters: d,
 		Duration:       time.Duration(math.Round(minutes*60)) * time.Second,
-		Verification:   domain.VerificationEstimated,
+		Verification:   domain.VerificationUnknown,
+		Evidence: domain.LegEvidence{
+			Provider: "optimizer",
+			Method:   "straight_line_formula",
+			// A formula observes nothing, so the estimate is dated by the departure it describes.
+			ObservedAt:  departAt,
+			Mode:        string(mode),
+			Limitations: []string{"obstacles_not_checked", "time_is_modelled"},
+		},
 	}, true
 }
 
