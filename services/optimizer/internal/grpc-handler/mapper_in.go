@@ -296,12 +296,6 @@ func constraintsFromProto(r *reader, field string, c *pb.RouteConstraints) domai
 			Limit: optionalMoney(b.GetLimit()),
 		}
 	}
-	if pbal := c.GetProgramBalance(); pbal != nil {
-		out.ProgramBalance = &domain.ProgramBalance{
-			Program: pbal.GetProgram(),
-			Balance: requiredMoney(r, join(field, "program_balance.balance"), pbal.GetBalance()),
-		}
-	}
 	for i, o := range c.GetObligations() {
 		f := index(join(field, "obligations"), i)
 		out.Obligations = append(out.Obligations, domain.Obligation{

@@ -43,7 +43,6 @@ func TestRouteConstraintsValidate(t *testing.T) {
 		{"lunch ends at start", func(c *RouteConstraints) { c.LunchWindow.End = c.LunchWindow.Start }, false},
 		{"lunch without duration", func(c *RouteConstraints) { c.LunchWindow.MinDuration = 0 }, false},
 		{"lunch longer than window", func(c *RouteConstraints) { c.LunchWindow.MinDuration = 2 * time.Hour }, false},
-		{"blank program balance", func(c *RouteConstraints) { c.ProgramBalance = &ProgramBalance{Balance: money(100)} }, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

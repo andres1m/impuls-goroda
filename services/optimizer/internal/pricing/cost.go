@@ -5,11 +5,11 @@ import "github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
 var unknownPrice = domain.UnknownCostComponent{Code: "PRICE_UNKNOWN", Message: "Ticket price is unknown"}
 
 // Cost prices the visits of a chosen route in order. A program payment is only an estimate:
-// the user's share stays unknown because nobody has confirmed the benefit applies.
+// the user's share stays unknown because nobody has confirmed the benefit applies or that
+// the program has enough money.
 func (p Policy) Cost(visits []*domain.Candidate) ([]domain.CostSnapshot, domain.CostSummary) {
 	zero := domain.Money{Currency: p.Currency}
 	summary := domain.CostSummary{KnownPersonal: zero, KnownTransport: zero, ProgramAmount: zero}
-	balance := newBalance(p.Balance)
 	snapshots := make([]domain.CostSnapshot, len(visits))
 	var lower, upper int64
 	allKnown := true
@@ -28,9 +28,9 @@ func (p Policy) Cost(visits []*domain.Candidate) ([]domain.CostSnapshot, domain.
 		default:
 			lower += *q.Price.LowerMinor
 			upper += top
-			if charge, ok := balance.charge(q.Program, top); ok {
-				s.ProgramAmount = &domain.Money{AmountMinor: charge, Currency: p.Currency}
-				summary.ProgramAmount.AmountMinor += charge
+			if q.Program != "" && top > 0 {
+				s.ProgramAmount = &domain.Money{AmountMinor: top, Currency: p.Currency}
+				summary.ProgramAmount.AmountMinor += top
 			} else if q.Price.Status != domain.PriceRange {
 				s.PersonalAmount = &domain.Money{AmountMinor: top, Currency: p.Currency}
 				summary.KnownPersonal.AmountMinor += top
@@ -82,34 +82,4 @@ func provenance(c *domain.Candidate, offer *domain.PriceOffer) domain.Provenance
 	default:
 		return c.Place.Provenance
 	}
-}
-
-type balance struct {
-	program string
-	// Nil when the user did not report a balance, so nothing caps the estimate.
-	left *int64
-}
-
-func newBalance(b *domain.ProgramBalance) *balance {
-	if b == nil {
-		return &balance{}
-	}
-	left := b.Balance.AmountMinor
-	return &balance{program: b.Program, left: &left}
-}
-
-// charge estimates what the program pays for a ticket; false means the user pays it all.
-func (b *balance) charge(program string, price int64) (int64, bool) {
-	if program == "" || price == 0 {
-		return 0, false
-	}
-	if program != b.program || b.left == nil {
-		return price, true
-	}
-	if *b.left == 0 {
-		return 0, false
-	}
-	paid := min(price, *b.left)
-	*b.left -= paid
-	return paid, true
 }

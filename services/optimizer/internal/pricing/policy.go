@@ -16,8 +16,6 @@ type Policy struct {
 	Budget   domain.Budget
 	// Programs the user can pay with.
 	Programs []string
-	// Reported by the user, so it only caps the estimated program payment.
-	Balance *domain.ProgramBalance
 	// Audiences the user claims, such as student.
 	Audiences          []string
 	PushkinCardOnly    bool
@@ -29,7 +27,6 @@ func PolicyFor(currency string, c domain.RouteConstraints) Policy {
 		Currency:           currency,
 		Budget:             c.Budget,
 		Programs:           c.BenefitPrograms,
-		Balance:            c.ProgramBalance,
 		Audiences:          c.AudienceClaims,
 		PushkinCardOnly:    c.PushkinCardOnly,
 		AcceptUnknownPrice: slices.Contains(c.AcceptedUnknowns, domain.AcceptUnknownPrice),
@@ -45,14 +42,6 @@ func (p Policy) Validate() error {
 	}
 	if p.Budget.Limit != nil && p.Budget.Limit.Currency != p.Currency {
 		return errors.New("budget currency differs from the route currency")
-	}
-	if p.Balance != nil {
-		if err := p.Balance.Validate(); err != nil {
-			return err
-		}
-		if p.Balance.Balance.Currency != p.Currency {
-			return errors.New("program balance currency differs from the route currency")
-		}
 	}
 	return nil
 }

@@ -320,7 +320,6 @@ func pbConstraints() *pb.RouteConstraints {
 		LoadProfile:        "moderate",
 		Budget:             &pb.Budget{Mode: pb.BudgetMode_BUDGET_MODE_STRICT, Limit: pbMoney(300000)},
 		BenefitPrograms:    []string{"pushkin_card"},
-		ProgramBalance:     &pb.ProgramBalance{Program: "pushkin_card", Balance: pbMoney(500000)},
 		AudienceClaims:     []string{"student"},
 		Obligations: []*pb.RouteObligation{
 			{SessionId: id(14), StartsAt: ts(10, 0), ArrivalBufferSeconds: 900, Participation: pb.ParticipationStatus_PARTICIPATION_STATUS_USER_REPORTED_CONFIRMED},
@@ -341,7 +340,6 @@ func domainConstraints() domain.RouteConstraints {
 		LoadProfile:        "moderate",
 		Budget:             domain.Budget{Mode: domain.BudgetStrict, Limit: moneyPtr(300000)},
 		BenefitPrograms:    []string{"pushkin_card"},
-		ProgramBalance:     &domain.ProgramBalance{Program: "pushkin_card", Balance: money(500000)},
 		AudienceClaims:     []string{"student"},
 		Obligations: []domain.Obligation{
 			{SessionID: &domain.SessionID{14}, StartsAt: tptr(at(10, 0)), ArrivalBuffer: 15 * time.Minute, Participation: domain.ParticipationUserReported},

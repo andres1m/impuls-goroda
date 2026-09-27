@@ -137,7 +137,6 @@ func TestRequestFieldErrors(t *testing.T) {
 		{"missing origin", optimize(func(r *pb.OptimizeRequest) { r.Origin = nil }), "origin"},
 		{"missing constraints", optimize(func(r *pb.OptimizeRequest) { r.Constraints = nil }), "constraints"},
 		{"missing budget", optimize(func(r *pb.OptimizeRequest) { r.Constraints.Budget = nil }), "constraints.budget"},
-		{"missing balance amount", optimize(func(r *pb.OptimizeRequest) { r.Constraints.ProgramBalance.Balance = nil }), "constraints.program_balance.balance"},
 		{"seconds overflow", optimize(func(r *pb.OptimizeRequest) { r.Constraints.LunchWindow.MinDurationSeconds = math.MaxInt64 }),
 			"constraints.lunch_window.min_duration_seconds"},
 		{"negative seconds overflow", optimize(func(r *pb.OptimizeRequest) { r.Constraints.Obligations[0].ArrivalBufferSeconds = math.MinInt64 }),

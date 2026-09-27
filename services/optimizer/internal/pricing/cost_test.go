@@ -50,7 +50,7 @@ func TestCostProgramShare(t *testing.T) {
 	}
 }
 
-func TestCostProgramBalance(t *testing.T) {
+func TestCostProgramPaysEveryTicket(t *testing.T) {
 	p := policy()
 	p.Programs = []string{domain.ProgramPushkinCard}
 	card := func(id byte, price int64) domain.Candidate {
@@ -58,24 +58,14 @@ func TestCostProgramBalance(t *testing.T) {
 		c.Place.ID = domain.PlaceID{id}
 		return c
 	}
-	cases := []struct {
-		name     string
-		balance  int64
-		personal [2]any
-		program  [2]any
-	}{
-		{"balance covers both", 100000, [2]any{nil, nil}, [2]any{int64(50000), int64(20000)}},
-		{"balance runs out on the second", 60000, [2]any{nil, nil}, [2]any{int64(50000), int64(10000)}},
-		{"balance used up by the first", 50000, [2]any{nil, int64(20000)}, [2]any{int64(50000), nil}},
-	}
-	for _, tc := range cases {
-		p.Balance = &domain.ProgramBalance{Program: domain.ProgramPushkinCard, Balance: rub(tc.balance)}
-		snapshots, _ := cost(t, p, card(1, 50000), card(2, 20000))
-		for i, s := range snapshots {
-			if amount(s.PersonalAmount) != tc.personal[i] || amount(s.ProgramAmount) != tc.program[i] {
-				t.Errorf("%s: visit %d personal=%v program=%v", tc.name, i, amount(s.PersonalAmount), amount(s.ProgramAmount))
-			}
+	snapshots, summary := cost(t, p, card(1, 50000), card(2, 20000))
+	for i, want := range []int64{50000, 20000} {
+		if s := snapshots[i]; s.PersonalAmount != nil || amount(s.ProgramAmount) != want {
+			t.Errorf("visit %d personal=%v program=%v", i, amount(s.PersonalAmount), amount(s.ProgramAmount))
 		}
+	}
+	if summary.ProgramAmount != rub(70000) || summary.KnownPersonal != rub(0) {
+		t.Fatalf("summary = %+v", summary)
 	}
 }
 

@@ -1079,20 +1079,6 @@ components:
         limit:
           $ref: '#/components/schemas/Money'
       description: limit is absent for none and required for advisory or strict mode.
-    ProgramBalance:
-      type: object
-      additionalProperties: false
-      required: [program, balance, evidence]
-      properties:
-        program:
-          type: string
-          minLength: 1
-          maxLength: 64
-        balance:
-          $ref: '#/components/schemas/Money'
-        evidence:
-          type: string
-          const: user_reported
     AudienceClaim:
       type: object
       additionalProperties: false
@@ -1175,8 +1161,6 @@ components:
             type: string
             minLength: 1
             maxLength: 64
-        program_balance:
-          $ref: '#/components/schemas/ProgramBalance'
         audience_claims:
           type: array
           uniqueItems: true

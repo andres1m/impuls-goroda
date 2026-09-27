@@ -10,13 +10,12 @@ func TestPolicyFor(t *testing.T) {
 	c := domain.RouteConstraints{
 		Budget:           strict(300000),
 		BenefitPrograms:  []string{domain.ProgramPushkinCard},
-		ProgramBalance:   &domain.ProgramBalance{Program: domain.ProgramPushkinCard, Balance: rub(100000)},
 		AudienceClaims:   []string{"student"},
 		AcceptedUnknowns: []string{"weather", domain.AcceptUnknownPrice},
 		PushkinCardOnly:  true,
 	}
 	p := PolicyFor("RUB", c)
-	if p.Currency != "RUB" || p.Budget.Mode != domain.BudgetStrict || p.Balance != c.ProgramBalance ||
+	if p.Currency != "RUB" || p.Budget.Mode != domain.BudgetStrict ||
 		len(p.Programs) != 1 || len(p.Audiences) != 1 || !p.PushkinCardOnly || !p.AcceptUnknownPrice {
 		t.Fatalf("policy = %+v", p)
 	}
@@ -36,10 +35,6 @@ func TestPolicyValidate(t *testing.T) {
 		"budget in other currency": func(p *Policy) {
 			p.Budget = domain.Budget{Mode: domain.BudgetStrict, Limit: &domain.Money{AmountMinor: 1, Currency: "EUR"}}
 		},
-		"balance in other currency": func(p *Policy) {
-			p.Balance = &domain.ProgramBalance{Program: domain.ProgramPushkinCard, Balance: domain.Money{Currency: "EUR"}}
-		},
-		"invalid balance": func(p *Policy) { p.Balance = &domain.ProgramBalance{Balance: rub(1)} },
 	}
 	for name, change := range cases {
 		p := policy()

@@ -43,19 +43,6 @@ func (b Budget) Validate() error {
 	}
 }
 
-// ProgramBalance is reported by the user and never proves that a benefit applies.
-type ProgramBalance struct {
-	Program string
-	Balance Money
-}
-
-func (b ProgramBalance) Validate() error {
-	if strings.TrimSpace(b.Program) == "" {
-		return errors.New("benefit program is required")
-	}
-	return b.Balance.Validate()
-}
-
 type ParticipationStatus string
 
 const (
@@ -127,7 +114,6 @@ type RouteConstraints struct {
 	LoadProfile        string
 	Budget             Budget
 	BenefitPrograms    []string
-	ProgramBalance     *ProgramBalance
 	AudienceClaims     []string
 	Obligations        []Obligation
 	SoftPreferences    []string
@@ -156,11 +142,6 @@ func (c RouteConstraints) Validate() error {
 	}
 	if err := c.Budget.Validate(); err != nil {
 		return err
-	}
-	if c.ProgramBalance != nil {
-		if err := c.ProgramBalance.Validate(); err != nil {
-			return err
-		}
 	}
 	for _, list := range []struct {
 		values []string

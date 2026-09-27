@@ -20,12 +20,6 @@ message Budget {
   Money limit = 2;
 }
 
-// The balance is always user-reported and never confirms a benefit by itself.
-message ProgramBalance {
-  string program = 1;
-  Money balance = 2;
-}
-
 message RouteObligation {
   bytes visit_id = 1;
   bytes session_id = 2;
@@ -42,13 +36,14 @@ message LunchWindow {
 
 // User-confirmed input. Movement modes, load profile, programs and audiences are open code lists.
 message RouteConstraints {
+  reserved 7;
+  reserved "program_balance";
   uint64 interest_mask = 1;
   repeated Category excluded_categories = 2;
   repeated string movement_modes = 3;
   string load_profile = 4;
   Budget budget = 5;
   repeated string benefit_programs = 6;
-  ProgramBalance program_balance = 7;
   // User-reported audience claims such as student or senior.
   repeated string audience_claims = 8;
   repeated RouteObligation obligations = 9;

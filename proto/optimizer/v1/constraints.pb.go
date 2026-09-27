@@ -127,59 +127,6 @@ func (x *Budget) GetLimit() *Money {
 	return nil
 }
 
-// The balance is always user-reported and never confirms a benefit by itself.
-type ProgramBalance struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Program       string                 `protobuf:"bytes,1,opt,name=program,proto3" json:"program,omitempty"`
-	Balance       *Money                 `protobuf:"bytes,2,opt,name=balance,proto3" json:"balance,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ProgramBalance) Reset() {
-	*x = ProgramBalance{}
-	mi := &file_optimizer_v1_constraints_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ProgramBalance) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ProgramBalance) ProtoMessage() {}
-
-func (x *ProgramBalance) ProtoReflect() protoreflect.Message {
-	mi := &file_optimizer_v1_constraints_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ProgramBalance.ProtoReflect.Descriptor instead.
-func (*ProgramBalance) Descriptor() ([]byte, []int) {
-	return file_optimizer_v1_constraints_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *ProgramBalance) GetProgram() string {
-	if x != nil {
-		return x.Program
-	}
-	return ""
-}
-
-func (x *ProgramBalance) GetBalance() *Money {
-	if x != nil {
-		return x.Balance
-	}
-	return nil
-}
-
 type RouteObligation struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
 	VisitId              []byte                 `protobuf:"bytes,1,opt,name=visit_id,json=visitId,proto3" json:"visit_id,omitempty"`
@@ -193,7 +140,7 @@ type RouteObligation struct {
 
 func (x *RouteObligation) Reset() {
 	*x = RouteObligation{}
-	mi := &file_optimizer_v1_constraints_proto_msgTypes[2]
+	mi := &file_optimizer_v1_constraints_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -205,7 +152,7 @@ func (x *RouteObligation) String() string {
 func (*RouteObligation) ProtoMessage() {}
 
 func (x *RouteObligation) ProtoReflect() protoreflect.Message {
-	mi := &file_optimizer_v1_constraints_proto_msgTypes[2]
+	mi := &file_optimizer_v1_constraints_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -218,7 +165,7 @@ func (x *RouteObligation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RouteObligation.ProtoReflect.Descriptor instead.
 func (*RouteObligation) Descriptor() ([]byte, []int) {
-	return file_optimizer_v1_constraints_proto_rawDescGZIP(), []int{2}
+	return file_optimizer_v1_constraints_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *RouteObligation) GetVisitId() []byte {
@@ -267,7 +214,7 @@ type LunchWindow struct {
 
 func (x *LunchWindow) Reset() {
 	*x = LunchWindow{}
-	mi := &file_optimizer_v1_constraints_proto_msgTypes[3]
+	mi := &file_optimizer_v1_constraints_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -279,7 +226,7 @@ func (x *LunchWindow) String() string {
 func (*LunchWindow) ProtoMessage() {}
 
 func (x *LunchWindow) ProtoReflect() protoreflect.Message {
-	mi := &file_optimizer_v1_constraints_proto_msgTypes[3]
+	mi := &file_optimizer_v1_constraints_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -292,7 +239,7 @@ func (x *LunchWindow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LunchWindow.ProtoReflect.Descriptor instead.
 func (*LunchWindow) Descriptor() ([]byte, []int) {
-	return file_optimizer_v1_constraints_proto_rawDescGZIP(), []int{3}
+	return file_optimizer_v1_constraints_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *LunchWindow) GetStartAt() *timestamppb.Timestamp {
@@ -325,7 +272,6 @@ type RouteConstraints struct {
 	LoadProfile        string                 `protobuf:"bytes,4,opt,name=load_profile,json=loadProfile,proto3" json:"load_profile,omitempty"`
 	Budget             *Budget                `protobuf:"bytes,5,opt,name=budget,proto3" json:"budget,omitempty"`
 	BenefitPrograms    []string               `protobuf:"bytes,6,rep,name=benefit_programs,json=benefitPrograms,proto3" json:"benefit_programs,omitempty"`
-	ProgramBalance     *ProgramBalance        `protobuf:"bytes,7,opt,name=program_balance,json=programBalance,proto3" json:"program_balance,omitempty"`
 	// User-reported audience claims such as student or senior.
 	AudienceClaims   []string           `protobuf:"bytes,8,rep,name=audience_claims,json=audienceClaims,proto3" json:"audience_claims,omitempty"`
 	Obligations      []*RouteObligation `protobuf:"bytes,9,rep,name=obligations,proto3" json:"obligations,omitempty"`
@@ -340,7 +286,7 @@ type RouteConstraints struct {
 
 func (x *RouteConstraints) Reset() {
 	*x = RouteConstraints{}
-	mi := &file_optimizer_v1_constraints_proto_msgTypes[4]
+	mi := &file_optimizer_v1_constraints_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -352,7 +298,7 @@ func (x *RouteConstraints) String() string {
 func (*RouteConstraints) ProtoMessage() {}
 
 func (x *RouteConstraints) ProtoReflect() protoreflect.Message {
-	mi := &file_optimizer_v1_constraints_proto_msgTypes[4]
+	mi := &file_optimizer_v1_constraints_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -365,7 +311,7 @@ func (x *RouteConstraints) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RouteConstraints.ProtoReflect.Descriptor instead.
 func (*RouteConstraints) Descriptor() ([]byte, []int) {
-	return file_optimizer_v1_constraints_proto_rawDescGZIP(), []int{4}
+	return file_optimizer_v1_constraints_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *RouteConstraints) GetInterestMask() uint64 {
@@ -406,13 +352,6 @@ func (x *RouteConstraints) GetBudget() *Budget {
 func (x *RouteConstraints) GetBenefitPrograms() []string {
 	if x != nil {
 		return x.BenefitPrograms
-	}
-	return nil
-}
-
-func (x *RouteConstraints) GetProgramBalance() *ProgramBalance {
-	if x != nil {
-		return x.ProgramBalance
 	}
 	return nil
 }
@@ -466,10 +405,7 @@ const file_optimizer_v1_constraints_proto_rawDesc = "" +
 	"\x1eoptimizer/v1/constraints.proto\x12\foptimizer.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x19optimizer/v1/values.proto\"a\n" +
 	"\x06Budget\x12,\n" +
 	"\x04mode\x18\x01 \x01(\x0e2\x18.optimizer.v1.BudgetModeR\x04mode\x12)\n" +
-	"\x05limit\x18\x02 \x01(\v2\x13.optimizer.v1.MoneyR\x05limit\"Y\n" +
-	"\x0eProgramBalance\x12\x18\n" +
-	"\aprogram\x18\x01 \x01(\tR\aprogram\x12-\n" +
-	"\abalance\x18\x02 \x01(\v2\x13.optimizer.v1.MoneyR\abalance\"\x83\x02\n" +
+	"\x05limit\x18\x02 \x01(\v2\x13.optimizer.v1.MoneyR\x05limit\"\x83\x02\n" +
 	"\x0fRouteObligation\x12\x19\n" +
 	"\bvisit_id\x18\x01 \x01(\fR\avisitId\x12\x1d\n" +
 	"\n" +
@@ -480,22 +416,21 @@ const file_optimizer_v1_constraints_proto_rawDesc = "" +
 	"\vLunchWindow\x125\n" +
 	"\bstart_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\astartAt\x121\n" +
 	"\x06end_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x05endAt\x120\n" +
-	"\x14min_duration_seconds\x18\x03 \x01(\x03R\x12minDurationSeconds\"\x96\x05\n" +
+	"\x14min_duration_seconds\x18\x03 \x01(\x03R\x12minDurationSeconds\"\xe6\x04\n" +
 	"\x10RouteConstraints\x12#\n" +
 	"\rinterest_mask\x18\x01 \x01(\x04R\finterestMask\x12G\n" +
 	"\x13excluded_categories\x18\x02 \x03(\x0e2\x16.optimizer.v1.CategoryR\x12excludedCategories\x12%\n" +
 	"\x0emovement_modes\x18\x03 \x03(\tR\rmovementModes\x12!\n" +
 	"\fload_profile\x18\x04 \x01(\tR\vloadProfile\x12,\n" +
 	"\x06budget\x18\x05 \x01(\v2\x14.optimizer.v1.BudgetR\x06budget\x12)\n" +
-	"\x10benefit_programs\x18\x06 \x03(\tR\x0fbenefitPrograms\x12E\n" +
-	"\x0fprogram_balance\x18\a \x01(\v2\x1c.optimizer.v1.ProgramBalanceR\x0eprogramBalance\x12'\n" +
+	"\x10benefit_programs\x18\x06 \x03(\tR\x0fbenefitPrograms\x12'\n" +
 	"\x0faudience_claims\x18\b \x03(\tR\x0eaudienceClaims\x12?\n" +
 	"\vobligations\x18\t \x03(\v2\x1d.optimizer.v1.RouteObligationR\vobligations\x12)\n" +
 	"\x10soft_preferences\x18\n" +
 	" \x03(\tR\x0fsoftPreferences\x12<\n" +
 	"\flunch_window\x18\v \x01(\v2\x19.optimizer.v1.LunchWindowR\vlunchWindow\x12+\n" +
 	"\x11accepted_unknowns\x18\f \x03(\tR\x10acceptedUnknowns\x12*\n" +
-	"\x11pushkin_card_only\x18\r \x01(\bR\x0fpushkinCardOnly*q\n" +
+	"\x11pushkin_card_only\x18\r \x01(\bR\x0fpushkinCardOnlyJ\x04\b\a\x10\bR\x0fprogram_balance*q\n" +
 	"\n" +
 	"BudgetMode\x12\x1b\n" +
 	"\x17BUDGET_MODE_UNSPECIFIED\x10\x00\x12\x14\n" +
@@ -516,37 +451,34 @@ func file_optimizer_v1_constraints_proto_rawDescGZIP() []byte {
 }
 
 var file_optimizer_v1_constraints_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_optimizer_v1_constraints_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_optimizer_v1_constraints_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_optimizer_v1_constraints_proto_goTypes = []any{
 	(BudgetMode)(0),               // 0: optimizer.v1.BudgetMode
 	(*Budget)(nil),                // 1: optimizer.v1.Budget
-	(*ProgramBalance)(nil),        // 2: optimizer.v1.ProgramBalance
-	(*RouteObligation)(nil),       // 3: optimizer.v1.RouteObligation
-	(*LunchWindow)(nil),           // 4: optimizer.v1.LunchWindow
-	(*RouteConstraints)(nil),      // 5: optimizer.v1.RouteConstraints
-	(*Money)(nil),                 // 6: optimizer.v1.Money
-	(*timestamppb.Timestamp)(nil), // 7: google.protobuf.Timestamp
-	(ParticipationStatus)(0),      // 8: optimizer.v1.ParticipationStatus
-	(Category)(0),                 // 9: optimizer.v1.Category
+	(*RouteObligation)(nil),       // 2: optimizer.v1.RouteObligation
+	(*LunchWindow)(nil),           // 3: optimizer.v1.LunchWindow
+	(*RouteConstraints)(nil),      // 4: optimizer.v1.RouteConstraints
+	(*Money)(nil),                 // 5: optimizer.v1.Money
+	(*timestamppb.Timestamp)(nil), // 6: google.protobuf.Timestamp
+	(ParticipationStatus)(0),      // 7: optimizer.v1.ParticipationStatus
+	(Category)(0),                 // 8: optimizer.v1.Category
 }
 var file_optimizer_v1_constraints_proto_depIdxs = []int32{
 	0,  // 0: optimizer.v1.Budget.mode:type_name -> optimizer.v1.BudgetMode
-	6,  // 1: optimizer.v1.Budget.limit:type_name -> optimizer.v1.Money
-	6,  // 2: optimizer.v1.ProgramBalance.balance:type_name -> optimizer.v1.Money
-	7,  // 3: optimizer.v1.RouteObligation.starts_at:type_name -> google.protobuf.Timestamp
-	8,  // 4: optimizer.v1.RouteObligation.participation:type_name -> optimizer.v1.ParticipationStatus
-	7,  // 5: optimizer.v1.LunchWindow.start_at:type_name -> google.protobuf.Timestamp
-	7,  // 6: optimizer.v1.LunchWindow.end_at:type_name -> google.protobuf.Timestamp
-	9,  // 7: optimizer.v1.RouteConstraints.excluded_categories:type_name -> optimizer.v1.Category
-	1,  // 8: optimizer.v1.RouteConstraints.budget:type_name -> optimizer.v1.Budget
-	2,  // 9: optimizer.v1.RouteConstraints.program_balance:type_name -> optimizer.v1.ProgramBalance
-	3,  // 10: optimizer.v1.RouteConstraints.obligations:type_name -> optimizer.v1.RouteObligation
-	4,  // 11: optimizer.v1.RouteConstraints.lunch_window:type_name -> optimizer.v1.LunchWindow
-	12, // [12:12] is the sub-list for method output_type
-	12, // [12:12] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	5,  // 1: optimizer.v1.Budget.limit:type_name -> optimizer.v1.Money
+	6,  // 2: optimizer.v1.RouteObligation.starts_at:type_name -> google.protobuf.Timestamp
+	7,  // 3: optimizer.v1.RouteObligation.participation:type_name -> optimizer.v1.ParticipationStatus
+	6,  // 4: optimizer.v1.LunchWindow.start_at:type_name -> google.protobuf.Timestamp
+	6,  // 5: optimizer.v1.LunchWindow.end_at:type_name -> google.protobuf.Timestamp
+	8,  // 6: optimizer.v1.RouteConstraints.excluded_categories:type_name -> optimizer.v1.Category
+	1,  // 7: optimizer.v1.RouteConstraints.budget:type_name -> optimizer.v1.Budget
+	2,  // 8: optimizer.v1.RouteConstraints.obligations:type_name -> optimizer.v1.RouteObligation
+	3,  // 9: optimizer.v1.RouteConstraints.lunch_window:type_name -> optimizer.v1.LunchWindow
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_optimizer_v1_constraints_proto_init() }
@@ -561,7 +493,7 @@ func file_optimizer_v1_constraints_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_optimizer_v1_constraints_proto_rawDesc), len(file_optimizer_v1_constraints_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   5,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
