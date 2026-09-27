@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/andres1m/impuls-goroda/pkg/config"
-	"github.com/andres1m/impuls-goroda/pkg/db"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/adapter/kudago"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/adapter/mkrf"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/adapter/osm"
@@ -57,20 +55,9 @@ func runIngest(ctx context.Context, args []string) error {
 		return err
 	}
 
-	var cfg appConfig
-	if err := config.Load(configPath, &cfg); err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-	zapLog, err := newLogger(cfg.Logger)
+	database, err := openDatabase(ctx)
 	if err != nil {
-		return fmt.Errorf("create logger: %w", err)
-	}
-	database, err := db.NewDb(zapLog.Log, cfg.Database)
-	if err != nil {
-		return fmt.Errorf("create db: %w", err)
-	}
-	if err := database.Init(ctx); err != nil {
-		return fmt.Errorf("connect db: %w", err)
+		return err
 	}
 	defer database.Stop(context.Background())
 

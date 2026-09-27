@@ -44,6 +44,13 @@ func main() {
 		return
 	}
 
+	if len(os.Args) > 1 && os.Args[1] == "seed" {
+		if err := runSeed(ctx, os.Args[2:]); err != nil {
+			log.Fatalf("seed: %v", err)
+		}
+		return
+	}
+
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		if err := healthcheck(ctx); err != nil {
 			log.Printf("healthcheck failed: %v", err)

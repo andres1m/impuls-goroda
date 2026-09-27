@@ -1,0 +1,377 @@
+dataset_version: "1"
+city: perm
+places:
+  - key: esplanade
+    kind: public_space
+    title: Эспланада
+    category: walk
+    tags: [city_walk]
+    lat: 58.0093034
+    lon: 56.2228252
+    opening_rules: &always
+      weekly:
+        mon: [["00:00", "24:00"]]
+        tue: [["00:00", "24:00"]]
+        wed: [["00:00", "24:00"]]
+        thu: [["00:00", "24:00"]]
+        fri: [["00:00", "24:00"]]
+        sat: [["00:00", "24:00"]]
+        sun: [["00:00", "24:00"]]
+      source_text: круглосуточно
+  - key: kama-embankment
+    kind: public_space
+    title: Набережная Камы
+    category: walk
+    tags: [city_walk, running_park]
+    lat: 58.0176403
+    lon: 56.2315981
+    opening_rules: *always
+  - key: gorky-park
+    kind: public_space
+    title: Парк Горького
+    category: walk
+    tags: [city_walk]
+    lat: 58.0049119
+    lon: 56.2476843
+    opening_rules: *always
+  - key: chernyaevsky-forest
+    kind: public_space
+    title: Черняевский лес
+    category: walk
+    tags: [running_park]
+    lat: 57.9811358
+    lon: 56.1508237
+    opening_rules: *always
+  - key: uralsky-svet
+    kind: venue
+    title: Арт-галерея «Уральский свет»
+    category: culture
+    tags: [contemporary_art]
+    lat: 58.0091223
+    lon: 56.2276404
+  - key: kama-hall
+    kind: venue
+    title: Лекторий «Кама»
+    category: culture
+    tags: [lectures_workshops]
+    lat: 58.0112132
+    lon: 56.2390841
+  - key: antrakt-stage
+    kind: venue
+    title: Театральная площадка «Антракт»
+    category: culture
+    tags: [performing_arts]
+    lat: 58.0061133
+    lon: 56.1995694
+  - key: pomol-cafe
+    kind: venue
+    title: Кофейня «Пермский помол»
+    category: gastro
+    tags: [gastro_coffee]
+    lat: 58.0107530
+    lon: 56.2490240
+    opening_rules:
+      weekly:
+        mon: [["08:00", "21:00"]]
+        tue: [["08:00", "21:00"]]
+        wed: [["08:00", "21:00"]]
+        thu: [["08:00", "21:00"]]
+        fri: [["08:00", "21:00"]]
+        sat: [["10:00", "21:00"]]
+        sun: []
+      source_text: пн–пт 08:00–21:00, сб 10:00–21:00, вс выходной
+  - key: kadr-cinema
+    kind: venue
+    title: Кинозал «Кадр»
+    category: culture
+    tags: [cinema]
+    lat: 58.0149167
+    lon: 56.2606767
+  - key: vmeste-center
+    kind: venue
+    title: Волонтёрский центр «Вместе»
+    category: volunteer
+    tags: [social_volunteer]
+    lat: 58.0053156
+    lon: 56.2393705
+  - key: start-ground
+    kind: venue
+    title: Спортплощадка «Старт»
+    category: sport
+    tags: [street_workout]
+    lat: 57.9566475
+    lon: 56.2424893
+  - key: stary-gorod-point
+    kind: venue
+    title: Точка сбора экскурсий «Старый город»
+    category: tourism
+    tags: [excursions]
+    lat: 58.0108677
+    lon: 56.2447700
+events:
+  - key: animal-style-exhibition
+    place: uralsky-svet
+    title: "Выставка «Звериный стиль: новые прочтения»"
+    category: culture
+    tags: [contemporary_art, classical_art]
+    organizer: Арт-галерея «Уральский свет»
+    sessions:
+      - key: daily
+        slot: window
+        start: "10:00"
+        end: "18:00"
+        min_duration: 1h
+        recommended_duration: 90m
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [350]
+            benefit_programs: [pushkin_card]
+          - audience: child
+            status: fixed
+            amount: [150]
+            tariff_label: Детский
+            eligibility_age: [7, 13]
+  - key: ural-mountains-lecture
+    place: kama-hall
+    title: Лекция «Как рождаются горы»
+    category: culture
+    tags: [lectures_workshops, science_tech]
+    organizer: Лекторий «Кама»
+    sessions:
+      - key: evening
+        slot: fixed
+        start: "17:00"
+        end: "18:30"
+        min_duration: 90m
+        buffer: 15m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: range
+            amount: [250, 450]
+          - audience: student
+            status: fixed
+            amount: [150]
+            tariff_label: Студенческий
+  - key: ceramics-workshop
+    place: kama-hall
+    title: Мастер-класс «Керамика для начинающих»
+    category: culture
+    tags: [lectures_workshops, contemporary_art]
+    organizer: Лекторий «Кама»
+    sessions:
+      - key: evening
+        slot: fixed
+        start: "17:30"
+        end: "19:00"
+        min_duration: 1h
+        recommended_duration: 90m
+        late_entry: true
+        last_entry: "17:45"
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: unknown
+  - key: inspector-general
+    place: antrakt-stage
+    title: Спектакль «Ревизор. Современная версия»
+    category: culture
+    tags: [performing_arts]
+    organizer: Театральная площадка «Антракт»
+    age_min: 18
+    sessions:
+      - key: evening
+        days: [0, 2, 3, 4, 5, 6]
+        slot: fixed
+        start: "19:00"
+        end: "21:00"
+        min_duration: 2h
+        buffer: 20m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [900]
+            benefit_programs: [pushkin_card]
+      - key: evening-cancelled
+        days: [1]
+        slot: fixed
+        start: "19:00"
+        end: "21:00"
+        min_duration: 2h
+        buffer: 20m
+        late_entry: false
+        access: ticket
+        availability: cancelled
+        cancellation_reason: Технические работы на площадке
+        prices:
+          - audience: general
+            status: fixed
+            amount: [900]
+            benefit_programs: [pushkin_card]
+  - key: kolobok
+    place: antrakt-stage
+    title: Детский спектакль «Колобок»
+    category: culture
+    tags: [performing_arts]
+    organizer: Театральная площадка «Антракт»
+    sessions:
+      - key: morning
+        days: [5, 6]
+        slot: fixed
+        start: "11:00"
+        end: "12:00"
+        min_duration: 1h
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: child
+            status: fixed
+            amount: [250]
+            tariff_label: Детский
+            eligibility_age: [3, 10]
+  - key: documentary-night
+    place: kadr-cinema
+    title: Кинопоказ «Документальное кино об Урале»
+    category: culture
+    tags: [cinema]
+    organizer: Кинозал «Кадр»
+    sessions:
+      - key: night
+        days: [0, 1, 2, 3, 4, 5]
+        slot: fixed
+        start: "20:00"
+        end: "22:00"
+        min_duration: 2h
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [300]
+      - key: night-sold-out
+        days: [6]
+        slot: fixed
+        start: "20:00"
+        end: "22:00"
+        min_duration: 2h
+        late_entry: false
+        access: ticket
+        availability: sold_out
+        prices:
+          - audience: general
+            status: fixed
+            amount: [300]
+  - key: herbal-tea-tasting
+    place: pomol-cafe
+    title: Дегустация «Иван-чай и травяные сборы»
+    category: gastro
+    tags: [gastro_coffee]
+    organizer: Кофейня «Пермский помол»
+    sessions:
+      - key: noon
+        days: [0, 1, 2, 3, 4, 5]
+        slot: fixed
+        start: "12:00"
+        end: "13:00"
+        min_duration: 1h
+        access: ticket
+        availability: unknown
+        prices:
+          - audience: general
+            status: fixed
+            amount: [500]
+  - key: books-for-libraries
+    place: vmeste-center
+    title: Смена «Сбор книг для сельских библиотек»
+    category: volunteer
+    tags: [social_volunteer]
+    organizer: Волонтёрский центр «Вместе»
+    sessions:
+      - key: morning
+        slot: fixed
+        start: "10:00"
+        end: "14:00"
+        min_duration: 4h
+        buffer: 15m
+        access: registration
+        registration_closes_before: 24h
+        availability: registration_required
+  - key: riverbank-cleanup
+    place: vmeste-center
+    title: Смена «Уборка берега Камы»
+    category: volunteer
+    tags: [eco_volunteer]
+    organizer: Волонтёрский центр «Вместе»
+    sessions:
+      - key: morning
+        slot: fixed
+        start: "09:00"
+        end: "12:00"
+        min_duration: 3h
+        access: registration
+        registration_closes_before: 48h
+        availability: sold_out
+  - key: morning-run
+    place: start-ground
+    title: Пробежка «5 км по району»
+    category: sport
+    tags: [running_park]
+    organizer: Спортплощадка «Старт»
+    sessions:
+      - key: morning
+        slot: fixed
+        start: "08:00"
+        end: "09:00"
+        min_duration: 1h
+        access: free
+        availability: available
+  - key: workout-basics
+    place: start-ground
+    title: Тренировка «Воркаут для начинающих»
+    category: sport
+    tags: [street_workout]
+    organizer: Спортплощадка «Старт»
+    sessions:
+      - key: evening
+        days: [1, 3, 5]
+        slot: fixed
+        start: "18:00"
+        end: "19:00"
+        min_duration: 1h
+        access: free
+        availability: available
+  - key: old-perm-tour
+    place: stary-gorod-point
+    title: Экскурсия «Старая Пермь»
+    category: tourism
+    tags: [excursions, classical_art]
+    organizer: Экскурсионное бюро «Старый город»
+    sessions:
+      - key: afternoon
+        slot: fixed
+        start: "15:00"
+        end: "17:00"
+        min_duration: 2h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: range
+            amount: [600, 1200]
+          - audience: senior
+            status: fixed
+            amount: [400]
+            tariff_label: Пенсионный

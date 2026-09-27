@@ -5,10 +5,12 @@ go 1.27.1
 require (
 	github.com/dgraph-io/ristretto/v2 v2.4.2
 	github.com/go-playground/validator/v10 v10.30.5
+	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/labstack/echo/v5 v5.3.1
 	github.com/prometheus/client_golang v1.24.1
 	github.com/redis/go-redis/v9 v9.22.0
+	github.com/uber/h3-go/v4 v4.5.0
 	go.temporal.io/sdk v1.49.0
 	go.uber.org/zap v1.28.0
 	golang.org/x/sync v0.23.0
@@ -29,7 +31,6 @@ require (
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/mock v1.6.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.4 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
