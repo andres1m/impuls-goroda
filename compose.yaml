@@ -255,7 +255,57 @@ services:
         condition: service_completed_successfully
       redis-init:
         condition: service_completed_successfully
-    networks: [app, data, cache, obs]
+    networks: [app, data, cache, obs, routing]
+    restart: unless-stopped
+
+  # Graphs are prepared once by `make routing-data`; see README.
+  routing-fetch:
+    build: docker/osrm/fetch
+    image: impuls-goroda/routing-fetch:dev
+    profiles: [routing-build]
+    entrypoint: ["/bin/sh", "/scripts/fetch.sh"]
+    volumes:
+      - routing-data:/data
+      - ./docker/osrm/regions.conf:/etc/osrm/regions.conf:ro
+      - ./docker/osrm/build.sh:/etc/osrm/build.sh:ro
+      - ./docker/osrm/fetch.sh:/scripts/fetch.sh:ro
+    networks: [egress]
+    restart: "no"
+
+  routing-build:
+    image: &osrm-image ghcr.io/project-osrm/osrm-backend:v6.0.0
+    profiles: [routing-build]
+    entrypoint: ["/bin/sh", "/scripts/build.sh"]
+    volumes:
+      - routing-data:/data
+      - ./docker/osrm/build.sh:/scripts/build.sh:ro
+    network_mode: none
+    restart: "no"
+
+  osrm-foot:
+    image: *osrm-image
+    profiles: [routing]
+    # The algorithm must match the one build.sh prepared the profile with.
+    command: ["osrm-routed", "--algorithm", "ch", "--max-table-size", "1000", "/data/current/foot/regions.osrm"]
+    volumes:
+      - routing-data:/data:ro
+    healthcheck: &osrm-healthcheck
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5000/nearest/v1/any/56.25,58.0 >/dev/null && wget -qO- http://127.0.0.1:5000/nearest/v1/any/37.62,55.75 >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    networks: [routing]
+    restart: unless-stopped
+
+  osrm-car:
+    image: *osrm-image
+    profiles: [routing]
+    command: ["osrm-routed", "--algorithm", "mld", "--max-table-size", "1000", "/data/current/car/regions.osrm"]
+    volumes:
+      - routing-data:/data:ro
+    healthcheck: *osrm-healthcheck
+    networks: [routing]
     restart: unless-stopped
 
   syncer:
@@ -334,6 +384,8 @@ networks:
     internal: true
   obs:
     internal: true
+  routing:
+    internal: true
 
 volumes:
   postgres-data:
@@ -341,3 +393,4 @@ volumes:
   redis-2-data:
   redis-3-data:
   kafka-data:
+  routing-data:

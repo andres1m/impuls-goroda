@@ -49,8 +49,8 @@ make up                # build images, start everything, wait until healthy
 
 `make up` starts PostgreSQL with PostGIS and pgvector, applies migrations,
 creates service login users, a three-master Redis Cluster, single-node Kafka
-(KRaft), Temporal with its UI, the three services, an nginx edge, Prometheus and
-Jaeger. Host ports are bound to 127.0.0.1 only:
+(KRaft), Temporal with its UI, the three services, an nginx edge, Prometheus,
+Jaeger and, once its graphs are built, the routing engine. Host ports are bound to 127.0.0.1 only:
 
 | Port  | Service |
 |-------|---------|
@@ -64,7 +64,7 @@ Migrations, service login users, the Redis Cluster and Temporal schema and
 namespace are set up by one-shot jobs; `make up` removes their containers once
 everything is healthy and runs them again on the next start, where they are
 no-ops unless something changed. `make down` stops the stand and keeps data;
-`make reset` also deletes volumes.
+`make reset` also deletes volumes, except the routing graphs.
 PostgreSQL passwords are fixed when its volume is first initialized, so after
 changing them in `.env` run `make reset`. `make logs`, `make ps` and
 `make migrate` are shortcuts for the corresponding compose commands.
@@ -74,6 +74,32 @@ CA certificates, time zones and an unprivileged user, without a shell. Container
 healthchecks therefore call the binary itself: `<service> healthcheck`.
 Configuration is mounted from `docker/<service>/config.yaml`; secrets come from
 the environment and are never baked into images.
+
+## Routing engine
+
+Travel times come from [OSRM](https://project-osrm.org/) running on
+OpenStreetMap data (© OpenStreetMap contributors, ODbL). Its graphs are built
+once, before the first `make up` that should use them:
+
+```sh
+make routing-data   # downloads extracts, builds graphs, starts osrm-foot and osrm-car
+```
+
+The first run downloads the Geofabrik extracts of the federal districts that
+contain the cities in `docker/osrm/regions.conf` (about 1.6 GB) and builds a
+walking graph (contraction hierarchies) and a driving graph (multi-level
+Dijkstra); expect roughly half an hour and 4 GB of free memory while cutting the
+cities out. Later runs download an extract only if the mirror has a newer one
+and skip the build when that data version is already built.
+
+Graphs are versioned by the timestamp of their OpenStreetMap data and a hash of
+the city list and build recipe, and kept in the `routing-data` volume; every
+router response reports that version as `data_version`; `current` points at the
+version the routers serve and the two newest built versions are kept. `make up` starts the routers only when graphs
+exist, so a fresh stand comes up without them. `make reset` keeps the volume;
+remove `impuls-goroda_routing-data` to drop the graphs. The routers listen only
+on the internal `routing` network. To serve another city, add a line to
+`docker/osrm/regions.conf` and run `make routing-data` again.
 
 ## Configuration
 
