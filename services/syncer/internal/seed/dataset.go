@@ -2,6 +2,7 @@ package seed
 
 import (
 	"bytes"
+	"embed"
 	"errors"
 	"fmt"
 	"regexp"
@@ -12,6 +13,9 @@ import (
 
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
 )
+
+//go:embed data/*.yaml
+var datasets embed.FS
 
 const horizonDays = 7
 
@@ -104,6 +108,21 @@ func Source(version string) domain.Source {
 		SchemaVersion: version,
 		DataMode:      domain.Synthetic,
 	}
+}
+
+func Load(city domain.City) (Dataset, error) {
+	raw, err := datasets.ReadFile("data/" + string(city) + ".yaml")
+	if err != nil {
+		return Dataset{}, fmt.Errorf("no seed dataset for %s: %w", city, err)
+	}
+	ds, err := parse(raw)
+	if err != nil {
+		return Dataset{}, fmt.Errorf("seed dataset %s: %w", city, err)
+	}
+	if ds.City != string(city) {
+		return Dataset{}, fmt.Errorf("seed dataset %s declares city %q", city, ds.City)
+	}
+	return ds, nil
 }
 
 func parse(raw []byte) (Dataset, error) {

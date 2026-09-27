@@ -1,0 +1,376 @@
+dataset_version: "1"
+city: moscow
+places:
+  - key: gorky-park
+    kind: public_space
+    title: Парк Горького
+    category: walk
+    tags: [city_walk, running_park]
+    lat: 55.7270939
+    lon: 37.6002408
+    opening_rules: &always
+      weekly:
+        mon: [["00:00", "24:00"]]
+        tue: [["00:00", "24:00"]]
+        wed: [["00:00", "24:00"]]
+        thu: [["00:00", "24:00"]]
+        fri: [["00:00", "24:00"]]
+        sat: [["00:00", "24:00"]]
+        sun: [["00:00", "24:00"]]
+      source_text: круглосуточно
+  - key: zaryadye-park
+    kind: public_space
+    title: Парк «Зарядье»
+    category: walk
+    tags: [city_walk, excursions]
+    lat: 55.7512173
+    lon: 37.6289346
+    opening_rules: *always
+  - key: sokolniki-park
+    kind: public_space
+    title: Парк Сокольники
+    category: walk
+    tags: [city_walk, running_park, street_workout]
+    lat: 55.7995292
+    lon: 37.6716294
+    opening_rules: *always
+  - key: nikolskaya-street
+    kind: public_space
+    title: Никольская улица
+    category: tourism
+    tags: [excursions, city_walk]
+    lat: 55.7570884
+    lon: 37.6223868
+    opening_rules: *always
+  - key: sintez-art
+    kind: venue
+    title: Арт-пространство «Синтез»
+    category: culture
+    tags: [contemporary_art]
+    lat: 55.7470871
+    lon: 37.5838138
+  - key: mayak-hall
+    kind: venue
+    title: Лекторий «Маяк»
+    category: culture
+    tags: [lectures_workshops]
+    lat: 55.7626754
+    lon: 37.6348456
+  - key: podval-stage
+    kind: venue
+    title: Театральная студия «Подвал»
+    category: culture
+    tags: [performing_arts]
+    lat: 55.7327094
+    lon: 37.6273297
+  - key: zerno-cafe
+    kind: venue
+    title: Кофейня «Зерно»
+    category: gastro
+    tags: [gastro_coffee]
+    lat: 55.7624599
+    lon: 37.6527448
+    opening_rules:
+      weekly:
+        mon: [["08:00", "22:00"]]
+        tue: [["08:00", "22:00"]]
+        wed: [["08:00", "22:00"]]
+        thu: [["08:00", "22:00"]]
+        fri: [["08:00", "22:00"]]
+        sat: [["09:00", "23:00"]]
+        sun: [["09:00", "23:00"]]
+      source_text: пн–пт 08:00–22:00, сб–вс 09:00–23:00
+  - key: kub-cinema
+    kind: venue
+    title: Кинозал «Куб»
+    category: culture
+    tags: [cinema]
+    lat: 55.7507781
+    lon: 37.6420898
+  - key: ruka-center
+    kind: venue
+    title: Волонтёрский центр «Рука помощи»
+    category: volunteer
+    tags: [social_volunteer]
+    lat: 55.7347434
+    lon: 37.6357695
+  - key: bereg-ground
+    kind: venue
+    title: Спортплощадка «Берег»
+    category: sport
+    tags: [street_workout, running_park]
+    lat: 55.7147748
+    lon: 37.5764704
+  - key: marshrut-point
+    kind: venue
+    title: Точка сбора экскурсий «Маршрут»
+    category: tourism
+    tags: [excursions]
+    lat: 55.7430633
+    lon: 37.6249757
+events:
+  - key: light-exhibition
+    place: sintez-art
+    title: Выставка «Свет и тень»
+    category: culture
+    tags: [contemporary_art]
+    organizer: Арт-пространство «Синтез»
+    sessions:
+      - key: daily
+        slot: window
+        start: "10:00"
+        end: "18:00"
+        min_duration: 1h
+        recommended_duration: 90m
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [500]
+            benefit_programs: [pushkin_card]
+          - audience: child
+            status: fixed
+            amount: [250]
+            tariff_label: Детский
+            eligibility_age: [7, 13]
+  - key: black-holes-lecture
+    place: mayak-hall
+    title: Лекция «Как устроены чёрные дыры»
+    category: culture
+    tags: [lectures_workshops, science_tech]
+    organizer: Лекторий «Маяк»
+    sessions:
+      - key: evening
+        slot: fixed
+        start: "17:00"
+        end: "18:30"
+        min_duration: 90m
+        buffer: 15m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: range
+            amount: [300, 600]
+          - audience: student
+            status: fixed
+            amount: [200]
+            tariff_label: Студенческий
+  - key: linocut-workshop
+    place: mayak-hall
+    title: Мастер-класс «Линогравюра»
+    category: culture
+    tags: [lectures_workshops, contemporary_art]
+    organizer: Лекторий «Маяк»
+    sessions:
+      - key: evening
+        slot: fixed
+        start: "17:30"
+        end: "19:00"
+        min_duration: 1h
+        recommended_duration: 90m
+        late_entry: true
+        last_entry: "17:45"
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: unknown
+  - key: three-sisters
+    place: podval-stage
+    title: Спектакль «Три сестры. Читка»
+    category: culture
+    tags: [performing_arts]
+    organizer: Театральная студия «Подвал»
+    age_min: 18
+    sessions:
+      - key: evening
+        days: [0, 2, 3, 4, 5, 6]
+        slot: fixed
+        start: "19:00"
+        end: "21:00"
+        min_duration: 2h
+        buffer: 20m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1200]
+            benefit_programs: [pushkin_card]
+      - key: evening-cancelled
+        days: [1]
+        slot: fixed
+        start: "19:00"
+        end: "21:00"
+        min_duration: 2h
+        buffer: 20m
+        late_entry: false
+        access: ticket
+        availability: cancelled
+        cancellation_reason: Болезнь исполнителя главной роли
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1200]
+            benefit_programs: [pushkin_card]
+  - key: teremok
+    place: podval-stage
+    title: Детский спектакль «Теремок»
+    category: culture
+    tags: [performing_arts]
+    organizer: Театральная студия «Подвал»
+    sessions:
+      - key: morning
+        days: [5, 6]
+        slot: fixed
+        start: "11:00"
+        end: "12:00"
+        min_duration: 1h
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: child
+            status: fixed
+            amount: [300]
+            tariff_label: Детский
+            eligibility_age: [3, 10]
+  - key: short-film-night
+    place: kub-cinema
+    title: Кинопоказ «Ночь короткого метра»
+    category: culture
+    tags: [cinema]
+    organizer: Кинозал «Куб»
+    sessions:
+      - key: night
+        days: [0, 1, 2, 3, 4, 5]
+        slot: fixed
+        start: "20:00"
+        end: "22:00"
+        min_duration: 2h
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [400]
+      - key: night-sold-out
+        days: [6]
+        slot: fixed
+        start: "20:00"
+        end: "22:00"
+        min_duration: 2h
+        late_entry: false
+        access: ticket
+        availability: sold_out
+        prices:
+          - audience: general
+            status: fixed
+            amount: [400]
+  - key: coffee-cupping
+    place: zerno-cafe
+    title: Каппинг «Кофе трёх континентов»
+    category: gastro
+    tags: [gastro_coffee]
+    organizer: Кофейня «Зерно»
+    sessions:
+      - key: noon
+        slot: fixed
+        start: "12:00"
+        end: "13:00"
+        min_duration: 1h
+        access: ticket
+        availability: unknown
+        prices:
+          - audience: general
+            status: fixed
+            amount: [700]
+  - key: food-sorting
+    place: ruka-center
+    title: Смена «Сортировка продуктов для фонда»
+    category: volunteer
+    tags: [social_volunteer]
+    organizer: Волонтёрский центр «Рука помощи»
+    sessions:
+      - key: morning
+        slot: fixed
+        start: "10:00"
+        end: "14:00"
+        min_duration: 4h
+        buffer: 15m
+        access: registration
+        registration_closes_before: 24h
+        availability: registration_required
+  - key: embankment-cleanup
+    place: ruka-center
+    title: Смена «Уборка набережной»
+    category: volunteer
+    tags: [eco_volunteer]
+    organizer: Волонтёрский центр «Рука помощи»
+    sessions:
+      - key: morning
+        slot: fixed
+        start: "09:00"
+        end: "12:00"
+        min_duration: 3h
+        access: registration
+        registration_closes_before: 48h
+        availability: sold_out
+  - key: river-run
+    place: bereg-ground
+    title: Пробежка «5 км вдоль реки»
+    category: sport
+    tags: [running_park]
+    organizer: Спортплощадка «Берег»
+    sessions:
+      - key: morning
+        slot: fixed
+        start: "08:00"
+        end: "09:00"
+        min_duration: 1h
+        access: free
+        availability: available
+  - key: workout-basics
+    place: bereg-ground
+    title: Тренировка «Воркаут для начинающих»
+    category: sport
+    tags: [street_workout]
+    organizer: Спортплощадка «Берег»
+    sessions:
+      - key: evening
+        days: [0, 2, 4]
+        slot: fixed
+        start: "18:00"
+        end: "19:00"
+        min_duration: 1h
+        access: free
+        availability: available
+  - key: kitay-gorod-tour
+    place: marshrut-point
+    title: Экскурсия «Тайны Китай-города»
+    category: tourism
+    tags: [excursions, classical_art]
+    organizer: Экскурсионное бюро «Маршрут»
+    sessions:
+      - key: afternoon
+        slot: fixed
+        start: "15:00"
+        end: "17:00"
+        min_duration: 2h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: range
+            amount: [800, 1500]
+          - audience: senior
+            status: fixed
+            amount: [500]
+            tariff_label: Пенсионный
