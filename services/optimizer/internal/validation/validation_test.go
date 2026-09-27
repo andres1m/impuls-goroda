@@ -54,6 +54,14 @@ func TestAllowedVariationsPass(t *testing.T) {
 			p.Steps[1].Obligation = true
 			p.Steps[1].Participation = domain.Participation{Status: domain.ParticipationProviderConfirmed, Evidence: domain.EvidenceProvider}
 		},
+		"repeated obligation for the same session": func(p *domain.Plan, in *Input) {
+			in.Constraints.Obligations = []domain.Obligation{
+				{SessionID: &domain.SessionID{2}, Participation: domain.ParticipationUserReported},
+				{SessionID: &domain.SessionID{2}, Participation: domain.ParticipationActionRequired},
+			}
+			p.Steps[1].Obligation = true
+			p.Steps[1].Participation = domain.Participation{Status: domain.ParticipationUserReported, Evidence: domain.EvidenceUser}
+		},
 		"obligation that names only a visit of another plan": func(_ *domain.Plan, in *Input) {
 			in.Constraints.Obligations = []domain.Obligation{{VisitID: &domain.VisitID{8}, Participation: domain.ParticipationActionRequired}}
 		},

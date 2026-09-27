@@ -34,7 +34,7 @@ func (WindowPlacement) Place(c *domain.Candidate, arrivalAt, deadline time.Time)
 }
 
 func placeFixed(w domain.VisitWindow, arrivalAt, deadline time.Time) (Slot, bool) {
-	if w.End.After(deadline) {
+	if w.End.After(deadline) || w.End.Sub(w.Start) < w.MinDuration {
 		return Slot{}, false
 	}
 	if !arrivalAt.Add(w.ArrivalBuffer).After(w.Start) {

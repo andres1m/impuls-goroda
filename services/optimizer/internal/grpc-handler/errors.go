@@ -25,6 +25,7 @@ var expectedErrors = []struct {
 	{usecase.ErrStaleCatalog, codes.FailedPrecondition},
 	{usecase.ErrUnavailable, codes.Unavailable},
 	{usecase.ErrOverloaded, codes.ResourceExhausted},
+	{usecase.ErrInvalidRequest, codes.InvalidArgument},
 	{context.Canceled, codes.Canceled},
 	{context.DeadlineExceeded, codes.DeadlineExceeded},
 }

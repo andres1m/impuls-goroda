@@ -166,10 +166,16 @@ func (c *checker) obligations() {
 			}
 		}
 	}
+	seen := make(map[domain.SessionID]struct{}, len(c.in.Constraints.Obligations))
 	for _, o := range c.in.Constraints.Obligations {
 		if o.SessionID == nil {
 			continue
 		}
+		// A repeated obligation adds nothing; the first one for a session is the one that counts.
+		if _, repeated := seen[*o.SessionID]; repeated {
+			continue
+		}
+		seen[*o.SessionID] = struct{}{}
 		i := slices.IndexFunc(c.plan.Steps, func(s domain.Step) bool {
 			return s.Catalog != nil && s.Catalog.SessionID != nil && *s.Catalog.SessionID == *o.SessionID
 		})

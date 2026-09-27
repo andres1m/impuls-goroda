@@ -30,3 +30,25 @@ ops-server:
   read-timeout: 5s
   write-timeout: 10s
   idle-timeout: 60s
+
+planner:
+  currency: RUB
+  # Starting values until the search is measured.
+  beam-width: 16
+  parallelism: 4
+
+routing:
+  request-timeout: 2s
+  snap-radius-meters: 500
+  cities:
+    perm: &city-routing
+      foot: http://osrm-foot:5000
+      car: http://osrm-car:5000
+      walk-threshold-meters: 1800
+      walk-meters-per-minute: 75
+      transit-wait-minutes: 12
+      transit-meters-per-minute: 300
+      # Pickup or parking and the congestion factor are team assumptions, not measurements.
+      car-overhead-minutes: 10
+      car-congestion-factor: 1.3
+    moscow: *city-routing

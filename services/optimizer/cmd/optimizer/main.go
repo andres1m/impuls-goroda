@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/andres1m/impuls-goroda/pkg/server"
 	"github.com/andres1m/impuls-goroda/pkg/svc"
 	grpchandler "github.com/andres1m/impuls-goroda/services/optimizer/internal/grpc-handler"
+	"github.com/andres1m/impuls-goroda/services/optimizer/internal/routing"
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/usecase"
 )
 
@@ -26,6 +28,8 @@ type appConfig struct {
 	Redis      config.Redis      `yaml:"redis"`
 	GRPCServer config.GRPCServer `yaml:"grpc-server"`
 	OpsServer  config.HTTPServer `yaml:"ops-server"`
+	Planner    usecase.Config    `yaml:"planner"`
+	Routing    routing.Config    `yaml:"routing"`
 }
 
 type infrastructureComponents struct {
@@ -60,7 +64,16 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("init infrastructure error: %w", err)
 	}
 
-	handler := grpchandler.NewHandler(infra.log.Log, usecase.NewPlanner())
+	router, err := routing.NewRouter(infra.cfg.Routing, routing.NewClient(&http.Client{}))
+	if err != nil {
+		return fmt.Errorf("init routing error: %w", err)
+	}
+	// Candidates come from the catalog once it can be read; until then every request is refused honestly.
+	planner, err := usecase.NewPlanner(infra.cfg.Planner, usecase.CatalogNotReady{}, router, infra.log.Log)
+	if err != nil {
+		return fmt.Errorf("init planner error: %w", err)
+	}
+	handler := grpchandler.NewHandler(infra.log.Log, planner)
 	infra.grpcServer.OnInit(func(s *rpc.Server) {
 		handler.Register(s.GetServer())
 	})

@@ -29,6 +29,7 @@ func TestToStatusCodes(t *testing.T) {
 		{"stale catalog", wrap(usecase.ErrStaleCatalog), codes.FailedPrecondition, usecase.ErrStaleCatalog.Error()},
 		{"unavailable", wrap(usecase.ErrUnavailable), codes.Unavailable, usecase.ErrUnavailable.Error()},
 		{"overloaded", wrap(usecase.ErrOverloaded), codes.ResourceExhausted, usecase.ErrOverloaded.Error()},
+		{"invalid request", wrap(usecase.ErrInvalidRequest), codes.InvalidArgument, usecase.ErrInvalidRequest.Error()},
 		{"canceled", wrap(context.Canceled), codes.Canceled, context.Canceled.Error()},
 		{"deadline", wrap(context.DeadlineExceeded), codes.DeadlineExceeded, context.DeadlineExceeded.Error()},
 		{"unknown", errors.New("pgx: connection reset at 10.0.0.5"), codes.Internal, "internal error"},

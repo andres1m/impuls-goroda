@@ -39,6 +39,7 @@ func TestWindowPlacement(t *testing.T) {
 	})
 	lateUntil := withWindow(lateAllowed, func(w *domain.VisitWindow) { w.LastEntryAt = ptr(at(15, 15)) })
 	unknownKind := withWindow(museum, func(w *domain.VisitWindow) { w.Kind = "flexible" })
+	tooShortSession := withWindow(concert, func(w *domain.VisitWindow) { w.MinDuration = 2 * time.Hour })
 
 	dayEnd := at(18, 0)
 	cases := []struct {
@@ -77,6 +78,7 @@ func TestWindowPlacement(t *testing.T) {
 		{"late entry leaves less than the minimum", lateAllowed, at(16, 1), dayEnd, Slot{}, false},
 		{"session ends after the deadline", concert, at(14, 0), at(16, 0), Slot{}, false},
 
+		{"session shorter than its minimum", tooShortSession, at(14, 0), dayEnd, Slot{}, false},
 		{"unknown window kind", unknownKind, at(12, 0), dayEnd, Slot{}, false},
 	}
 	for _, tc := range cases {

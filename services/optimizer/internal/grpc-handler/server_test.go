@@ -2,6 +2,7 @@ package grpchandler
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	pb "github.com/andres1m/impuls-goroda/proto/optimizer/v1"
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
+	"github.com/andres1m/impuls-goroda/services/optimizer/internal/solver"
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/usecase"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
@@ -114,7 +116,7 @@ func returning(o domain.OptimizeResult, r domain.RecomputeResult) fakePlanner {
 }
 
 func TestServerRejectsMalformedRequests(t *testing.T) {
-	srv := startServer(t, usecase.NewPlanner())
+	srv := startServer(t, catalogNotReady(t))
 	ctx := callContext(t)
 
 	in := pbOptimizeRequest()
@@ -138,11 +140,11 @@ func TestServerRejectsMalformedRequests(t *testing.T) {
 	requireViolation(t, err, "request")
 }
 
-func TestServerIsHonestlyUnimplemented(t *testing.T) {
-	srv := startServer(t, usecase.NewPlanner())
+func TestServerRefusesWithoutCatalog(t *testing.T) {
+	srv := startServer(t, catalogNotReady(t))
 	ctx := callContext(t)
 	_, err := srv.client.Optimize(ctx, pbOptimizeRequest())
-	requireCode(t, err, codes.Unimplemented)
+	requireCode(t, err, codes.FailedPrecondition)
 	_, err = srv.client.Recompute(ctx, pbRecomputeRequest())
 	requireCode(t, err, codes.Unimplemented)
 }
@@ -274,7 +276,7 @@ func TestServerMapsPlannerErrors(t *testing.T) {
 }
 
 func TestServerHealth(t *testing.T) {
-	srv := startServer(t, usecase.NewPlanner())
+	srv := startServer(t, catalogNotReady(t))
 	ctx := callContext(t)
 	for _, service := range []string{"", "optimizer.v1.OptimizerService"} {
 		out, err := srv.health.Check(ctx, &healthpb.HealthCheckRequest{Service: service})
@@ -285,7 +287,7 @@ func TestServerHealth(t *testing.T) {
 }
 
 func TestServerLogsRequests(t *testing.T) {
-	srv := startServer(t, usecase.NewPlanner())
+	srv := startServer(t, catalogNotReady(t))
 	ctx := metadata.AppendToOutgoingContext(callContext(t), "x-request-id", "req-42")
 	_, _ = srv.client.Optimize(ctx, pbOptimizeRequest())
 
@@ -300,7 +302,7 @@ func TestServerLogsRequests(t *testing.T) {
 		t.Fatalf("request logs = %+v", entries)
 	}
 	first := entries[0].ContextMap()
-	if first["request_id"] != "req-42" || first["code"] != codes.Unimplemented.String() || first["method"] != pb.OptimizerService_Optimize_FullMethodName {
+	if first["request_id"] != "req-42" || first["code"] != codes.FailedPrecondition.String() || first["method"] != pb.OptimizerService_Optimize_FullMethodName {
 		t.Fatalf("first log = %v", first)
 	}
 	if _, ok := first["duration"]; !ok {
@@ -319,4 +321,20 @@ func TestServerLogsRequests(t *testing.T) {
 			}
 		}
 	}
+}
+
+type noTransit struct{}
+
+func (noTransit) Transit(context.Context, string, []domain.Coordinate, []domain.MovementMode) (solver.Transit, bool, error) {
+	return nil, false, errors.New("no routing in this test")
+}
+
+// catalogNotReady is the planner the service runs until the catalog can be read.
+func catalogNotReady(t *testing.T) *usecase.Planner {
+	t.Helper()
+	p, err := usecase.NewPlanner(usecase.Config{Currency: "RUB", BeamWidth: 4, Parallelism: 1}, usecase.CatalogNotReady{}, noTransit{}, zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
 }

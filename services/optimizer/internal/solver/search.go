@@ -155,7 +155,18 @@ func (r searchRun) expand(parent *domain.Branch) []*domain.Branch {
 		visit := domain.SearchVisit{Candidate: c, Transit: leg, ArrivalAt: arrival, Buffer: slot.Buffer, StartAt: slot.StartAt, EndAt: slot.EndAt}
 		child := r.extend(parent, visit, finish, r.utilities[i], r.quotes[i])
 		if !r.anchorsReachable(child) {
-			continue
+			// A shorter stay in an open window may still leave time for the commitments ahead.
+			if c.Window.Kind != domain.WindowContinuous {
+				continue
+			}
+			short, shortFinish, ok := r.placeBy(c, arrival, slot.StartAt.Add(c.Window.MinDuration))
+			if !ok {
+				continue
+			}
+			visit.Buffer, visit.StartAt, visit.EndAt = short.Buffer, short.StartAt, short.EndAt
+			if child = r.extend(parent, visit, shortFinish, r.utilities[i], r.quotes[i]); !r.anchorsReachable(child) {
+				continue
+			}
 		}
 		children = append(children, child)
 	}
@@ -164,8 +175,13 @@ func (r searchRun) expand(parent *domain.Branch) []*domain.Branch {
 
 // place fits the visit into the day so that the destination, if any, is still reachable in time.
 func (r searchRun) place(c *domain.Candidate, arrival time.Time) (Slot, *domain.TransitEstimate, bool) {
+	return r.placeBy(c, arrival, r.problem.End)
+}
+
+// placeBy is place with the visit ending no later than deadline.
+func (r searchRun) placeBy(c *domain.Candidate, arrival, deadline time.Time) (Slot, *domain.TransitEstimate, bool) {
 	end := r.problem.End
-	slot, ok := r.placement.Place(c, arrival, end)
+	slot, ok := r.placement.Place(c, arrival, deadline)
 	if !ok || r.problem.Destination == nil {
 		return slot, nil, ok
 	}
@@ -177,7 +193,7 @@ func (r searchRun) place(c *domain.Candidate, arrival time.Time) (Slot, *domain.
 		return slot, &finish, true
 	}
 	// A shorter visit may leave enough time; the leg is re-estimated because it depends on when the user leaves.
-	if slot, ok = r.placement.Place(c, arrival, end.Add(-finish.Duration)); !ok {
+	if slot, ok = r.placement.Place(c, arrival, earlier(deadline, end.Add(-finish.Duration))); !ok {
 		return Slot{}, nil, false
 	}
 	if finish, ok = r.finish(c, slot.EndAt); !ok || slot.EndAt.Add(finish.Duration).After(end) {
@@ -249,4 +265,11 @@ func saturatingAdd(a, b int64) int64 {
 		return math.MaxInt64
 	}
 	return a + b
+}
+
+func earlier(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
 }

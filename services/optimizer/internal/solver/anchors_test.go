@@ -345,3 +345,22 @@ func TestTwoAnchorsAtOnePlace(t *testing.T) {
 		t.Fatalf("conflicts=%v err=%v", conflictCodes(conflicts), err)
 	}
 }
+
+func TestOpenWindowVisitShortensToKeepAnAnchor(t *testing.T) {
+	exhibition := withWindow(session(8, domain.CategoryCulture, north(origin, 300), at(10, 0), at(18, 0)), func(w *domain.VisitWindow) {
+		w.Kind, w.MinDuration, w.RecommendedDuration = domain.WindowContinuous, time.Hour, 2*time.Hour
+	})
+	concert := session(9, domain.CategoryCulture, north(origin, 600), at(12, 0), at(13, 30))
+	p := withAnchors(problem(), anchor(exhibition), anchor(concert))
+	p.End = at(14, 0)
+	for _, cfg := range []Config{greedy, wide} {
+		routes := search(t, cfg, p, nil)
+		requireSession(t, routes, 8)
+		requireSession(t, routes, 9)
+		for _, v := range routes[0].Visits {
+			if v.Candidate.Session.ID == (domain.SessionID{8}) && v.EndAt.Sub(v.StartAt) < time.Hour {
+				t.Fatalf("exhibition cut below its minimum: %s", v.EndAt.Sub(v.StartAt))
+			}
+		}
+	}
+}
