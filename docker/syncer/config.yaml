@@ -31,3 +31,19 @@ ops-server:
   read-timeout: 5s
   write-timeout: 10s
   idle-timeout: 60s
+
+ai:
+  openrouter:
+    base-url: https://openrouter.ai/api/v1
+    # `syncer embed` needs a key; the other commands run without one.
+    api-key: ${OPENROUTER_API_KEY}
+    timeout: 30s
+  embedding:
+    # openrouter | local (local is not implemented yet)
+    provider: openrouter
+    # Must match the optimizer's model, or its free-text search finds no vectors.
+    model: openai/text-embedding-3-small
+    dimensions: 384
+  text:
+    provider: openrouter
+    model: openai/gpt-4o-mini

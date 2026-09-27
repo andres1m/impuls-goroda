@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/andres1m/impuls-goroda/pkg/ai"
 	"github.com/andres1m/impuls-goroda/pkg/config"
 	"github.com/andres1m/impuls-goroda/pkg/db"
 	"github.com/andres1m/impuls-goroda/pkg/logger"
@@ -24,6 +25,7 @@ type appConfig struct {
 	Redis     config.Redis      `yaml:"redis"`
 	Temporal  config.Temporal   `yaml:"temporal"`
 	OpsServer config.HTTPServer `yaml:"ops-server"`
+	AI        ai.Config         `yaml:"ai"`
 }
 
 type infrastructureComponents struct {
@@ -47,6 +49,13 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "seed" {
 		if err := runSeed(ctx, os.Args[2:]); err != nil {
 			log.Fatalf("seed: %v", err)
+		}
+		return
+	}
+
+	if len(os.Args) > 1 && os.Args[1] == "embed" {
+		if err := runEmbed(ctx, os.Args[2:]); err != nil {
+			log.Fatalf("embed: %v", err)
 		}
 		return
 	}

@@ -339,6 +339,8 @@ services:
     image: impuls-goroda/syncer:dev
     environment:
       <<: *service-env
+      # Optional: only `syncer embed` uses it.
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
     volumes:
       - ./docker/syncer/config.yaml:/app/config.yaml:ro
     healthcheck:
