@@ -1,6 +1,7 @@
 package pricing
 
 import (
+	"math"
 	"testing"
 
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
@@ -12,7 +13,10 @@ func cost(t *testing.T, p Policy, visits ...domain.Candidate) ([]domain.CostSnap
 	for i := range visits {
 		refs[i] = &visits[i]
 	}
-	snapshots, summary := p.Cost(refs)
+	snapshots, summary, err := p.Cost(refs)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(snapshots) != len(visits) {
 		t.Fatalf("%d snapshots for %d visits", len(snapshots), len(visits))
 	}
@@ -159,5 +163,67 @@ func TestCostEmptyRoute(t *testing.T) {
 	p.Budget = strict(100000)
 	if _, summary := cost(t, p); summary.BudgetConclusion != domain.BudgetSatisfied || amount(summary.TotalUpper) != int64(0) {
 		t.Fatalf("summary = %+v", summary)
+	}
+}
+
+func TestCostProgramPaysUpperOfRange(t *testing.T) {
+	p := policy()
+	p.Programs = []string{domain.ProgramPushkinCard}
+	snapshots, summary := cost(t, p, concert(offer(1, between(10000, 30000), domain.AudienceGeneral, domain.ProgramPushkinCard)))
+	if s := snapshots[0]; s.PersonalAmount != nil || amount(s.ProgramAmount) != int64(30000) {
+		t.Fatalf("personal=%v program=%v", amount(s.PersonalAmount), amount(s.ProgramAmount))
+	}
+	if amount(summary.TotalLower) != int64(10000) || amount(summary.TotalUpper) != int64(30000) {
+		t.Fatalf("summary = %+v", summary)
+	}
+}
+
+func TestCostSnapshotDoesNotShareOfferID(t *testing.T) {
+	visit := concert(offer(1, fixed(50000), domain.AudienceGeneral))
+	snapshots, _ := cost(t, policy(), visit)
+	snapshots[0].PriceOfferID[0] = 9
+	if snapshots[0].PriceOfferID == &visit.Offers[0].ID {
+		t.Fatal("snapshot points into the catalog offer")
+	}
+}
+
+func TestCostRejectsInvalidPolicy(t *testing.T) {
+	p := policy()
+	p.Budget = domain.Budget{Mode: domain.BudgetStrict}
+	visit := concert(offer(1, fixed(50000), domain.AudienceGeneral))
+	if _, _, err := p.Cost([]*domain.Candidate{&visit}); err == nil {
+		t.Fatal("strict budget without a limit accepted")
+	}
+}
+
+func TestCostRejectsOverflow(t *testing.T) {
+	a := concert(offer(1, fixed(math.MaxInt64), domain.AudienceGeneral))
+	b := concert(offer(2, fixed(1), domain.AudienceGeneral))
+	if _, _, err := policy().Cost([]*domain.Candidate{&a, &b}); err == nil {
+		t.Fatal("overflowing route cost accepted")
+	}
+}
+
+func TestCostSatisfiesPlanBudgetRules(t *testing.T) {
+	budgets := []domain.Budget{
+		{Mode: domain.BudgetNone},
+		{Mode: domain.BudgetAdvisory, Limit: ptr(rub(30000))},
+		strict(100000),
+	}
+	routes := [][]domain.Candidate{
+		{concert(offer(1, fixed(40000), domain.AudienceGeneral))},
+		{museum(), concert(offer(1, fixed(40000), domain.AudienceGeneral))},
+	}
+	for _, budget := range budgets {
+		for _, visits := range routes {
+			p := policy()
+			p.Budget = budget
+			p.AcceptUnknownPrice = true
+			_, summary := cost(t, p, visits...)
+			plan := domain.Plan{Cost: summary, Steps: make([]domain.Step, len(visits))}
+			if err := plan.ValidateBudget(budget); err != nil {
+				t.Errorf("%s budget, %d visits: %v", budget.Mode, len(visits), err)
+			}
+		}
 	}
 }

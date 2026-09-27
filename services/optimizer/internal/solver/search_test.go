@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"slices"
 	"strings"
@@ -405,5 +406,53 @@ func TestSearchPushkinCardOnly(t *testing.T) {
 		if slices.Contains(placeIDs(r), 1) {
 			t.Fatalf("paid visit without the card in route %v", placeIDs(r))
 		}
+	}
+}
+
+func TestSearchKnownCostSaturates(t *testing.T) {
+	pool := []domain.Candidate{
+		priced(session(1, domain.CategoryCulture, north(origin, 100), at(11, 0), at(12, 0)), math.MaxInt64),
+		priced(session(2, domain.CategorySport, north(origin, 200), at(13, 0), at(14, 0)), 1),
+	}
+	routes := search(t, wide, withBudget(problem(), domain.BudgetAdvisory, 100000), pool)
+	for _, r := range routes {
+		if r.KnownCost.AmountMinor < 0 {
+			t.Fatalf("route %v cost overflowed to %d", placeIDs(r), r.KnownCost.AmountMinor)
+		}
+	}
+}
+
+func TestSearchRejectsInvalidDestination(t *testing.T) {
+	p := problem()
+	p.Destination = &domain.Coordinate{Longitude: origin.Longitude, Latitude: 91}
+	if _, err := newSolver(t, wide).Search(context.Background(), p, nil); err == nil {
+		t.Fatal("invalid destination accepted")
+	}
+}
+
+// noWayTo finds no leg that ends at blocked, like a destination across a closed bridge.
+type noWayTo struct {
+	Transit
+	blocked domain.Coordinate
+}
+
+func (n noWayTo) Estimate(from, to domain.Coordinate, departAt time.Time, modes []domain.MovementMode) (domain.TransitEstimate, bool) {
+	if to == n.blocked {
+		return domain.TransitEstimate{}, false
+	}
+	return n.Transit.Estimate(from, to, departAt, modes)
+}
+
+func TestSearchNeedsLegToDestination(t *testing.T) {
+	destination := north(origin, 500)
+	s, err := New(wide, DefaultScoreParams(), noWayTo{baseline(t, DefaultTransitParams()), destination}, WindowPlacement{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := problem()
+	p.Destination = &destination
+	routes, err := s.Search(context.Background(), p, []domain.Candidate{place(1, domain.CategoryCulture, 0, north(origin, 100))})
+	if err != nil || len(routes) != 0 {
+		t.Fatalf("routes=%v err=%v", routeKeys(routes), err)
 	}
 }

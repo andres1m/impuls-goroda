@@ -1,13 +1,21 @@
 package pricing
 
-import "github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
+import (
+	"errors"
+	"math"
+
+	"github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
+)
 
 var unknownPrice = domain.UnknownCostComponent{Code: "PRICE_UNKNOWN", Message: "Ticket price is unknown"}
 
 // Cost prices the visits of a chosen route in order. A program payment is only an estimate:
 // the user's share stays unknown because nobody has confirmed the benefit applies or that
 // the program has enough money.
-func (p Policy) Cost(visits []*domain.Candidate) ([]domain.CostSnapshot, domain.CostSummary) {
+func (p Policy) Cost(visits []*domain.Candidate) ([]domain.CostSnapshot, domain.CostSummary, error) {
+	if err := p.Validate(); err != nil {
+		return nil, domain.CostSummary{}, err
+	}
 	zero := domain.Money{Currency: p.Currency}
 	summary := domain.CostSummary{KnownPersonal: zero, KnownTransport: zero, ProgramAmount: zero}
 	snapshots := make([]domain.CostSnapshot, len(visits))
@@ -17,15 +25,21 @@ func (p Policy) Cost(visits []*domain.Candidate) ([]domain.CostSnapshot, domain.
 		q := p.priced(c)
 		s := domain.CostSnapshot{Price: q.Price, Provenance: provenance(c, q.Offer)}
 		if q.Offer != nil {
-			s.PriceOfferID = &q.Offer.ID
+			id := q.Offer.ID
+			s.PriceOfferID = &id
 			s.Audience = q.Offer.Audience
 		}
-		top, known := q.upper()
+		bound, known := q.Price.UpperBound()
+		top := bound.AmountMinor
 		switch {
 		case !known:
 			allKnown = false
 			s.UnknownComponents = []domain.UnknownCostComponent{unknownPrice}
 		default:
+			// Every other sum is bounded by the upper total, so checking it alone is enough.
+			if top > math.MaxInt64-upper {
+				return nil, domain.CostSummary{}, errors.New("route cost overflows")
+			}
 			lower += *q.Price.LowerMinor
 			upper += top
 			if q.Program != "" && top > 0 {
@@ -45,7 +59,7 @@ func (p Policy) Cost(visits []*domain.Candidate) ([]domain.CostSnapshot, domain.
 		summary.UnknownComponents = []domain.UnknownCostComponent{unknownPrice}
 	}
 	summary.BudgetConclusion = p.conclude(allKnown, upper)
-	return snapshots, summary
+	return snapshots, summary, nil
 }
 
 // priced still prices a visit the constraints would exclude, so an older plan gets an honest cost.

@@ -55,13 +55,6 @@ type Quote struct {
 	Program string
 }
 
-func (q Quote) upper() (int64, bool) {
-	if q.Price.Status == domain.PriceUnknown || q.Price.UpperMinor == nil {
-		return 0, false
-	}
-	return *q.Price.UpperMinor, true
-}
-
 // Quote prices the visit; false means the route's constraints exclude it.
 func (p Policy) Quote(c *domain.Candidate) (Quote, bool) {
 	offers := p.applicable(c)
@@ -78,7 +71,7 @@ func (p Policy) Quote(c *domain.Candidate) (Quote, bool) {
 		q.Price = q.Offer.Price
 		q.Program = p.program(q.Offer)
 	}
-	if _, known := q.upper(); !known && !p.AcceptUnknownPrice && (p.Budget.Mode == domain.BudgetStrict || p.PushkinCardOnly) {
+	if _, known := q.Price.UpperBound(); !known && !p.AcceptUnknownPrice && (p.Budget.Mode == domain.BudgetStrict || p.PushkinCardOnly) {
 		return Quote{}, false
 	}
 	return q, true
@@ -113,15 +106,15 @@ func coveredByCard(o *domain.PriceOffer) bool {
 }
 
 func compareOffers(a, b *domain.PriceOffer) int {
-	ua, knownA := Quote{Price: a.Price}.upper()
-	ub, knownB := Quote{Price: b.Price}.upper()
+	ua, knownA := a.Price.UpperBound()
+	ub, knownB := b.Price.UpperBound()
 	switch {
 	case knownA && !knownB:
 		return -1
 	case !knownA && knownB:
 		return 1
-	case knownA && ua != ub:
-		if ua < ub {
+	case knownA && ua.AmountMinor != ub.AmountMinor:
+		if ua.AmountMinor < ub.AmountMinor {
 			return -1
 		}
 		return 1
@@ -140,9 +133,9 @@ func (p Policy) program(o *domain.PriceOffer) string {
 
 // Fits reports whether a strict budget still holds after spent plus this visit's upper price.
 func (p Policy) Fits(spent domain.Money, q Quote) bool {
-	upper, known := q.upper()
+	upper, known := q.Price.UpperBound()
 	if p.Budget.Mode != domain.BudgetStrict || !known {
 		return true
 	}
-	return upper <= p.Budget.Limit.AmountMinor-spent.AmountMinor
+	return upper.AmountMinor <= p.Budget.Limit.AmountMinor-spent.AmountMinor
 }

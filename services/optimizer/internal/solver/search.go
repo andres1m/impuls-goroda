@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"time"
 
@@ -167,7 +168,7 @@ func (r searchRun) extend(parent *domain.Branch, visit domain.SearchVisit, finis
 	child.Score += r.score.finishPenalty(parent.Finish) - r.score.finishPenalty(finish)
 	child.Finish = finish
 	if upper, known := quote.Price.UpperBound(); known {
-		child.KnownCost.AmountMinor += upper.AmountMinor
+		child.KnownCost.AmountMinor = saturatingAdd(child.KnownCost.AmountMinor, upper.AmountMinor)
 	} else {
 		child.UnknownCost = true
 	}
@@ -208,4 +209,13 @@ func sessionKey(v domain.SearchVisit) []byte {
 		return nil
 	}
 	return v.Candidate.Session.ID[:]
+}
+
+// saturatingAdd adds non-negative amounts. A capped sum only matters to a strict budget,
+// which rejects it anyway.
+func saturatingAdd(a, b int64) int64 {
+	if b > math.MaxInt64-a {
+		return math.MaxInt64
+	}
+	return a + b
 }

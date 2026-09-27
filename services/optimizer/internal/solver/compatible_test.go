@@ -67,3 +67,11 @@ func TestCompatibleRejectsInvalidInput(t *testing.T) {
 		t.Fatal("invalid candidate accepted")
 	}
 }
+
+func TestCompatibleSamePlace(t *testing.T) {
+	morning := withWindow(place(1, domain.CategoryCulture, 0, origin), func(w *domain.VisitWindow) { w.End = at(12, 0) })
+	evening := withWindow(place(1, domain.CategoryCulture, 0, origin), func(w *domain.VisitWindow) { w.Start = at(15, 0) })
+	if compatible(t, morning, evening) {
+		t.Fatal("a route visits a place only once")
+	}
+}

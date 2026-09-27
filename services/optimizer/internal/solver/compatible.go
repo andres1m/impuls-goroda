@@ -7,7 +7,7 @@ import (
 )
 
 // Compatible reports whether both visits fit into one route in some order, ignoring every
-// other visit, the way from the origin and the destination.
+// other visit, the way from the origin and the destination. A route visits a place once.
 func (s *Solver) Compatible(p Problem, a, b *domain.Candidate) (bool, error) {
 	if err := p.Validate(); err != nil {
 		return false, err
@@ -16,6 +16,9 @@ func (s *Solver) Compatible(p Problem, a, b *domain.Candidate) (bool, error) {
 		if err := c.Validate(); err != nil {
 			return false, fmt.Errorf("candidate %d: %w", i, err)
 		}
+	}
+	if a.Place.ID == b.Place.ID {
+		return false, nil
 	}
 	return s.canFollow(p, a, b) || s.canFollow(p, b, a), nil
 }
