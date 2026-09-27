@@ -235,8 +235,8 @@ func (r searchRun) extend(parent *domain.Branch, visit domain.SearchVisit, finis
 	c := visit.Candidate
 	category := c.Category()
 	wait := visit.StartAt.Sub(visit.ArrivalAt) - visit.Buffer
-	child.Score += r.score.gain(utility, wait, visit.Transit.Duration, child.CountCategory(category))
-	child.Score += r.score.finishPenalty(parent.Finish) - r.score.finishPenalty(finish)
+	child.Score += r.score.gain(utility, wait, r.travelPenalty(parent.Position, c.Place.Location, visit.Transit), child.CountCategory(category))
+	child.Score += r.finishPenalty(parent.Position, parent.Finish) - r.finishPenalty(c.Place.Location, finish)
 	child.Finish = finish
 	if upper, known := quote.Price.UpperBound(); known {
 		child.KnownCost.AmountMinor = saturatingAdd(child.KnownCost.AmountMinor, upper.AmountMinor)

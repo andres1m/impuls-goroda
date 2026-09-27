@@ -25,6 +25,8 @@ type Problem struct {
 	Visited []domain.PlaceID
 	// Lunch every route must reserve; nil when the user asked for none.
 	Lunch *LunchSlot
+	// Rates walks for the scenic part of the score; nil scores no walk as scenic.
+	Scenic Scenic
 }
 
 func (p Problem) Validate() error {

@@ -15,11 +15,17 @@ import (
 	"github.com/andres1m/impuls-goroda/pkg/rpc"
 	"github.com/andres1m/impuls-goroda/pkg/server"
 	"github.com/andres1m/impuls-goroda/pkg/svc"
+	"github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
 	grpchandler "github.com/andres1m/impuls-goroda/services/optimizer/internal/grpc-handler"
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/repo/postgres"
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/routing"
+	"github.com/andres1m/impuls-goroda/services/optimizer/internal/scenic"
+	"github.com/andres1m/impuls-goroda/services/optimizer/internal/solver"
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/usecase"
 	"github.com/jackc/pgx/v5"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"go.uber.org/zap"
 )
 
 const configPath = "config.yaml"
@@ -32,6 +38,45 @@ type appConfig struct {
 	OpsServer  config.HTTPServer `yaml:"ops-server"`
 	Planner    usecase.Config    `yaml:"planner"`
 	Routing    routing.Config    `yaml:"routing"`
+	Scenic     scenicConfig      `yaml:"scenic"`
+}
+
+type scenicConfig struct {
+	// Where the routing data build leaves the cities' layers of green and water areas.
+	LayerDir string `yaml:"layer-dir"`
+}
+
+var scenicLayerCells = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Name: "optimizer_scenic_layer_cells",
+	Help: "Cells of each city's green and water layer loaded at start; a city without one scores walks by the catalog alone.",
+}, []string{"city"})
+
+type scenicProvider struct {
+	source *scenic.Source
+}
+
+func (p scenicProvider) Scenic(ctx context.Context, city string, revision domain.CatalogRevision) (solver.Scenic, error) {
+	grid, err := p.source.Grid(ctx, city, revision)
+	if err != nil {
+		return nil, err
+	}
+	return grid, nil
+}
+
+// loadScenicLayers never stops the service: without layers, walks are scored by the catalog alone.
+func loadScenicLayers(cfg appConfig, log *zap.Logger) map[string]scenic.Shares {
+	layers, err := scenic.LoadLayers(cfg.Scenic.LayerDir)
+	if err != nil {
+		log.Warn("scenic layers are not loaded", zap.Error(err))
+		layers = nil
+	}
+	for city := range cfg.Planner.ScenicWeights {
+		scenicLayerCells.WithLabelValues(city).Set(float64(len(layers[city])))
+		if _, ok := layers[city]; !ok {
+			log.Warn("city has no scenic layer; walks are scored by the catalog alone", zap.String("city", city))
+		}
+	}
+	return layers
 }
 
 type infrastructureComponents struct {
@@ -93,7 +138,8 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("init routing error: %w", err)
 	}
 	catalog := postgres.NewCatalog(poolQuerier{client: infra.pool})
-	planner, err := usecase.NewPlanner(infra.cfg.Planner, catalog, router, infra.log.Log)
+	scenicSource := scenic.NewSource(catalog, loadScenicLayers(*infra.cfg, infra.log.Log))
+	planner, err := usecase.NewPlanner(infra.cfg.Planner, catalog, router, infra.log.Log, usecase.WithScenic(scenicProvider{source: scenicSource}))
 	if err != nil {
 		return fmt.Errorf("init planner error: %w", err)
 	}

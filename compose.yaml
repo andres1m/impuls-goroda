@@ -247,6 +247,7 @@ services:
       <<: *service-env
     volumes:
       - ./docker/optimizer/config.yaml:/app/config.yaml:ro
+      - routing-data:/routing:ro
     healthcheck:
       <<: *service-healthcheck
       test: ["CMD", "/app/optimizer", "healthcheck"]

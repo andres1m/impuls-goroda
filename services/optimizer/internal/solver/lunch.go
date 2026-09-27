@@ -132,7 +132,8 @@ func (r searchRun) lunchPause(parent *domain.Branch) (*domain.Branch, bool) {
 		finish = &leg
 	}
 	child := parent.Clone()
-	child.Score += r.score.finishPenalty(parent.Finish) - r.score.finishPenalty(finish) - r.score.WaitWeight*start.Sub(parent.Now).Minutes()
+	// The user stays put, so only the time the leg to the destination starts at can change.
+	child.Score += r.finishPenalty(parent.Position, parent.Finish) - r.finishPenalty(parent.Position, finish) - r.score.WaitWeight*start.Sub(parent.Now).Minutes()
 	child.Finish = finish
 	child.Now = end
 	child.Lunch = &domain.Lunch{At: len(child.Visits), StartAt: start, EndAt: end}

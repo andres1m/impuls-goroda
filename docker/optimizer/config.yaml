@@ -36,6 +36,14 @@ planner:
   # Starting values until the search is measured.
   beam-width: 16
   parallelism: 4
+  # Minutes of walking through fully scenic surroundings earn back this much of their cost;
+  # each weight must stay below the 0.2 charged per minute of travel.
+  scenic-weights:
+    perm: 0.10
+    moscow: 0.05
+
+scenic:
+  layer-dir: /routing/current/scenic
 
 routing:
   request-timeout: 2s

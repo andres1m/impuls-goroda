@@ -32,6 +32,11 @@ var rejectedPlans = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "Plans the independent validation refused, by the first rule they broke.",
 }, []string{"code"})
 
+var scenicUnavailable = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "planner_scenic_unavailable_total",
+	Help: "Searches planned without scenic scores because they could not be prepared.",
+})
+
 // CandidateSource supplies the catalog candidates of a request and how fresh they are.
 type CandidateSource interface {
 	Candidates(ctx context.Context, req domain.OptimizeRequest) ([]domain.Candidate, domain.DataFreshness, error)
@@ -50,10 +55,24 @@ func (CatalogNotReady) Candidates(context.Context, domain.OptimizeRequest) ([]do
 	return nil, domain.DataFreshness{}, ErrCatalogNotReady
 }
 
+// ScenicProvider rates walks in a city as its catalog stood at the revision.
+type ScenicProvider interface {
+	Scenic(ctx context.Context, city string, revision domain.CatalogRevision) (solver.Scenic, error)
+}
+
 type Config struct {
 	Currency    string `yaml:"currency"`
 	BeamWidth   int    `yaml:"beam-width"`
 	Parallelism int    `yaml:"parallelism"`
+	// Per city; a city without a weight is planned without scenic scores.
+	ScenicWeights map[string]float64 `yaml:"scenic-weights"`
+}
+
+type Option func(*Planner)
+
+// WithScenic lets walks through scenic surroundings cost less in the cities that have a scenic weight.
+func WithScenic(scenic ScenicProvider) Option {
+	return func(p *Planner) { p.scenic = scenic }
 }
 
 // Planner builds routes: one search per archetype, each result assembled into a plan and
@@ -62,13 +81,19 @@ type Planner struct {
 	cfg     Config
 	source  CandidateSource
 	transit TransitProvider
+	scenic  ScenicProvider
 	log     *zap.Logger
 	newID   func() domain.VisitID
 }
 
-func NewPlanner(cfg Config, source CandidateSource, transit TransitProvider, log *zap.Logger) (*Planner, error) {
+func NewPlanner(cfg Config, source CandidateSource, transit TransitProvider, log *zap.Logger, opts ...Option) (*Planner, error) {
 	if err := (solver.Config{BeamWidth: cfg.BeamWidth, Parallelism: cfg.Parallelism}).Validate(); err != nil {
 		return nil, err
+	}
+	for city, weight := range cfg.ScenicWeights {
+		if err := scoreParams(weight).Validate(); err != nil {
+			return nil, fmt.Errorf("scenic weight of %s: %w", city, err)
+		}
 	}
 	if err := (domain.Money{Currency: cfg.Currency}).Validate(); err != nil {
 		return nil, err
@@ -76,7 +101,31 @@ func NewPlanner(cfg Config, source CandidateSource, transit TransitProvider, log
 	if source == nil || transit == nil || log == nil {
 		return nil, errors.New("planner needs a candidate source, a transit provider and a logger")
 	}
-	return &Planner{cfg: cfg, source: source, transit: transit, log: log, newID: randomVisitID}, nil
+	p := &Planner{cfg: cfg, source: source, transit: transit, log: log, newID: randomVisitID}
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p, nil
+}
+
+func scoreParams(scenicWeight float64) solver.ScoreParams {
+	params := solver.DefaultScoreParams()
+	params.ScenicWeight = scenicWeight
+	return params
+}
+
+// scenicFor prepares the city's scenic scores; being a preference, a failure only leaves them out.
+func (p *Planner) scenicFor(ctx context.Context, city string, revision domain.CatalogRevision, weight float64) solver.Scenic {
+	if p.scenic == nil || weight == 0 {
+		return nil
+	}
+	scenic, err := p.scenic.Scenic(ctx, city, revision)
+	if err != nil {
+		scenicUnavailable.Inc()
+		p.log.Warn("planning without scenic scores", zap.String("city", city), zap.Error(err))
+		return nil
+	}
+	return scenic
 }
 
 func randomVisitID() domain.VisitID {
@@ -114,7 +163,8 @@ func (p *Planner) Optimize(ctx context.Context, req domain.OptimizeRequest) (dom
 	if err != nil {
 		return domain.OptimizeResult{}, err
 	}
-	s, err := solver.New(solver.Config{BeamWidth: p.cfg.BeamWidth, Parallelism: p.cfg.Parallelism}, solver.DefaultScoreParams(), transit, solver.WindowPlacement{})
+	scenicWeight := p.cfg.ScenicWeights[req.City]
+	s, err := solver.New(solver.Config{BeamWidth: p.cfg.BeamWidth, Parallelism: p.cfg.Parallelism}, scoreParams(scenicWeight), transit, solver.WindowPlacement{})
 	if err != nil {
 		return domain.OptimizeResult{}, err
 	}
@@ -122,6 +172,7 @@ func (p *Planner) Optimize(ctx context.Context, req domain.OptimizeRequest) (dom
 		Start: req.Start, End: req.End, Origin: req.Origin, Destination: req.Destination,
 		Interests: req.Constraints.InterestMask, Modes: req.Constraints.MovementModes,
 		Pricing: policy, Anchors: anchors, Archetype: archetypes[0],
+		Scenic: p.scenicFor(ctx, req.City, data.CatalogRevision, scenicWeight),
 	}
 	if w := req.Constraints.LunchWindow; w != nil {
 		slot := solver.LunchSlotFor(*w)

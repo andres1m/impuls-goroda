@@ -34,7 +34,7 @@ func TestAffinity(t *testing.T) {
 
 func TestGain(t *testing.T) {
 	p := DefaultScoreParams()
-	if got := p.gain(3, 10*time.Minute, 5*time.Minute, 2); math.Abs(got-(-3.5)) > 1e-9 {
+	if got := p.gain(3, 10*time.Minute, 0.2*5, 2); math.Abs(got-(-3.5)) > 1e-9 {
 		t.Fatalf("gain = %f, want -3.5", got)
 	}
 	if got := p.gain(1, 0, 0, 0); math.Abs(got-0.5) > 1e-9 {
