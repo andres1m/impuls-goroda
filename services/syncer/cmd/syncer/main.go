@@ -37,6 +37,13 @@ type infrastructureComponents struct {
 func main() {
 	ctx := context.Background()
 
+	if len(os.Args) > 1 && os.Args[1] == "ingest" {
+		if err := runIngest(ctx, os.Args[2:]); err != nil {
+			log.Fatalf("ingest: %v", err)
+		}
+		return
+	}
+
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		if err := healthcheck(ctx); err != nil {
 			log.Printf("healthcheck failed: %v", err)
