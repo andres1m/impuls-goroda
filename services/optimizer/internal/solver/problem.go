@@ -2,6 +2,7 @@ package solver
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
@@ -18,6 +19,10 @@ type Problem struct {
 	Archetype   domain.Archetype
 	Modes       []domain.MovementMode
 	Pricing     pricing.Policy
+	// Visits every route must contain.
+	Anchors []Anchor
+	// Places visited earlier today; the route does not return to them.
+	Visited []domain.PlaceID
 }
 
 func (p Problem) Validate() error {
@@ -41,6 +46,14 @@ func (p Problem) Validate() error {
 	for _, mode := range p.Modes {
 		if err := mode.Validate(); err != nil {
 			return err
+		}
+	}
+	for _, a := range p.Anchors {
+		if err := a.Candidate.Validate(); err != nil {
+			return fmt.Errorf("anchor: %w", err)
+		}
+		if a.Candidate.Session == nil {
+			return errors.New("anchor must be a session")
 		}
 	}
 	return p.Pricing.Validate()

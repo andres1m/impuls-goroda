@@ -38,19 +38,32 @@ func New(cfg Config, score ScoreParams, transit Transit, placement Placement) (*
 	return &Solver{cfg: cfg, score: score, transit: transit, placement: placement}, nil
 }
 
-// Search returns up to BeamWidth best routes with at least one visit, best first.
+// Search returns up to BeamWidth best routes with at least one visit, best first. Every route
+// contains all anchors; when no route can, the result is empty.
 // The routes reference the pool's candidates, which must not be modified afterwards.
 func (s *Solver) Search(ctx context.Context, p Problem, pool []domain.Candidate) ([]*domain.Branch, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
+	pool, anchors := mergeAnchors(pool, p.Anchors)
+	isAnchor := make([]bool, len(pool))
+	var fixed, flexible []int
+	for _, i := range anchors {
+		isAnchor[i] = true
+		if fixedTime(&pool[i]) {
+			fixed = append(fixed, i)
+		} else {
+			flexible = append(flexible, i)
+		}
+	}
+	slices.SortStableFunc(fixed, func(a, b int) int { return pool[a].Window.Start.Compare(pool[b].Window.Start) })
 	for i := range pool {
 		if err := pool[i].Validate(); err != nil {
 			return nil, fmt.Errorf("candidate %d: %w", i, err)
 		}
 	}
 	run := searchRun{
-		Solver: s, problem: p, pool: pool,
+		Solver: s, problem: p, pool: pool, anchors: anchors, isAnchor: isAnchor, fixedAnchors: fixed, flexibleAnchors: flexible,
 		utilities: make([]float64, len(pool)), quotes: make([]pricing.Quote, len(pool)), priced: make([]bool, len(pool)),
 	}
 	for i := range pool {
@@ -58,7 +71,11 @@ func (s *Solver) Search(ctx context.Context, p Problem, pool []domain.Candidate)
 		run.quotes[i], run.priced[i] = p.Pricing.Quote(&pool[i])
 	}
 
-	beam := []*domain.Branch{domain.NewBranch(p.Origin, p.Start, p.Pricing.Currency)}
+	root := domain.NewBranch(p.Origin, p.Start, p.Pricing.Currency)
+	for _, id := range p.Visited {
+		root.VisitedPlaces[id] = struct{}{}
+	}
+	beam := []*domain.Branch{root}
 	var best []*domain.Branch
 	for len(beam) > 0 {
 		if err := ctx.Err(); err != nil {
@@ -69,7 +86,7 @@ func (s *Solver) Search(ctx context.Context, p Problem, pool []domain.Candidate)
 			return nil, err
 		}
 		beam = top(children, s.cfg.BeamWidth)
-		best = top(append(best, beam...), s.cfg.BeamWidth)
+		best = top(append(best, slices.DeleteFunc(slices.Clone(beam), func(b *domain.Branch) bool { return !run.complete(b) })...), s.cfg.BeamWidth)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -79,10 +96,15 @@ func (s *Solver) Search(ctx context.Context, p Problem, pool []domain.Candidate)
 
 type searchRun struct {
 	*Solver
-	problem   Problem
-	pool      []domain.Candidate
-	utilities []float64
-	quotes    []pricing.Quote
+	problem Problem
+	pool    []domain.Candidate
+	// Pool indices of the anchors; the fixed-time ones in the order they start.
+	anchors         []int
+	isAnchor        []bool
+	fixedAnchors    []int
+	flexibleAnchors []int
+	utilities       []float64
+	quotes          []pricing.Quote
 	// False when the route's money constraints exclude the candidate.
 	priced []bool
 }
@@ -110,7 +132,12 @@ func (r searchRun) expand(parent *domain.Branch) []*domain.Branch {
 	var children []*domain.Branch
 	for i := range r.pool {
 		c := &r.pool[i]
-		if _, visited := parent.VisitedPlaces[c.Place.ID]; visited || !r.priced[i] {
+		_, visited := parent.VisitedPlaces[c.Place.ID]
+		// An anchor is a commitment, so it stays even at a place visited earlier today.
+		if r.isAnchor[i] {
+			visited = done(parent, c)
+		}
+		if visited || !r.priced[i] {
 			continue
 		}
 		if !r.problem.Pricing.Fits(parent.KnownCost, r.quotes[i]) {
@@ -126,7 +153,11 @@ func (r searchRun) expand(parent *domain.Branch) []*domain.Branch {
 			continue
 		}
 		visit := domain.SearchVisit{Candidate: c, Transit: leg, ArrivalAt: arrival, Buffer: slot.Buffer, StartAt: slot.StartAt, EndAt: slot.EndAt}
-		children = append(children, r.extend(parent, visit, finish, r.utilities[i], r.quotes[i]))
+		child := r.extend(parent, visit, finish, r.utilities[i], r.quotes[i])
+		if !r.anchorsReachable(child) {
+			continue
+		}
+		children = append(children, child)
 	}
 	return children
 }
