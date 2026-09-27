@@ -55,4 +55,6 @@ message RouteConstraints {
   repeated string soft_preferences = 10;
   LunchWindow lunch_window = 11;
   repeated string accepted_unknowns = 12;
+  // Paid visits must accept the Pushkin card; free visits stay allowed.
+  bool pushkin_card_only = 13;
 }

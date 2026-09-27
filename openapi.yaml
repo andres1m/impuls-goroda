@@ -1202,6 +1202,10 @@ components:
             type: string
             minLength: 1
             maxLength: 128
+        pushkin_card_only:
+          type: boolean
+          default: false
+          description: Paid visits must accept the Pushkin card; free visits stay allowed.
     Price:
       oneOf:
         - type: object

@@ -332,8 +332,10 @@ type RouteConstraints struct {
 	SoftPreferences  []string           `protobuf:"bytes,10,rep,name=soft_preferences,json=softPreferences,proto3" json:"soft_preferences,omitempty"`
 	LunchWindow      *LunchWindow       `protobuf:"bytes,11,opt,name=lunch_window,json=lunchWindow,proto3" json:"lunch_window,omitempty"`
 	AcceptedUnknowns []string           `protobuf:"bytes,12,rep,name=accepted_unknowns,json=acceptedUnknowns,proto3" json:"accepted_unknowns,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Paid visits must accept the Pushkin card; free visits stay allowed.
+	PushkinCardOnly bool `protobuf:"varint,13,opt,name=pushkin_card_only,json=pushkinCardOnly,proto3" json:"pushkin_card_only,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *RouteConstraints) Reset() {
@@ -450,6 +452,13 @@ func (x *RouteConstraints) GetAcceptedUnknowns() []string {
 	return nil
 }
 
+func (x *RouteConstraints) GetPushkinCardOnly() bool {
+	if x != nil {
+		return x.PushkinCardOnly
+	}
+	return false
+}
+
 var File_optimizer_v1_constraints_proto protoreflect.FileDescriptor
 
 const file_optimizer_v1_constraints_proto_rawDesc = "" +
@@ -471,7 +480,7 @@ const file_optimizer_v1_constraints_proto_rawDesc = "" +
 	"\vLunchWindow\x125\n" +
 	"\bstart_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\astartAt\x121\n" +
 	"\x06end_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x05endAt\x120\n" +
-	"\x14min_duration_seconds\x18\x03 \x01(\x03R\x12minDurationSeconds\"\xea\x04\n" +
+	"\x14min_duration_seconds\x18\x03 \x01(\x03R\x12minDurationSeconds\"\x96\x05\n" +
 	"\x10RouteConstraints\x12#\n" +
 	"\rinterest_mask\x18\x01 \x01(\x04R\finterestMask\x12G\n" +
 	"\x13excluded_categories\x18\x02 \x03(\x0e2\x16.optimizer.v1.CategoryR\x12excludedCategories\x12%\n" +
@@ -485,7 +494,8 @@ const file_optimizer_v1_constraints_proto_rawDesc = "" +
 	"\x10soft_preferences\x18\n" +
 	" \x03(\tR\x0fsoftPreferences\x12<\n" +
 	"\flunch_window\x18\v \x01(\v2\x19.optimizer.v1.LunchWindowR\vlunchWindow\x12+\n" +
-	"\x11accepted_unknowns\x18\f \x03(\tR\x10acceptedUnknowns*q\n" +
+	"\x11accepted_unknowns\x18\f \x03(\tR\x10acceptedUnknowns\x12*\n" +
+	"\x11pushkin_card_only\x18\r \x01(\bR\x0fpushkinCardOnly*q\n" +
 	"\n" +
 	"BudgetMode\x12\x1b\n" +
 	"\x17BUDGET_MODE_UNSPECIFIED\x10\x00\x12\x14\n" +
