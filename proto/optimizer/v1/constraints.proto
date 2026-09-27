@@ -52,4 +52,6 @@ message RouteConstraints {
   repeated string accepted_unknowns = 12;
   // Paid visits must accept the Pushkin card; free visits stay allowed.
   bool pushkin_card_only = 13;
+  // User-confirmed free-text wishes; empty plans by the interest mask alone.
+  string semantic_query = 14;
 }
