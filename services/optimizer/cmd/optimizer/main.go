@@ -16,8 +16,10 @@ import (
 	"github.com/andres1m/impuls-goroda/pkg/server"
 	"github.com/andres1m/impuls-goroda/pkg/svc"
 	grpchandler "github.com/andres1m/impuls-goroda/services/optimizer/internal/grpc-handler"
+	"github.com/andres1m/impuls-goroda/services/optimizer/internal/repo/postgres"
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/routing"
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/usecase"
+	"github.com/jackc/pgx/v5"
 )
 
 const configPath = "config.yaml"
@@ -39,6 +41,28 @@ type infrastructureComponents struct {
 	redis      *redis.RedisClient
 	grpcServer *rpc.Server
 }
+
+type poolQuerier struct {
+	client *db.PostgresClient
+}
+
+func (q poolQuerier) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if q.client == nil || q.client.Pool == nil {
+		return nil, usecase.ErrUnavailable
+	}
+	return q.client.Pool.Query(ctx, sql, args...)
+}
+
+func (q poolQuerier) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if q.client == nil || q.client.Pool == nil {
+		return unavailableRow{}
+	}
+	return q.client.Pool.QueryRow(ctx, sql, args...)
+}
+
+type unavailableRow struct{}
+
+func (unavailableRow) Scan(...any) error { return usecase.ErrUnavailable }
 
 func main() {
 	ctx := context.Background()
@@ -68,8 +92,8 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("init routing error: %w", err)
 	}
-	// Candidates come from the catalog once it can be read; until then every request is refused honestly.
-	planner, err := usecase.NewPlanner(infra.cfg.Planner, usecase.CatalogNotReady{}, router, infra.log.Log)
+	catalog := postgres.NewCatalog(poolQuerier{client: infra.pool})
+	planner, err := usecase.NewPlanner(infra.cfg.Planner, catalog, router, infra.log.Log)
 	if err != nil {
 		return fmt.Errorf("init planner error: %w", err)
 	}
