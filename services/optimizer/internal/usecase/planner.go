@@ -123,13 +123,17 @@ func (p *Planner) Optimize(ctx context.Context, req domain.OptimizeRequest) (dom
 		Interests: req.Constraints.InterestMask, Modes: req.Constraints.MovementModes,
 		Pricing: policy, Anchors: anchors, Archetype: archetypes[0],
 	}
+	if w := req.Constraints.LunchWindow; w != nil {
+		slot := solver.LunchSlotFor(*w)
+		problem.Lunch = &slot
+	}
 	if conflicts, err := s.Diagnose(ctx, problem); err != nil {
 		return domain.OptimizeResult{}, err
 	} else if len(conflicts) > 0 {
 		return done(domain.OptimizeResult{Status: domain.ResultConflict, Conflicts: conflicts})
 	}
 
-	plans, err := p.plans(ctx, req, policy, s, problem, pool, degraded, data)
+	plans, lunchDropped, err := p.plans(ctx, req, policy, s, problem, pool, degraded, data)
 	if err != nil {
 		return domain.OptimizeResult{}, err
 	}
@@ -137,6 +141,12 @@ func (p *Planner) Optimize(ctx context.Context, req domain.OptimizeRequest) (dom
 	var warnings []domain.Warning
 	if degraded {
 		warnings = append(warnings, degradedWarning())
+	}
+	if lunchDropped && len(plans) > 0 {
+		warnings = append(warnings, domain.Warning{
+			Code: "LUNCH_NOT_RESERVED", Scope: domain.ScopeRoute,
+			Message: "No route leaves room for the requested lunch; the routes are planned without it",
+		})
 	}
 	if len(plans) == 0 {
 		if len(anchors) > 0 {
@@ -175,7 +185,24 @@ type archetypeBeam struct {
 	next      int
 }
 
-func (p *Planner) plans(ctx context.Context, req domain.OptimizeRequest, policy pricing.Policy, s *solver.Solver, problem solver.Problem, pool []domain.Candidate, degraded bool, data domain.DataFreshness) ([]domain.Plan, error) {
+// plans also reports whether the requested lunch had to be left out because no route had room for it.
+func (p *Planner) plans(ctx context.Context, req domain.OptimizeRequest, policy pricing.Policy, s *solver.Solver, problem solver.Problem, pool []domain.Candidate, degraded bool, data domain.DataFreshness) ([]domain.Plan, bool, error) {
+	beams, err := searchArchetypes(ctx, s, problem, pool)
+	if err != nil {
+		return nil, false, err
+	}
+	lunchDropped := false
+	if len(beams) == 0 && problem.Lunch != nil {
+		problem.Lunch, lunchDropped = nil, true
+		if beams, err = searchArchetypes(ctx, s, problem, pool); err != nil {
+			return nil, false, err
+		}
+	}
+	plans, err := p.selectPlans(req, policy, beams, degraded, data)
+	return plans, lunchDropped, err
+}
+
+func searchArchetypes(ctx context.Context, s *solver.Solver, problem solver.Problem, pool []domain.Candidate) ([]archetypeBeam, error) {
 	beams := make([]archetypeBeam, 0, len(archetypes))
 	for _, a := range archetypes {
 		problem.Archetype = a
@@ -187,6 +214,10 @@ func (p *Planner) plans(ctx context.Context, req domain.OptimizeRequest, policy 
 			beams = append(beams, archetypeBeam{archetype: a, branches: branches})
 		}
 	}
+	return beams, nil
+}
+
+func (p *Planner) selectPlans(req domain.OptimizeRequest, policy pricing.Policy, beams []archetypeBeam, degraded bool, data domain.DataFreshness) ([]domain.Plan, error) {
 	selected := make([]*planned, len(beams))
 	for i := range beams {
 		mask := beams[i].archetype.Mask()

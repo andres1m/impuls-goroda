@@ -41,6 +41,16 @@ type Branch struct {
 	Score          float64
 	// Leg from Position to the destination when the route has one.
 	Finish *TransitEstimate
+	Lunch  *Lunch
+}
+
+// Lunch is the lunch a route reserves: a visit to a venue, or a pause where the user stands.
+type Lunch struct {
+	// Index of the venue's visit in Visits; for a pause, the number of visits before it.
+	At      int
+	Venue   bool
+	StartAt time.Time
+	EndAt   time.Time
 }
 
 func NewBranch(origin Coordinate, start time.Time, currency string) *Branch {
@@ -61,6 +71,10 @@ func (b *Branch) Clone() *Branch {
 	if b.Finish != nil {
 		finish := *b.Finish
 		clone.Finish = &finish
+	}
+	if b.Lunch != nil {
+		lunch := *b.Lunch
+		clone.Lunch = &lunch
 	}
 	return &clone
 }

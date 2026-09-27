@@ -229,7 +229,11 @@ func (r searchRun) anchorsAffordable(b *domain.Branch) bool {
 	return spent <= budget.Limit.AmountMinor
 }
 
+// complete is true for a route with a visit, every anchor and the lunch the problem asks for.
 func (r searchRun) complete(b *domain.Branch) bool {
+	if len(b.Visits) == 0 || r.lunchPending(b) {
+		return false
+	}
 	for _, i := range r.anchors {
 		if !done(b, &r.pool[i]) {
 			return false

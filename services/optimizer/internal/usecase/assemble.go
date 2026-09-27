@@ -36,15 +36,38 @@ func (p *Planner) assemble(req domain.OptimizeRequest, policy pricing.Policy, r 
 		Candidates: make(map[domain.VisitID]domain.Candidate, len(visits)),
 	}
 	departure, from := req.Start, (*domain.VisitID)(nil)
+	lunch := r.branch.Lunch
+	pause := func() {
+		id := p.newID()
+		plan.Legs = append(plan.Legs, stay(len(plan.Legs)+1, from, &id, departure, plan.Geometry[len(plan.Geometry)-1], req.Constraints.MovementModes[0], degraded, policy.Currency))
+		plan.Steps = append(plan.Steps, domain.Step{
+			VisitID: id, Kind: domain.StepFreeTime, Position: len(plan.Steps) + 1,
+			ArrivalAt: departure, VisitStartAt: lunch.StartAt, VisitEndAt: lunch.EndAt, DepartureAt: lunch.EndAt,
+			Participation: domain.Participation{Status: domain.ParticipationNotRequired, Evidence: domain.EvidenceNone},
+			AppliedConstraints: []domain.AppliedConstraint{{
+				Code: "LUNCH_WINDOW", Strength: domain.StrengthSoft, Outcome: domain.OutcomeSatisfied,
+				Message: "The lunch time is kept free",
+			}},
+		})
+		plan.Warnings = append(plan.Warnings, domain.Warning{
+			Code: "LUNCH_NO_VENUE", Scope: domain.ScopeVisit, VisitID: &id,
+			Message: "No suitable place to eat within 1 km; the lunch time is left free with nothing booked",
+		})
+		departure, from = lunch.EndAt, &id
+	}
+	pauseAt := func(i int) bool { return lunch != nil && !lunch.Venue && lunch.At == i }
 	unknownPrice := false
 	for i, v := range visits {
+		if pauseAt(i) {
+			pause()
+		}
 		id := p.newID()
 		c := v.Candidate
 		in.Candidates[id] = *c
 		obligation := obligationFor(req.Constraints.Obligations, c)
 		plan.Legs = append(plan.Legs, leg(len(plan.Legs)+1, from, &id, departure, v.ArrivalAt, v.Transit, plan.Geometry[len(plan.Geometry)-1], c.Place.Location, policy.Currency))
 		step := domain.Step{
-			VisitID: id, Kind: domain.StepVisit, Position: i + 1,
+			VisitID: id, Kind: domain.StepVisit, Position: len(plan.Steps) + 1,
 			ArrivalAt: v.ArrivalAt, VisitStartAt: v.StartAt, VisitEndAt: v.EndAt, DepartureAt: v.EndAt,
 			MinDuration:        c.Window.MinDuration,
 			Obligation:         obligation != nil,
@@ -64,12 +87,21 @@ func (p *Planner) assemble(req domain.OptimizeRequest, policy pricing.Policy, r 
 				Message: "Travel to this committed session is estimated, not verified",
 			})
 		}
+		if lunch != nil && lunch.Venue && lunch.At == i {
+			step.AppliedConstraints = append(step.AppliedConstraints, domain.AppliedConstraint{
+				Code: "LUNCH_WINDOW", Strength: domain.StrengthSoft, Outcome: domain.OutcomeSatisfied,
+				Message: "Lunch at a place to eat near the route",
+			})
+		}
 		plan.Steps = append(plan.Steps, step)
 		if costs[i].Price.Status == domain.PriceUnknown {
 			unknownPrice = true
 		}
 		plan.Geometry = append(plan.Geometry, c.Place.Location)
 		departure, from = v.EndAt, &id
+	}
+	if pauseAt(len(visits)) {
+		pause()
 	}
 	if req.Destination != nil && r.branch.Finish != nil {
 		finish := *r.branch.Finish

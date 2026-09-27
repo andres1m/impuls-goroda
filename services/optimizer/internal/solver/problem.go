@@ -23,6 +23,8 @@ type Problem struct {
 	Anchors []Anchor
 	// Places visited earlier today; the route does not return to them.
 	Visited []domain.PlaceID
+	// Lunch every route must reserve; nil when the user asked for none.
+	Lunch *LunchSlot
 }
 
 func (p Problem) Validate() error {
@@ -54,6 +56,11 @@ func (p Problem) Validate() error {
 		}
 		if a.Candidate.Session == nil && a.Obligation.VisitID == nil {
 			return errors.New("anchor requires a session or a visit")
+		}
+	}
+	if p.Lunch != nil {
+		if err := p.Lunch.Validate(); err != nil {
+			return err
 		}
 	}
 	return p.Pricing.Validate()

@@ -90,10 +90,15 @@ func (s *Solver) newRun(p Problem, pool []domain.Candidate) (searchRun, error) {
 	run := searchRun{
 		Solver: s, problem: p, pool: pool, anchors: anchors, isAnchor: isAnchor, fixedAnchors: fixed, flexibleAnchors: flexible,
 		utilities: make([]float64, len(pool)), quotes: make([]pricing.Quote, len(pool)), priced: make([]bool, len(pool)),
+		lunchOnly: make([]bool, len(pool)),
 	}
 	for i := range pool {
 		run.utilities[i] = pool[i].BaseScore * s.score.affinity(p.Interests, pool[i].InterestMask(), p.Archetype)
 		run.quotes[i], run.priced[i] = p.Pricing.Quote(&pool[i])
+		if p.Lunch != nil && !isAnchor[i] && lunchVenue(&pool[i], p.Lunch.Duration) {
+			run.lunchVenues = append(run.lunchVenues, i)
+			run.lunchOnly[i] = true
+		}
 	}
 	return run, nil
 }
@@ -119,6 +124,10 @@ type searchRun struct {
 	quotes          []pricing.Quote
 	// False when the route's money constraints exclude the candidate.
 	priced []bool
+	// Pool indices of the places that can host the problem's lunch; they are visited for lunch only,
+	// so a route never eats there earlier and then reports no place for lunch.
+	lunchVenues []int
+	lunchOnly   []bool
 }
 
 func (r searchRun) expandAll(ctx context.Context, beam []*domain.Branch) ([]*domain.Branch, error) {
@@ -149,7 +158,7 @@ func (r searchRun) expand(parent *domain.Branch) []*domain.Branch {
 		if r.isAnchor[i] {
 			visited = done(parent, c)
 		}
-		if visited || !r.priced[i] {
+		if visited || !r.priced[i] || r.lunchOnly[i] {
 			continue
 		}
 		if !r.problem.Pricing.Fits(parent.KnownCost, r.quotes[i]) {
@@ -180,9 +189,12 @@ func (r searchRun) expand(parent *domain.Branch) []*domain.Branch {
 				continue
 			}
 		}
+		if !r.lunchStillFits(child) {
+			continue
+		}
 		children = append(children, child)
 	}
-	return children
+	return append(children, r.lunches(parent)...)
 }
 
 // place fits the visit into the day so that the destination, if any, is still reachable in time.
@@ -253,7 +265,10 @@ func compareBranches(a, b *domain.Branch) int {
 	if c := cmp.Compare(b.Score, a.Score); c != 0 {
 		return c
 	}
-	return slices.CompareFunc(a.Visits, b.Visits, compareVisits)
+	if c := slices.CompareFunc(a.Visits, b.Visits, compareVisits); c != 0 {
+		return c
+	}
+	return compareLunches(a.Lunch, b.Lunch)
 }
 
 func compareVisits(a, b domain.SearchVisit) int {
