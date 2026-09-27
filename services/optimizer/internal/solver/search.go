@@ -12,6 +12,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
+	"github.com/andres1m/impuls-goroda/services/optimizer/internal/pricing"
 )
 
 // Solver runs a bounded-width beam search over a candidate pool. It keeps the best partial
@@ -47,12 +48,16 @@ func (s *Solver) Search(ctx context.Context, p Problem, pool []domain.Candidate)
 			return nil, fmt.Errorf("candidate %d: %w", i, err)
 		}
 	}
-	run := searchRun{Solver: s, problem: p, pool: pool, utilities: make([]float64, len(pool))}
+	run := searchRun{
+		Solver: s, problem: p, pool: pool,
+		utilities: make([]float64, len(pool)), quotes: make([]pricing.Quote, len(pool)), priced: make([]bool, len(pool)),
+	}
 	for i := range pool {
 		run.utilities[i] = pool[i].BaseScore * s.score.affinity(p.Interests, pool[i].InterestMask(), p.Archetype)
+		run.quotes[i], run.priced[i] = p.Pricing.Quote(&pool[i])
 	}
 
-	beam := []*domain.Branch{domain.NewBranch(p.Origin, p.Start, p.Currency)}
+	beam := []*domain.Branch{domain.NewBranch(p.Origin, p.Start, p.Pricing.Currency)}
 	var best []*domain.Branch
 	for len(beam) > 0 {
 		if err := ctx.Err(); err != nil {
@@ -76,6 +81,9 @@ type searchRun struct {
 	problem   Problem
 	pool      []domain.Candidate
 	utilities []float64
+	quotes    []pricing.Quote
+	// False when the route's money constraints exclude the candidate.
+	priced []bool
 }
 
 func (r searchRun) expandAll(ctx context.Context, beam []*domain.Branch) ([]*domain.Branch, error) {
@@ -101,7 +109,10 @@ func (r searchRun) expand(parent *domain.Branch) []*domain.Branch {
 	var children []*domain.Branch
 	for i := range r.pool {
 		c := &r.pool[i]
-		if _, visited := parent.VisitedPlaces[c.Place.ID]; visited {
+		if _, visited := parent.VisitedPlaces[c.Place.ID]; visited || !r.priced[i] {
+			continue
+		}
+		if !r.problem.Pricing.Fits(parent.KnownCost, r.quotes[i]) {
 			continue
 		}
 		leg, ok := r.transit.Estimate(parent.Position, c.Place.Location, parent.Now, r.problem.Modes)
@@ -114,7 +125,7 @@ func (r searchRun) expand(parent *domain.Branch) []*domain.Branch {
 			continue
 		}
 		visit := domain.SearchVisit{Candidate: c, Transit: leg, ArrivalAt: arrival, Buffer: slot.Buffer, StartAt: slot.StartAt, EndAt: slot.EndAt}
-		children = append(children, r.extend(parent, visit, finish, r.utilities[i]))
+		children = append(children, r.extend(parent, visit, finish, r.utilities[i], r.quotes[i]))
 	}
 	return children
 }
@@ -147,7 +158,7 @@ func (r searchRun) finish(c *domain.Candidate, departAt time.Time) (domain.Trans
 	return r.transit.Estimate(c.Place.Location, *r.problem.Destination, departAt, r.problem.Modes)
 }
 
-func (r searchRun) extend(parent *domain.Branch, visit domain.SearchVisit, finish *domain.TransitEstimate, utility float64) *domain.Branch {
+func (r searchRun) extend(parent *domain.Branch, visit domain.SearchVisit, finish *domain.TransitEstimate, utility float64, quote pricing.Quote) *domain.Branch {
 	child := parent.Clone()
 	c := visit.Candidate
 	category := c.Category()
@@ -155,6 +166,11 @@ func (r searchRun) extend(parent *domain.Branch, visit domain.SearchVisit, finis
 	child.Score += r.score.gain(utility, wait, visit.Transit.Duration, child.CountCategory(category))
 	child.Score += r.score.finishPenalty(parent.Finish) - r.score.finishPenalty(finish)
 	child.Finish = finish
+	if upper, known := quote.Price.UpperBound(); known {
+		child.KnownCost.AmountMinor += upper.AmountMinor
+	} else {
+		child.UnknownCost = true
+	}
 	child.AddCategory(category)
 	child.Visits = append(child.Visits, visit)
 	child.VisitedPlaces[c.Place.ID] = struct{}{}

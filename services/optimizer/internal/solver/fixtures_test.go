@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
+	"github.com/andres1m/impuls-goroda/services/optimizer/internal/pricing"
 )
 
 var (
@@ -29,7 +30,7 @@ func problem() Problem {
 		Origin:    origin,
 		Archetype: domain.ArchetypeHistoryHeritage,
 		Modes:     []domain.MovementMode{domain.MovementWalk, domain.MovementTransit},
-		Currency:  "RUB",
+		Pricing:   pricing.Policy{Currency: "RUB", Budget: domain.Budget{Mode: domain.BudgetNone}},
 	}
 }
 
@@ -56,5 +57,14 @@ func session(id byte, category domain.Category, location domain.Coordinate, star
 		Availability: domain.AvailabilityAvailable, Version: 1, DataMode: domain.DataSynthetic, Provenance: source,
 	}
 	c.Window = window
+	return c
+}
+
+func priced(c domain.Candidate, amount int64, programs ...string) domain.Candidate {
+	c.Offers = []domain.PriceOffer{{
+		ID: domain.PriceOfferID{c.Place.ID[0]}, SessionID: c.Session.ID, Audience: domain.AudienceGeneral,
+		Price:           domain.Price{Status: domain.PriceFixed, Currency: "RUB", LowerMinor: &amount, UpperMinor: &amount},
+		BenefitPrograms: programs, Provenance: source,
+	}}
 	return c
 }

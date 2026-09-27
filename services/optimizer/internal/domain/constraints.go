@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+const (
+	ProgramPushkinCard = "pushkin_card"
+	// AcceptUnknownPrice in AcceptedUnknowns lets a route include visits whose price is unknown.
+	AcceptUnknownPrice = "unknown_price"
+)
+
 type BudgetMode string
 
 const (
@@ -127,6 +133,8 @@ type RouteConstraints struct {
 	SoftPreferences    []string
 	LunchWindow        *LunchWindow
 	AcceptedUnknowns   []string
+	// Paid visits must accept the Pushkin card; free visits stay allowed.
+	PushkinCardOnly bool
 }
 
 func (c RouteConstraints) Validate() error {

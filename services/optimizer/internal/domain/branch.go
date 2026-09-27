@@ -28,11 +28,12 @@ type SearchVisit struct {
 // Branch is one partial route in the search. Every collection is owned by the branch,
 // so parallel expansion never shares mutable state between branches.
 type Branch struct {
-	Position       Coordinate
-	Now            time.Time
-	Visits         []SearchVisit
-	VisitedPlaces  map[PlaceID]struct{}
-	UsedSessions   map[SessionID]struct{}
+	Position      Coordinate
+	Now           time.Time
+	Visits        []SearchVisit
+	VisitedPlaces map[PlaceID]struct{}
+	UsedSessions  map[SessionID]struct{}
+	// Sum of the known upper ticket prices, which is what a strict budget is checked against.
 	KnownCost      Money
 	UnknownCost    bool
 	CategoryCounts [CategoryCount]int

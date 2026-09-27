@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
+	"github.com/andres1m/impuls-goroda/services/optimizer/internal/pricing"
 )
 
 // Problem is one search run: a single archetype over one planning interval.
@@ -16,7 +17,7 @@ type Problem struct {
 	Interests   domain.InterestMask
 	Archetype   domain.Archetype
 	Modes       []domain.MovementMode
-	Currency    string
+	Pricing     pricing.Policy
 }
 
 func (p Problem) Validate() error {
@@ -42,5 +43,5 @@ func (p Problem) Validate() error {
 			return err
 		}
 	}
-	return domain.Money{Currency: p.Currency}.Validate()
+	return p.Pricing.Validate()
 }

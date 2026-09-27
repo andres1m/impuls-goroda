@@ -80,7 +80,7 @@ func TestProblemValidate(t *testing.T) {
 		"no archetype": func(p *Problem) { p.Archetype = "" },
 		"no modes":     func(p *Problem) { p.Modes = nil },
 		"unknown mode": func(p *Problem) { p.Modes = []domain.MovementMode{"bike"} },
-		"bad currency": func(p *Problem) { p.Currency = "rub" },
+		"bad pricing":  func(p *Problem) { p.Pricing.Currency = "rub" },
 		"bad destination": func(p *Problem) {
 			p.Destination = &domain.Coordinate{Longitude: origin.Longitude, Latitude: 91}
 		},

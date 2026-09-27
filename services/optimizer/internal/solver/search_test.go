@@ -341,3 +341,69 @@ func TestNewRejectsInvalidSetup(t *testing.T) {
 		}
 	}
 }
+
+func withBudget(p Problem, mode domain.BudgetMode, limit int64) Problem {
+	p.Pricing.Budget = domain.Budget{Mode: mode, Limit: &domain.Money{AmountMinor: limit, Currency: "RUB"}}
+	return p
+}
+
+func pricedPair() []domain.Candidate {
+	return []domain.Candidate{
+		priced(session(1, domain.CategoryCulture, north(origin, 100), at(11, 0), at(12, 0)), 60000),
+		priced(session(2, domain.CategorySport, north(origin, 200), at(13, 0), at(14, 0)), 50000),
+	}
+}
+
+func TestSearchStrictBudget(t *testing.T) {
+	routes := search(t, wide, withBudget(problem(), domain.BudgetStrict, 100000), pricedPair())
+	if len(routes) == 0 {
+		t.Fatal("no routes")
+	}
+	for _, r := range routes {
+		if len(r.Visits) != 1 {
+			t.Fatalf("route %v breaks the strict budget", placeIDs(r))
+		}
+		want := r.Visits[0].Candidate.Offers[0].Price.UpperMinor
+		if r.KnownCost.AmountMinor != *want || r.UnknownCost {
+			t.Fatalf("route %v cost = %+v unknown=%v", placeIDs(r), r.KnownCost, r.UnknownCost)
+		}
+	}
+}
+
+func TestSearchAdvisoryBudgetDoesNotPrune(t *testing.T) {
+	routes := search(t, wide, withBudget(problem(), domain.BudgetAdvisory, 100000), pricedPair())
+	if !slices.ContainsFunc(routes, func(r *domain.Branch) bool { return len(r.Visits) == 2 && r.KnownCost.AmountMinor == 110000 }) {
+		t.Fatalf("routes = %v", routeKeys(routes))
+	}
+}
+
+func TestSearchUnknownPriceNeedsConsent(t *testing.T) {
+	museum := place(1, domain.CategoryCulture, 0, north(origin, 100))
+	p := withBudget(problem(), domain.BudgetStrict, 100000)
+	if routes := search(t, wide, p, []domain.Candidate{museum}); len(routes) != 0 {
+		t.Fatalf("unknown price without consent: %v", routeKeys(routes))
+	}
+	p.Pricing.AcceptUnknownPrice = true
+	routes := search(t, wide, p, []domain.Candidate{museum})
+	if len(routes) != 1 || !routes[0].UnknownCost || routes[0].KnownCost.AmountMinor != 0 {
+		t.Fatalf("routes = %v", routeKeys(routes))
+	}
+}
+
+func TestSearchPushkinCardOnly(t *testing.T) {
+	p := problem()
+	p.Pricing.PushkinCardOnly = true
+	pool := []domain.Candidate{
+		priced(session(1, domain.CategoryCulture, north(origin, 100), at(11, 0), at(12, 0)), 60000),
+		priced(session(2, domain.CategoryCulture, north(origin, 200), at(13, 0), at(14, 0)), 50000, domain.ProgramPushkinCard),
+	}
+	routes := search(t, wide, p, pool)
+	if len(routes) == 0 {
+		t.Fatal("no routes")
+	}
+	for _, r := range routes {
+		if slices.Contains(placeIDs(r), 1) {
+			t.Fatalf("paid visit without the card in route %v", placeIDs(r))
+		}
+	}
+}
