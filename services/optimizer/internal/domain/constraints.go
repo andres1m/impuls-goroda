@@ -2,8 +2,10 @@ package domain
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -121,7 +123,12 @@ type RouteConstraints struct {
 	AcceptedUnknowns   []string
 	// Paid visits must accept the Pushkin card; free visits stay allowed.
 	PushkinCardOnly bool
+	// User-confirmed free-text wishes; empty plans by the interest mask alone.
+	SemanticQuery string
 }
+
+// MaxSemanticQueryLength is counted in characters, not bytes.
+const MaxSemanticQueryLength = 1000
 
 func (c RouteConstraints) Validate() error {
 	for _, category := range c.ExcludedCategories {
@@ -160,6 +167,12 @@ func (c RouteConstraints) Validate() error {
 		if err := obligation.Validate(); err != nil {
 			return err
 		}
+	}
+	if c.SemanticQuery != "" && strings.TrimSpace(c.SemanticQuery) == "" {
+		return errors.New("semantic query must not be blank")
+	}
+	if utf8.RuneCountInString(c.SemanticQuery) > MaxSemanticQueryLength {
+		return fmt.Errorf("semantic query exceeds %d characters", MaxSemanticQueryLength)
 	}
 	if c.LunchWindow != nil {
 		return c.LunchWindow.Validate()

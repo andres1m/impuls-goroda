@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/andres1m/impuls-goroda/pkg/ai"
 	"github.com/andres1m/impuls-goroda/pkg/config"
 	"github.com/andres1m/impuls-goroda/pkg/db"
 	"github.com/andres1m/impuls-goroda/pkg/logger"
@@ -20,6 +21,7 @@ import (
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/repo/postgres"
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/routing"
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/scenic"
+	"github.com/andres1m/impuls-goroda/services/optimizer/internal/semantic"
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/solver"
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/usecase"
 	"github.com/jackc/pgx/v5"
@@ -39,6 +41,15 @@ type appConfig struct {
 	Planner    usecase.Config    `yaml:"planner"`
 	Routing    routing.Config    `yaml:"routing"`
 	Scenic     scenicConfig      `yaml:"scenic"`
+	AI         ai.Config         `yaml:"ai"`
+	Semantic   semanticConfig    `yaml:"semantic"`
+}
+
+type semanticConfig struct {
+	// Catalog entities closest to the wishes that the search may use.
+	Limit int `yaml:"limit"`
+	// A slower embedding provider leaves the request planned by its interests.
+	Timeout time.Duration `yaml:"timeout"`
 }
 
 type scenicConfig struct {
@@ -139,7 +150,18 @@ func run(ctx context.Context) error {
 	}
 	catalog := postgres.NewCatalog(poolQuerier{client: infra.pool})
 	scenicSource := scenic.NewSource(catalog, loadScenicLayers(*infra.cfg, infra.log.Log))
-	planner, err := usecase.NewPlanner(infra.cfg.Planner, catalog, router, infra.log.Log, usecase.WithScenic(scenicProvider{source: scenicSource}))
+	models, err := ai.New(infra.cfg.AI)
+	if err != nil {
+		return fmt.Errorf("init ai models error: %w", err)
+	}
+	retriever, err := semantic.NewRetriever(models.Embedder(), catalog, infra.cfg.Semantic.Limit)
+	if err != nil {
+		return fmt.Errorf("init semantic retriever error: %w", err)
+	}
+	planner, err := usecase.NewPlanner(infra.cfg.Planner, catalog, router, infra.log.Log,
+		usecase.WithScenic(scenicProvider{source: scenicSource}),
+		usecase.WithSemantic(retriever, infra.cfg.Semantic.Timeout),
+	)
 	if err != nil {
 		return fmt.Errorf("init planner error: %w", err)
 	}
@@ -153,13 +175,17 @@ func run(ctx context.Context) error {
 		server.WithMetrics(),
 	)
 
-	if err := svc.Run(ctx, infra.log.Log, []svc.Service{
+	services := []svc.Service{
 		infra.log,
 		infra.pool,
 		infra.redis,
 		infra.grpcServer,
 		opsServer,
-	}); err != nil {
+	}
+	if infra.cfg.AI.Admin.Enabled {
+		services = append(services, ai.NewAdmin(models, infra.cfg.AI.Admin, infra.log.Log))
+	}
+	if err := svc.Run(ctx, infra.log.Log, services); err != nil {
 		return fmt.Errorf("run service error: %w", err)
 	}
 

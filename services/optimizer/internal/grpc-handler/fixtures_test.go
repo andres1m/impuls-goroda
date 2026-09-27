@@ -329,6 +329,7 @@ func pbConstraints() *pb.RouteConstraints {
 		LunchWindow:      &pb.LunchWindow{StartAt: ts(13, 0), EndAt: ts(14, 30), MinDurationSeconds: 2700},
 		AcceptedUnknowns: []string{"PRICE_UNKNOWN"},
 		PushkinCardOnly:  true,
+		SemanticQuery:    "quiet museums and a walk by the river",
 	}
 }
 
@@ -349,6 +350,7 @@ func domainConstraints() domain.RouteConstraints {
 		LunchWindow:      &domain.LunchWindow{Start: at(13, 0), End: at(14, 30), MinDuration: 45 * time.Minute},
 		AcceptedUnknowns: []string{"PRICE_UNKNOWN"},
 		PushkinCardOnly:  true,
+		SemanticQuery:    "quiet museums and a walk by the river",
 	}
 }
 

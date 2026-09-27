@@ -287,6 +287,7 @@ func constraintsFromProto(r *reader, field string, c *pb.RouteConstraints) domai
 		SoftPreferences:    c.GetSoftPreferences(),
 		AcceptedUnknowns:   c.GetAcceptedUnknowns(),
 		PushkinCardOnly:    c.GetPushkinCardOnly(),
+		SemanticQuery:      c.GetSemanticQuery(),
 	}
 	if b := c.GetBudget(); b == nil {
 		r.fail(join(field, "budget"), reasonRequired)

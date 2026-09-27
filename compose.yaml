@@ -245,9 +245,14 @@ services:
     image: impuls-goroda/optimizer:dev
     environment:
       <<: *service-env
+      # Optional: without a key free-text wishes fall back to the selected interests.
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
     volumes:
       - ./docker/optimizer/config.yaml:/app/config.yaml:ro
       - routing-data:/routing:ro
+    # Model selection page; reachable from this machine only.
+    ports:
+      - "127.0.0.1:${OPTIMIZER_AI_ADMIN_PORT:-8095}:8095"
     healthcheck:
       <<: *service-healthcheck
       test: ["CMD", "/app/optimizer", "healthcheck"]
@@ -256,7 +261,8 @@ services:
         condition: service_completed_successfully
       redis-init:
         condition: service_completed_successfully
-    networks: [app, data, cache, obs, routing]
+    # egress reaches the hosted embedding models.
+    networks: [app, data, cache, obs, routing, egress]
     restart: unless-stopped
 
   # Graphs are prepared once by `make routing-data`; see README.

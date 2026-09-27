@@ -84,6 +84,9 @@ type Planner struct {
 	scenic  ScenicProvider
 	log     *zap.Logger
 	newID   func() domain.VisitID
+
+	semantic        SemanticMatcher
+	semanticTimeout time.Duration
 }
 
 func NewPlanner(cfg Config, source CandidateSource, transit TransitProvider, log *zap.Logger, opts ...Option) (*Planner, error) {
@@ -158,7 +161,10 @@ func (p *Planner) Optimize(ctx context.Context, req domain.OptimizeRequest) (dom
 	if len(conflicts) > 0 {
 		return done(domain.OptimizeResult{Status: domain.ResultConflict, Conflicts: conflicts})
 	}
-	pool := admissible(candidates, req.Constraints)
+	pool, semanticWarning, err := p.semanticPool(ctx, req, admissible(candidates, req.Constraints))
+	if err != nil {
+		return domain.OptimizeResult{}, err
+	}
 	transit, degraded, err := p.transit.Transit(ctx, req.City, points(req, pool, anchors), req.Constraints.MovementModes)
 	if err != nil {
 		return domain.OptimizeResult{}, err
@@ -190,6 +196,9 @@ func (p *Planner) Optimize(ctx context.Context, req domain.OptimizeRequest) (dom
 	}
 
 	var warnings []domain.Warning
+	if semanticWarning != nil {
+		warnings = append(warnings, *semanticWarning)
+	}
 	if degraded {
 		warnings = append(warnings, degradedWarning())
 	}

@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -43,6 +44,9 @@ func TestRouteConstraintsValidate(t *testing.T) {
 		{"lunch ends at start", func(c *RouteConstraints) { c.LunchWindow.End = c.LunchWindow.Start }, false},
 		{"lunch without duration", func(c *RouteConstraints) { c.LunchWindow.MinDuration = 0 }, false},
 		{"lunch longer than window", func(c *RouteConstraints) { c.LunchWindow.MinDuration = 2 * time.Hour }, false},
+		{"semantic query at the limit", func(c *RouteConstraints) { c.SemanticQuery = strings.Repeat("я", MaxSemanticQueryLength) }, true},
+		{"semantic query too long", func(c *RouteConstraints) { c.SemanticQuery = strings.Repeat("я", MaxSemanticQueryLength+1) }, false},
+		{"blank semantic query", func(c *RouteConstraints) { c.SemanticQuery = "  " }, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

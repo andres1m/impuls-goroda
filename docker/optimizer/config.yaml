@@ -45,6 +45,31 @@ planner:
 scenic:
   layer-dir: /routing/current/scenic
 
+ai:
+  openrouter:
+    base-url: https://openrouter.ai/api/v1
+    # Empty keeps the optimizer running; free-text wishes then fall back to interests.
+    api-key: ${OPENROUTER_API_KEY}
+    timeout: 10s
+  embedding:
+    # openrouter | local (local is not implemented yet)
+    provider: openrouter
+    # Must match the model syncer embedded the catalog with.
+    model: openai/text-embedding-3-small
+    dimensions: 384
+  text:
+    provider: openrouter
+    model: openai/gpt-4o-mini
+  admin:
+    enabled: true
+    # Inside the container; compose publishes the port on the host loopback only.
+    host: 0.0.0.0
+    port: 8095
+
+semantic:
+  limit: 100
+  timeout: 2s
+
 routing:
   request-timeout: 2s
   snap-radius-meters: 500
