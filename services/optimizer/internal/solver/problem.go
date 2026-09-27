@@ -9,13 +9,14 @@ import (
 
 // Problem is one search run: a single archetype over one planning interval.
 type Problem struct {
-	Start     time.Time
-	End       time.Time
-	Origin    domain.Coordinate
-	Interests domain.InterestMask
-	Archetype domain.Archetype
-	Modes     []domain.MovementMode
-	Currency  string
+	Start       time.Time
+	End         time.Time
+	Origin      domain.Coordinate
+	Destination *domain.Coordinate
+	Interests   domain.InterestMask
+	Archetype   domain.Archetype
+	Modes       []domain.MovementMode
+	Currency    string
 }
 
 func (p Problem) Validate() error {
@@ -24,6 +25,11 @@ func (p Problem) Validate() error {
 	}
 	if err := p.Origin.Validate(); err != nil {
 		return err
+	}
+	if p.Destination != nil {
+		if err := p.Destination.Validate(); err != nil {
+			return err
+		}
 	}
 	if err := p.Archetype.Validate(); err != nil {
 		return err

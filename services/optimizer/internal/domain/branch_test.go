@@ -27,10 +27,12 @@ func populatedBranch() *Branch {
 	b.Visits = []SearchVisit{{
 		Candidate: &candidate,
 		Transit:   TransitEstimate{Mode: MovementWalk, DistanceMeters: 800, Duration: 13 * time.Minute, Verification: VerificationEstimated},
-		ArrivalAt: at(10, 13),
+		ArrivalAt: at(10, 3),
+		Buffer:    10 * time.Minute,
 		StartAt:   at(10, 13),
 		EndAt:     at(11, 0),
 	}}
+	b.Finish = &TransitEstimate{Mode: MovementWalk, DistanceMeters: 400, Duration: 7 * time.Minute, Verification: VerificationEstimated}
 	b.Position = Coordinate{Longitude: 37.6, Latitude: 55.7}
 	b.Now = at(11, 0)
 	b.VisitedPlaces[PlaceID{1}] = struct{}{}
@@ -52,6 +54,8 @@ func TestBranchCloneIsIndependent(t *testing.T) {
 
 	clone.Visits[0].EndAt = at(12, 0)
 	clone.Visits[0].Transit.Mode = MovementTransit
+	clone.Visits[0].Buffer = 0
+	clone.Finish.Duration = time.Hour
 	clone.Visits = append(clone.Visits, clone.Visits[0])
 	clone.VisitedPlaces[PlaceID{9}] = struct{}{}
 	clone.UsedSessions[SessionID{9}] = struct{}{}

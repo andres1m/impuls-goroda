@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -108,21 +109,52 @@ func (r searchRun) expand(parent *domain.Branch) []*domain.Branch {
 			continue
 		}
 		arrival := parent.Now.Add(leg.Duration)
-		start, end, ok := r.placement.Place(c, arrival, r.problem)
+		slot, finish, ok := r.place(c, arrival)
 		if !ok {
 			continue
 		}
-		visit := domain.SearchVisit{Candidate: c, Transit: leg, ArrivalAt: arrival, StartAt: start, EndAt: end}
-		children = append(children, r.extend(parent, visit, r.utilities[i]))
+		visit := domain.SearchVisit{Candidate: c, Transit: leg, ArrivalAt: arrival, Buffer: slot.Buffer, StartAt: slot.StartAt, EndAt: slot.EndAt}
+		children = append(children, r.extend(parent, visit, finish, r.utilities[i]))
 	}
 	return children
 }
 
-func (r searchRun) extend(parent *domain.Branch, visit domain.SearchVisit, utility float64) *domain.Branch {
+// place fits the visit into the day so that the destination, if any, is still reachable in time.
+func (r searchRun) place(c *domain.Candidate, arrival time.Time) (Slot, *domain.TransitEstimate, bool) {
+	end := r.problem.End
+	slot, ok := r.placement.Place(c, arrival, end)
+	if !ok || r.problem.Destination == nil {
+		return slot, nil, ok
+	}
+	finish, ok := r.finish(c, slot.EndAt)
+	if !ok {
+		return Slot{}, nil, false
+	}
+	if !slot.EndAt.Add(finish.Duration).After(end) {
+		return slot, &finish, true
+	}
+	// A shorter visit may leave enough time; the leg is re-estimated because it depends on when the user leaves.
+	if slot, ok = r.placement.Place(c, arrival, end.Add(-finish.Duration)); !ok {
+		return Slot{}, nil, false
+	}
+	if finish, ok = r.finish(c, slot.EndAt); !ok || slot.EndAt.Add(finish.Duration).After(end) {
+		return Slot{}, nil, false
+	}
+	return slot, &finish, true
+}
+
+func (r searchRun) finish(c *domain.Candidate, departAt time.Time) (domain.TransitEstimate, bool) {
+	return r.transit.Estimate(c.Place.Location, *r.problem.Destination, departAt, r.problem.Modes)
+}
+
+func (r searchRun) extend(parent *domain.Branch, visit domain.SearchVisit, finish *domain.TransitEstimate, utility float64) *domain.Branch {
 	child := parent.Clone()
 	c := visit.Candidate
 	category := c.Category()
-	child.Score += r.score.gain(utility, visit.StartAt.Sub(visit.ArrivalAt), visit.Transit.Duration, child.CountCategory(category))
+	wait := visit.StartAt.Sub(visit.ArrivalAt) - visit.Buffer
+	child.Score += r.score.gain(utility, wait, visit.Transit.Duration, child.CountCategory(category))
+	child.Score += r.score.finishPenalty(parent.Finish) - r.score.finishPenalty(finish)
+	child.Finish = finish
 	child.AddCategory(category)
 	child.Visits = append(child.Visits, visit)
 	child.VisitedPlaces[c.Place.ID] = struct{}{}

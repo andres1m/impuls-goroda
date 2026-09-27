@@ -6,36 +6,74 @@ import (
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
 )
 
-// Placement decides when a visit happens if the user arrives at arrivalAt.
-type Placement interface {
-	Place(c *domain.Candidate, arrivalAt time.Time, p Problem) (startAt, endAt time.Time, ok bool)
+// Slot is when a visit happens.
+type Slot struct {
+	StartAt time.Time
+	EndAt   time.Time
+	Buffer  time.Duration
 }
 
-// BasicPlacement ignores arrival buffers, last entry and shortening to the minimum duration.
-type BasicPlacement struct{}
+// Placement decides when a visit happens if the user arrives at arrivalAt and must be done by deadline.
+type Placement interface {
+	Place(c *domain.Candidate, arrivalAt, deadline time.Time) (Slot, bool)
+}
 
-func (BasicPlacement) Place(c *domain.Candidate, arrivalAt time.Time, p Problem) (startAt, endAt time.Time, ok bool) {
+// WindowPlacement never moves a fixed session and never shortens a visit below its minimum.
+type WindowPlacement struct{}
+
+func (WindowPlacement) Place(c *domain.Candidate, arrivalAt, deadline time.Time) (Slot, bool) {
 	w := c.Window
 	switch w.Kind {
 	case domain.WindowFixed:
-		if arrivalAt.After(w.Start) {
-			return time.Time{}, time.Time{}, false
-		}
-		startAt, endAt = w.Start, w.End
+		return placeFixed(w, arrivalAt, deadline)
 	case domain.WindowContinuous:
-		startAt = w.Start
-		if arrivalAt.After(startAt) {
-			startAt = arrivalAt
-		}
-		endAt = startAt.Add(w.RecommendedDuration)
-		if endAt.After(w.End) {
-			return time.Time{}, time.Time{}, false
-		}
+		return placeContinuous(w, arrivalAt, deadline)
 	default:
-		return time.Time{}, time.Time{}, false
+		return Slot{}, false
 	}
-	if endAt.After(p.End) {
-		return time.Time{}, time.Time{}, false
+}
+
+func placeFixed(w domain.VisitWindow, arrivalAt, deadline time.Time) (Slot, bool) {
+	if w.End.After(deadline) {
+		return Slot{}, false
 	}
-	return startAt, endAt, true
+	if !arrivalAt.Add(w.ArrivalBuffer).After(w.Start) {
+		return Slot{StartAt: w.Start, EndAt: w.End, Buffer: w.ArrivalBuffer}, true
+	}
+	if w.LateEntryAllowed == nil || !*w.LateEntryAllowed {
+		return Slot{}, false
+	}
+	// A late entrant walks straight in, so the buffer that protects an on-time start no longer applies.
+	start := later(arrivalAt, w.Start)
+	lastEntry := w.End.Add(-w.MinDuration)
+	if w.LastEntryAt != nil {
+		lastEntry = *w.LastEntryAt
+	}
+	if start.After(lastEntry) || w.End.Sub(start) < w.MinDuration {
+		return Slot{}, false
+	}
+	return Slot{StartAt: start, EndAt: w.End}, true
+}
+
+func placeContinuous(w domain.VisitWindow, arrivalAt, deadline time.Time) (Slot, bool) {
+	start := later(arrivalAt.Add(w.ArrivalBuffer), w.Start)
+	if w.LastEntryAt != nil && start.After(*w.LastEntryAt) {
+		return Slot{}, false
+	}
+	latestEnd := w.End
+	if deadline.Before(latestEnd) {
+		latestEnd = deadline
+	}
+	duration := min(w.RecommendedDuration, latestEnd.Sub(start))
+	if duration < w.MinDuration {
+		return Slot{}, false
+	}
+	return Slot{StartAt: start, EndAt: start.Add(duration), Buffer: w.ArrivalBuffer}, true
+}
+
+func later(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
 }

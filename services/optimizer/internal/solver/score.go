@@ -25,6 +25,18 @@ func (p ScoreParams) affinity(user, visit domain.InterestMask, archetype domain.
 func (p ScoreParams) gain(utility float64, wait, transit time.Duration, categoryCount int) float64 {
 	return utility -
 		p.WaitWeight*wait.Minutes() -
-		p.TransitWeight*transit.Minutes() -
+		p.transitPenalty(transit) -
 		p.CategoryWeight*float64(2*categoryCount+1)
+}
+
+func (p ScoreParams) transitPenalty(transit time.Duration) float64 {
+	return p.TransitWeight * transit.Minutes()
+}
+
+// finishPenalty charges the leg to the destination, which is part of the route's transit time.
+func (p ScoreParams) finishPenalty(finish *domain.TransitEstimate) float64 {
+	if finish == nil {
+		return 0
+	}
+	return p.transitPenalty(finish.Duration)
 }

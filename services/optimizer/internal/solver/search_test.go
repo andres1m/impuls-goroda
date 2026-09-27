@@ -15,7 +15,7 @@ import (
 
 func newSolver(t *testing.T, cfg Config) *Solver {
 	t.Helper()
-	s, err := New(cfg, DefaultScoreParams(), baseline(t, DefaultTransitParams()), BasicPlacement{})
+	s, err := New(cfg, DefaultScoreParams(), baseline(t, DefaultTransitParams()), WindowPlacement{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,6 +78,99 @@ func TestSearchSingleCandidate(t *testing.T) {
 	if routes[0].CountCategory(domain.CategoryCulture) != 1 {
 		t.Fatal("category not counted")
 	}
+	if routes[0].Finish != nil {
+		t.Fatalf("finish leg without a destination: %+v", routes[0].Finish)
+	}
+}
+
+func assertScore(t *testing.T, got, want float64) {
+	t.Helper()
+	if diff := got - want; diff > 1e-9 || diff < -1e-9 {
+		t.Fatalf("score = %f, want %f", got, want)
+	}
+}
+
+func TestSearchBufferIsNotWaiting(t *testing.T) {
+	museum := withWindow(place(1, domain.CategoryCulture, 0, north(origin, 1000)), func(w *domain.VisitWindow) {
+		w.ArrivalBuffer = 10 * time.Minute
+	})
+	routes := search(t, wide, problem(), []domain.Candidate{museum})
+	if len(routes) != 1 {
+		t.Fatalf("routes = %v", routeKeys(routes))
+	}
+	visit := routes[0].Visits[0]
+	if visit.Buffer != 10*time.Minute || !visit.StartAt.Equal(visit.ArrivalAt.Add(10*time.Minute)) {
+		t.Fatalf("visit = %+v", visit)
+	}
+	assertScore(t, routes[0].Score, 10-0.2*(1000.0/60)-0.5)
+}
+
+func TestSearchReachesDestination(t *testing.T) {
+	late := session(1, domain.CategoryCulture, north(origin, 1000), at(16, 30), at(17, 59))
+	museum := place(2, domain.CategorySport, 0, north(origin, 100))
+	pool := []domain.Candidate{late, museum}
+
+	open := search(t, wide, problem(), pool)
+	if !slices.ContainsFunc(open, func(r *domain.Branch) bool { return slices.Contains(placeIDs(r), 1) }) {
+		t.Fatalf("session is not reachable even without a destination: %v", routeKeys(open))
+	}
+
+	p := problem()
+	p.Destination = &origin
+	routes := search(t, wide, p, pool)
+	if len(routes) == 0 {
+		t.Fatal("no routes")
+	}
+	for _, r := range routes {
+		if slices.Contains(placeIDs(r), 1) {
+			t.Fatalf("route %v cannot reach the destination in time", placeIDs(r))
+		}
+		if r.Finish == nil || r.Now.Add(r.Finish.Duration).After(p.End) {
+			t.Fatalf("route %v finish = %+v", placeIDs(r), r.Finish)
+		}
+	}
+}
+
+func TestSearchShortensVisitForDestination(t *testing.T) {
+	museum := place(1, domain.CategoryCulture, 0, north(origin, 600))
+	p := problem()
+	p.End = at(11, 0)
+	p.Destination = &origin
+	routes := search(t, wide, p, []domain.Candidate{museum})
+	if len(routes) != 1 {
+		t.Fatalf("routes = %v", routeKeys(routes))
+	}
+	visit := routes[0].Visits[0]
+	if !visit.StartAt.Equal(at(10, 10)) || !visit.EndAt.Equal(at(10, 50)) {
+		t.Fatalf("visit %s–%s, want 10:10–10:50", visit.StartAt.Format("15:04"), visit.EndAt.Format("15:04"))
+	}
+	if routes[0].Finish == nil || routes[0].Finish.Duration != 600*time.Second {
+		t.Fatalf("finish = %+v", routes[0].Finish)
+	}
+}
+
+func TestSearchScoreCountsFinishLeg(t *testing.T) {
+	a := place(1, domain.CategoryCulture, 0, north(origin, 100))
+	b := place(2, domain.CategorySport, 0, north(origin, 300))
+	p := problem()
+	destination := north(origin, 1000)
+	p.Destination = &destination
+	routes := search(t, wide, p, []domain.Candidate{a, b})
+
+	scores := map[string]float64{}
+	for _, r := range routes {
+		scores[fmt.Sprint(placeIDs(r))] = r.Score
+	}
+	single, ok := scores[fmt.Sprint([]byte{1})]
+	if !ok {
+		t.Fatalf("routes = %v", routeKeys(routes))
+	}
+	assertScore(t, single, 10-0.2*(100.0/60)-0.5-0.2*(900.0/60))
+	pair, ok := scores[fmt.Sprint([]byte{1, 2})]
+	if !ok {
+		t.Fatalf("routes = %v", routeKeys(routes))
+	}
+	assertScore(t, pair, 10-0.2*(100.0/60)-0.5+10-0.2*(200.0/60)-0.5-0.2*(700.0/60))
 }
 
 func TestSearchPrefersInterestMatch(t *testing.T) {
@@ -237,9 +330,9 @@ func TestNewRejectsInvalidSetup(t *testing.T) {
 	badScore := DefaultScoreParams()
 	badScore.ArchetypeBonus = 0
 	cases := map[string]func() (*Solver, error){
-		"config":    func() (*Solver, error) { return New(Config{}, DefaultScoreParams(), transit, BasicPlacement{}) },
-		"score":     func() (*Solver, error) { return New(wide, badScore, transit, BasicPlacement{}) },
-		"transit":   func() (*Solver, error) { return New(wide, DefaultScoreParams(), nil, BasicPlacement{}) },
+		"config":    func() (*Solver, error) { return New(Config{}, DefaultScoreParams(), transit, WindowPlacement{}) },
+		"score":     func() (*Solver, error) { return New(wide, badScore, transit, WindowPlacement{}) },
+		"transit":   func() (*Solver, error) { return New(wide, DefaultScoreParams(), nil, WindowPlacement{}) },
 		"placement": func() (*Solver, error) { return New(wide, DefaultScoreParams(), transit, nil) },
 	}
 	for name, build := range cases {

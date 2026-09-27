@@ -19,8 +19,10 @@ type SearchVisit struct {
 	Candidate *Candidate
 	Transit   TransitEstimate
 	ArrivalAt time.Time
-	StartAt   time.Time
-	EndAt     time.Time
+	// Required time between arrival and start; it is not waiting.
+	Buffer  time.Duration
+	StartAt time.Time
+	EndAt   time.Time
 }
 
 // Branch is one partial route in the search. Every collection is owned by the branch,
@@ -35,6 +37,8 @@ type Branch struct {
 	UnknownCost    bool
 	CategoryCounts [CategoryCount]int
 	Score          float64
+	// Leg from Position to the destination when the route has one.
+	Finish *TransitEstimate
 }
 
 func NewBranch(origin Coordinate, start time.Time, currency string) *Branch {
@@ -52,6 +56,10 @@ func (b *Branch) Clone() *Branch {
 	clone.Visits = slices.Clone(b.Visits)
 	clone.VisitedPlaces = maps.Clone(b.VisitedPlaces)
 	clone.UsedSessions = maps.Clone(b.UsedSessions)
+	if b.Finish != nil {
+		finish := *b.Finish
+		clone.Finish = &finish
+	}
 	return &clone
 }
 

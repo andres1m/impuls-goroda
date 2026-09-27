@@ -68,6 +68,11 @@ func TestProblemValidate(t *testing.T) {
 	if err := problem().Validate(); err != nil {
 		t.Fatalf("valid problem: %v", err)
 	}
+	withDestination := problem()
+	withDestination.Destination = &origin
+	if err := withDestination.Validate(); err != nil {
+		t.Fatalf("valid problem with a destination: %v", err)
+	}
 	cases := map[string]func(*Problem){
 		"no start":     func(p *Problem) { p.Start = time.Time{} },
 		"inverted":     func(p *Problem) { p.End = p.Start },
@@ -76,6 +81,9 @@ func TestProblemValidate(t *testing.T) {
 		"no modes":     func(p *Problem) { p.Modes = nil },
 		"unknown mode": func(p *Problem) { p.Modes = []domain.MovementMode{"bike"} },
 		"bad currency": func(p *Problem) { p.Currency = "rub" },
+		"bad destination": func(p *Problem) {
+			p.Destination = &domain.Coordinate{Longitude: origin.Longitude, Latitude: 91}
+		},
 	}
 	for name, change := range cases {
 		p := problem()
