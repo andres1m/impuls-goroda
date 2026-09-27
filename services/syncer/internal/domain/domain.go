@@ -23,23 +23,26 @@ func ParseCity(code string) (City, error) {
 type SourceKey string
 
 const (
-	MkrfEvents SourceKey = "mkrf_events"
-	KudaGo     SourceKey = "kudago"
-	OSM        SourceKey = "osm"
+	MkrfEvents      SourceKey = "mkrf_events"
+	KudaGo          SourceKey = "kudago"
+	OSM             SourceKey = "osm"
+	SyntheticSource SourceKey = "synthetic"
 )
 
 type DataMode string
 
 const (
-	Live     DataMode = "live"
-	Prepared DataMode = "prepared"
+	Live      DataMode = "live"
+	Prepared  DataMode = "prepared"
+	Synthetic DataMode = "synthetic"
 )
 
 type AccessMode string
 
 const (
-	AccessAPI    AccessMode = "api"
-	AccessExport AccessMode = "export"
+	AccessAPI       AccessMode = "api"
+	AccessExport    AccessMode = "export"
+	AccessSynthetic AccessMode = "synthetic"
 )
 
 type Source struct {
