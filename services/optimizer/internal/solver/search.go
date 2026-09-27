@@ -45,37 +45,11 @@ func (s *Solver) Search(ctx context.Context, p Problem, pool []domain.Candidate)
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
-	pool, anchors := mergeAnchors(pool, p.Anchors)
-	isAnchor := make([]bool, len(pool))
-	var fixed, flexible []int
-	for _, i := range anchors {
-		isAnchor[i] = true
-		if fixedTime(&pool[i]) {
-			fixed = append(fixed, i)
-		} else {
-			flexible = append(flexible, i)
-		}
+	run, err := s.newRun(p, pool)
+	if err != nil {
+		return nil, err
 	}
-	slices.SortStableFunc(fixed, func(a, b int) int { return pool[a].Window.Start.Compare(pool[b].Window.Start) })
-	for i := range pool {
-		if err := pool[i].Validate(); err != nil {
-			return nil, fmt.Errorf("candidate %d: %w", i, err)
-		}
-	}
-	run := searchRun{
-		Solver: s, problem: p, pool: pool, anchors: anchors, isAnchor: isAnchor, fixedAnchors: fixed, flexibleAnchors: flexible,
-		utilities: make([]float64, len(pool)), quotes: make([]pricing.Quote, len(pool)), priced: make([]bool, len(pool)),
-	}
-	for i := range pool {
-		run.utilities[i] = pool[i].BaseScore * s.score.affinity(p.Interests, pool[i].InterestMask(), p.Archetype)
-		run.quotes[i], run.priced[i] = p.Pricing.Quote(&pool[i])
-	}
-
-	root := domain.NewBranch(p.Origin, p.Start, p.Pricing.Currency)
-	for _, id := range p.Visited {
-		root.VisitedPlaces[id] = struct{}{}
-	}
-	beam := []*domain.Branch{root}
+	beam := []*domain.Branch{run.root()}
 	var best []*domain.Branch
 	for len(beam) > 0 {
 		if err := ctx.Err(); err != nil {
@@ -92,6 +66,44 @@ func (s *Solver) Search(ctx context.Context, p Problem, pool []domain.Candidate)
 		return nil, err
 	}
 	return best, nil
+}
+
+// newRun prepares one run over the pool with the problem's anchors in it.
+func (s *Solver) newRun(p Problem, pool []domain.Candidate) (searchRun, error) {
+	pool, anchors := mergeAnchors(pool, p.Anchors)
+	isAnchor := make([]bool, len(pool))
+	var fixed, flexible []int
+	for _, i := range anchors {
+		isAnchor[i] = true
+		if fixedTime(&pool[i]) {
+			fixed = append(fixed, i)
+		} else {
+			flexible = append(flexible, i)
+		}
+	}
+	slices.SortStableFunc(fixed, func(a, b int) int { return pool[a].Window.Start.Compare(pool[b].Window.Start) })
+	for i := range pool {
+		if err := pool[i].Validate(); err != nil {
+			return searchRun{}, fmt.Errorf("candidate %d: %w", i, err)
+		}
+	}
+	run := searchRun{
+		Solver: s, problem: p, pool: pool, anchors: anchors, isAnchor: isAnchor, fixedAnchors: fixed, flexibleAnchors: flexible,
+		utilities: make([]float64, len(pool)), quotes: make([]pricing.Quote, len(pool)), priced: make([]bool, len(pool)),
+	}
+	for i := range pool {
+		run.utilities[i] = pool[i].BaseScore * s.score.affinity(p.Interests, pool[i].InterestMask(), p.Archetype)
+		run.quotes[i], run.priced[i] = p.Pricing.Quote(&pool[i])
+	}
+	return run, nil
+}
+
+func (r searchRun) root() *domain.Branch {
+	root := domain.NewBranch(r.problem.Origin, r.problem.Start, r.problem.Pricing.Currency)
+	for _, id := range r.problem.Visited {
+		root.VisitedPlaces[id] = struct{}{}
+	}
+	return root
 }
 
 type searchRun struct {
