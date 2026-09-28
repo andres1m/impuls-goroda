@@ -31,6 +31,7 @@ func query(city domain.City) string {
 		`nwr(area.city)["tourism"~"^(museum|gallery|zoo|theme_park)$"]["name"];` +
 		`nwr(area.city)["amenity"~"^(theatre|cinema|arts_centre)$"]["name"];` +
 		`nwr(area.city)["leisure"~"^(park|garden|sports_centre|stadium)$"]["name"];` +
+		`nwr(area.city)["amenity"~"^(cafe|restaurant|fast_food|food_court)$"]["name"];` +
 		");out tags center;"
 }
 
@@ -51,7 +52,7 @@ func (a *Adapter) Source() domain.Source {
 		DocumentationURL: "https://wiki.openstreetmap.org/wiki/Overpass_API",
 		AccessMode:       domain.AccessAPI,
 		LicenseInfo:      "ODbL; attribution «© OpenStreetMap contributors» is required",
-		SchemaVersion:    "overpass-leisure-places-1",
+		SchemaVersion:    "overpass-leisure-places-2",
 		DataMode:         domain.Live,
 	}
 }

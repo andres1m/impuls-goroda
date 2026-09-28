@@ -1,4 +1,4 @@
-package seed
+package normalize
 
 import (
 	"encoding/json"
@@ -7,7 +7,8 @@ import (
 	"time"
 )
 
-var weekdays = [...]string{"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+// Weekdays are the keys of a weekly schedule, Monday first.
+var Weekdays = [...]string{"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
 
 const openingRulesSchemaVersion = 1
 
@@ -18,22 +19,22 @@ type OpeningRules struct {
 	SourceText  string                 `yaml:"source_text"`
 }
 
-func (r OpeningRules) validate() error {
-	if len(r.Weekly) != len(weekdays) {
+func (r OpeningRules) Validate() error {
+	if len(r.Weekly) != len(Weekdays) {
 		return errors.New("weekly must list exactly the days mon..sun")
 	}
-	for _, day := range weekdays {
+	for _, day := range Weekdays {
 		intervals, ok := r.Weekly[day]
 		if !ok {
 			return fmt.Errorf("weekly: %s is missing", day)
 		}
 		previousEnd := 0
 		for i, interval := range intervals {
-			start, err := clockMinutes(interval[0], false)
+			start, err := ClockMinutes(interval[0], false)
 			if err != nil {
 				return fmt.Errorf("weekly %s: %w", day, err)
 			}
-			end, err := clockMinutes(interval[1], true)
+			end, err := ClockMinutes(interval[1], true)
 			if err != nil {
 				return fmt.Errorf("weekly %s: %w", day, err)
 			}
@@ -54,7 +55,7 @@ func (r OpeningRules) validate() error {
 	return nil
 }
 
-func (r OpeningRules) hasOpenHours() bool {
+func (r OpeningRules) HasOpenHours() bool {
 	for _, intervals := range r.Weekly {
 		if len(intervals) > 0 {
 			return true
@@ -63,9 +64,10 @@ func (r OpeningRules) hasOpenHours() bool {
 	return false
 }
 
-func (r OpeningRules) marshalJSON() ([]byte, error) {
-	weekly := make(map[string][][2]string, len(weekdays))
-	for _, day := range weekdays {
+// MarshalJSON writes the stored catalog form: every day present and the schema version set.
+func (r OpeningRules) MarshalJSON() ([]byte, error) {
+	weekly := make(map[string][][2]string, len(Weekdays))
+	for _, day := range Weekdays {
 		weekly[day] = append([][2]string{}, r.Weekly[day]...)
 	}
 	return json.Marshal(struct {
@@ -76,8 +78,8 @@ func (r OpeningRules) marshalJSON() ([]byte, error) {
 	}{openingRulesSchemaVersion, weekly, r.ClosedDates, r.SourceText})
 }
 
-// clockMinutes parses HH:MM; 24:00 is accepted only where the end of the day is meant.
-func clockMinutes(value string, endOfDayAllowed bool) (int, error) {
+// ClockMinutes parses HH:MM; 24:00 is accepted only where the end of the day is meant.
+func ClockMinutes(value string, endOfDayAllowed bool) (int, error) {
 	if value == "24:00" && endOfDayAllowed {
 		return 24 * 60, nil
 	}

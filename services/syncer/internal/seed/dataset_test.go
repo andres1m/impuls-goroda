@@ -146,12 +146,14 @@ func TestInvalidDatasetRejected(t *testing.T) {
 		"unknown audience":        func(d *Dataset) { d.Events[0].Sessions[0].Prices[0].Audience = "vip" },
 		"duplicate audience":      func(d *Dataset) { d.Events[0].Sessions[0].Prices[1].Audience = "general" },
 		"unknown status":          func(d *Dataset) { d.Events[0].Sessions[0].Prices[0].Status = "cheap" },
-		"unknown with amount":     func(d *Dataset) { d.Events[0].Sessions[0].Prices[0] = Price{Audience: "general", Status: "unknown", Amount: []int64{0}} },
-		"fixed with two amounts":  func(d *Dataset) { d.Events[0].Sessions[0].Prices[1].Amount = []int64{150, 200} },
-		"inverted range":          func(d *Dataset) { d.Events[0].Sessions[0].Prices[0].Amount = []int64{600, 300} },
-		"negative amount":         func(d *Dataset) { d.Events[0].Sessions[0].Prices[1].Amount = []int64{-1} },
-		"bad eligibility":         func(d *Dataset) { d.Events[0].Sessions[0].Prices[1].EligibilityAge = []int{13, 7} },
-		"unknown program":         func(d *Dataset) { d.Events[0].Sessions[0].Prices[0].BenefitPrograms = []string{"troika"} },
+		"unknown with amount": func(d *Dataset) {
+			d.Events[0].Sessions[0].Prices[0] = Price{Audience: "general", Status: "unknown", Amount: []int64{0}}
+		},
+		"fixed with two amounts": func(d *Dataset) { d.Events[0].Sessions[0].Prices[1].Amount = []int64{150, 200} },
+		"inverted range":         func(d *Dataset) { d.Events[0].Sessions[0].Prices[0].Amount = []int64{600, 300} },
+		"negative amount":        func(d *Dataset) { d.Events[0].Sessions[0].Prices[1].Amount = []int64{-1} },
+		"bad eligibility":        func(d *Dataset) { d.Events[0].Sessions[0].Prices[1].EligibilityAge = []int{13, 7} },
+		"unknown program":        func(d *Dataset) { d.Events[0].Sessions[0].Prices[0].BenefitPrograms = []string{"troika"} },
 	}
 	for name, mutate := range cases {
 		ds := mustParse(t, testDataset)

@@ -303,9 +303,16 @@ func (w *seedWriter) deactivateMissing(ctx context.Context, rows seed.Rows) ([]s
 	return ids, nil
 }
 
-// project rebuilds the place's search projection from the place and its active events.
 func (w *seedWriter) project(ctx context.Context, p seed.PlaceRow, revision int64) error {
-	_, err := w.tx.Exec(ctx, `
+	if err := projectPlace(ctx, w.tx, p.ID.String(), w.city, p.H3Res8, p.H3Res11, revision, w.at); err != nil {
+		return fmt.Errorf("project place %s: %w", p.ExternalID, err)
+	}
+	return nil
+}
+
+// projectPlace rebuilds the place's search projection from the place and its active events.
+func projectPlace(ctx context.Context, tx pgx.Tx, id, city string, h3Res8, h3Res11, revision int64, at time.Time) error {
+	_, err := tx.Exec(ctx, `
 		INSERT INTO catalog.leisure_poi AS t (id, city, title, normalized_title, categories, tag_mask, data_mode,
 			coordinates, h3_res8, h3_res11, base_score, benefit_programs, catalog_revision, is_active, updated_at)
 		SELECT p.id, p.city, p.title, p.normalized_title,
@@ -335,9 +342,6 @@ func (w *seedWriter) project(ctx context.Context, p seed.PlaceRow, revision int6
 			base_score = EXCLUDED.base_score, benefit_programs = EXCLUDED.benefit_programs,
 			catalog_revision = EXCLUDED.catalog_revision, is_active = EXCLUDED.is_active,
 			updated_at = EXCLUDED.updated_at`,
-		p.ID.String(), w.city, p.H3Res8, p.H3Res11, revision, w.at)
-	if err != nil {
-		return fmt.Errorf("project place %s: %w", p.ExternalID, err)
-	}
-	return nil
+		id, city, h3Res8, h3Res11, revision, at)
+	return err
 }

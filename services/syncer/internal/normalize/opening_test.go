@@ -1,4 +1,4 @@
-package seed
+package normalize
 
 import (
 	"encoding/json"
@@ -22,41 +22,41 @@ func validRules() OpeningRules {
 }
 
 func TestOpeningRulesValidate(t *testing.T) {
-	if err := validRules().validate(); err != nil {
+	if err := validRules().Validate(); err != nil {
 		t.Fatalf("valid rules rejected: %v", err)
 	}
 	cases := map[string]func(*OpeningRules){
-		"missing day":      func(r *OpeningRules) { delete(r.Weekly, "wed") },
-		"unknown day":      func(r *OpeningRules) { delete(r.Weekly, "wed"); r.Weekly["wen"] = nil },
-		"midnight start":   func(r *OpeningRules) { r.Weekly["tue"] = [][2]string{{"24:00", "24:00"}} },
-		"crosses midnight": func(r *OpeningRules) { r.Weekly["tue"] = [][2]string{{"22:00", "02:00"}} },
-		"overlap":          func(r *OpeningRules) { r.Weekly["tue"] = [][2]string{{"10:00", "14:00"}, {"13:00", "18:00"}} },
-		"unsorted":         func(r *OpeningRules) { r.Weekly["tue"] = [][2]string{{"14:00", "18:00"}, {"10:00", "12:00"}} },
-		"bad clock":        func(r *OpeningRules) { r.Weekly["tue"] = [][2]string{{"10:00", "25:00"}} },
+		"missing day":       func(r *OpeningRules) { delete(r.Weekly, "wed") },
+		"unknown day":       func(r *OpeningRules) { delete(r.Weekly, "wed"); r.Weekly["wen"] = nil },
+		"midnight start":    func(r *OpeningRules) { r.Weekly["tue"] = [][2]string{{"24:00", "24:00"}} },
+		"crosses midnight":  func(r *OpeningRules) { r.Weekly["tue"] = [][2]string{{"22:00", "02:00"}} },
+		"overlap":           func(r *OpeningRules) { r.Weekly["tue"] = [][2]string{{"10:00", "14:00"}, {"13:00", "18:00"}} },
+		"unsorted":          func(r *OpeningRules) { r.Weekly["tue"] = [][2]string{{"14:00", "18:00"}, {"10:00", "12:00"}} },
+		"bad clock":         func(r *OpeningRules) { r.Weekly["tue"] = [][2]string{{"10:00", "25:00"}} },
 		"single-digit hour": func(r *OpeningRules) { r.Weekly["tue"] = [][2]string{{"9:00", "18:00"}} },
-		"bad closed date":  func(r *OpeningRules) { r.ClosedDates = []string{"05.10.2026"} },
+		"bad closed date":   func(r *OpeningRules) { r.ClosedDates = []string{"05.10.2026"} },
 	}
 	for name, mutate := range cases {
 		rules := validRules()
 		mutate(&rules)
-		if err := rules.validate(); err == nil {
+		if err := rules.Validate(); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
 }
 
 func TestOpeningRulesHasOpenHours(t *testing.T) {
-	if !validRules().hasOpenHours() {
+	if !validRules().HasOpenHours() {
 		t.Fatal("rules with intervals report no open hours")
 	}
 	closed := OpeningRules{Weekly: map[string][][2]string{"mon": {}, "tue": {}, "wed": {}, "thu": {}, "fri": {}, "sat": {}, "sun": {}}}
-	if closed.hasOpenHours() {
+	if closed.HasOpenHours() {
 		t.Fatal("rules without intervals report open hours")
 	}
 }
 
 func TestOpeningRulesJSON(t *testing.T) {
-	raw, err := validRules().marshalJSON()
+	raw, err := validRules().MarshalJSON()
 	if err != nil {
 		t.Fatal(err)
 	}

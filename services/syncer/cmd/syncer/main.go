@@ -21,11 +21,14 @@ import (
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/kafka"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/repo/postgres"
 	rawtemporal "github.com/andres1m/impuls-goroda/services/syncer/internal/temporal"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/temporal/activity"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/temporal/workflow"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
+	sdkworkflow "go.temporal.io/sdk/workflow"
 )
 
 const configPath = "config.yaml"
@@ -101,6 +104,13 @@ func run(ctx context.Context) error {
 
 	temporalWorker, err := temporal.NewWorker(infra.log.Log, infra.temporal, &infra.cfg.Temporal, func(r worker.Registry) {
 		r.RegisterWorkflow(workflow.ProcessRawIngest)
+		r.RegisterWorkflowWithOptions(workflow.MaterializeCity, sdkworkflow.RegisterOptions{Name: activity.MaterializeWorkflowName})
+		r.RegisterActivity(&activity.Activities{
+			Client: func() client.Client { return infra.temporal.TemporalClient },
+			Queue:  infra.temporal.TaskQueue(),
+			Store:  postgres.NewMaterializeStore(func() *pgxpool.Pool { return infra.pool.Pool }),
+			Now:    time.Now,
+		})
 	})
 	if err != nil {
 		return fmt.Errorf("create temporal worker error: %w", err)

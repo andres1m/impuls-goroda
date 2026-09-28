@@ -99,3 +99,12 @@ func TestSourceIsLive(t *testing.T) {
 		t.Fatalf("source = %+v", s)
 	}
 }
+
+func TestQueryAsksForPlacesToEat(t *testing.T) {
+	if q := query(domain.Perm); !strings.Contains(q, `nwr(area.city)["amenity"~"^(cafe|restaurant|fast_food|food_court)$"]["name"];`) {
+		t.Fatalf("query = %s", q)
+	}
+	if v := New("", nil, nil).Source().SchemaVersion; v != "overpass-leisure-places-2" {
+		t.Fatalf("schema version %s", v)
+	}
+}

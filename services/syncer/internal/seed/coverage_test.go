@@ -69,7 +69,7 @@ func checkCoverage(t *testing.T, ds Dataset, rows Rows, envelope box) {
 	require("eight interest bits", bits.OnesCount64(uint64(mask)) >= 8)
 
 	require("a public space with opening hours", slices.ContainsFunc(ds.Places, func(p Place) bool {
-		return p.Kind == "public_space" && p.OpeningRules != nil && p.OpeningRules.hasOpenHours()
+		return p.Kind == "public_space" && p.OpeningRules != nil && p.OpeningRules.HasOpenHours()
 	}))
 	require("two events at one place", slices.ContainsFunc(rows.Places, func(p PlaceRow) bool { return eventsPerPlace[p.ID] >= 2 }))
 	require("an adults-only event", slices.ContainsFunc(rows.Events, func(e EventRow) bool { return e.AgeMin != nil && *e.AgeMin >= 18 }))

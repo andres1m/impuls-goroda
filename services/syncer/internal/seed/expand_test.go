@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/normalize"
 	"github.com/uber/h3-go/v4"
 )
 
@@ -116,7 +116,7 @@ func TestExpandIsDeterministic(t *testing.T) {
 		}
 	}
 	talk := findSession(t, first, "session:perm:talk:evening:2026-10-02")
-	if want := uuid.NewSHA1(idNamespace, []byte("session:perm:talk:evening:2026-10-02")); talk.ID != want {
+	if want := normalize.EntityID(("session:perm:talk:evening:2026-10-02")); talk.ID != want {
 		t.Fatalf("session id = %s, want %s", talk.ID, want)
 	}
 }

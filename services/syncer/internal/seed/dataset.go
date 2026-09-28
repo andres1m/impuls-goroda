@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/normalize"
 )
 
 //go:embed data/*.yaml
@@ -27,15 +28,15 @@ type Dataset struct {
 }
 
 type Place struct {
-	Key          string        `yaml:"key"`
-	Kind         string        `yaml:"kind"`
-	Title        string        `yaml:"title"`
-	Category     string        `yaml:"category"`
-	Tags         []string      `yaml:"tags"`
-	Lat          float64       `yaml:"lat"`
-	Lon          float64       `yaml:"lon"`
-	Address      string        `yaml:"address"`
-	OpeningRules *OpeningRules `yaml:"opening_rules"`
+	Key          string                  `yaml:"key"`
+	Kind         string                  `yaml:"kind"`
+	Title        string                  `yaml:"title"`
+	Category     string                  `yaml:"category"`
+	Tags         []string                `yaml:"tags"`
+	Lat          float64                 `yaml:"lat"`
+	Lon          float64                 `yaml:"lon"`
+	Address      string                  `yaml:"address"`
+	OpeningRules *normalize.OpeningRules `yaml:"opening_rules"`
 }
 
 type Event struct {
@@ -186,13 +187,13 @@ func (p Place) validate(ref Reference) error {
 		return errors.New("coordinates are out of range")
 	}
 	if p.OpeningRules != nil {
-		if err := p.OpeningRules.validate(); err != nil {
+		if err := p.OpeningRules.Validate(); err != nil {
 			return fmt.Errorf("opening_rules: %w", err)
 		}
 	}
 	switch p.Kind {
 	case "public_space":
-		if p.Category == "" || p.OpeningRules == nil || !p.OpeningRules.hasOpenHours() {
+		if p.Category == "" || p.OpeningRules == nil || !p.OpeningRules.HasOpenHours() {
 			return errors.New("a public space needs a category and opening hours")
 		}
 	case "venue":
@@ -255,11 +256,11 @@ func (s Session) validate() error {
 		}
 		days[day] = true
 	}
-	start, err := clockMinutes(s.Start, false)
+	start, err := normalize.ClockMinutes(s.Start, false)
 	if err != nil {
 		return err
 	}
-	end, err := clockMinutes(s.End, true)
+	end, err := normalize.ClockMinutes(s.End, true)
 	if err != nil {
 		return err
 	}
@@ -279,7 +280,7 @@ func (s Session) validate() error {
 		if s.LateEntry == nil || !*s.LateEntry {
 			return errors.New("last_entry requires late_entry: true")
 		}
-		last, err := clockMinutes(s.LastEntry, true)
+		last, err := normalize.ClockMinutes(s.LastEntry, true)
 		if err != nil {
 			return err
 		}

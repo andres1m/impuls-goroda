@@ -2,15 +2,12 @@ package seed
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/normalize"
 	"github.com/google/uuid"
 	"github.com/uber/h3-go/v4"
 )
-
-// Changing the namespace would give every seeded row a new identity.
-var idNamespace = uuid.MustParse("ebbbeec7-8d1a-4321-9834-cdcd0b15c3c8")
 
 var timezones = map[string]string{"moscow": "Europe/Moscow", "perm": "Asia/Yekaterinburg"}
 
@@ -155,7 +152,7 @@ func expandPlace(city string, p Place, ref Reference) (PlaceRow, error) {
 	}
 	rules := []byte("{}")
 	if p.OpeningRules != nil {
-		if rules, err = p.OpeningRules.marshalJSON(); err != nil {
+		if rules, err = p.OpeningRules.MarshalJSON(); err != nil {
 			return PlaceRow{}, err
 		}
 	}
@@ -169,10 +166,10 @@ func expandPlace(city string, p Place, ref Reference) (PlaceRow, error) {
 		return PlaceRow{}, fmt.Errorf("h3 cell: %w", err)
 	}
 	return PlaceRow{
-		ID:              entityID(externalID),
+		ID:              normalize.EntityID(externalID),
 		ExternalID:      externalID,
 		Title:           p.Title,
-		NormalizedTitle: normalizeTitle(p.Title),
+		NormalizedTitle: normalize.NormalizedTitle(p.Title),
 		Category:        optional(p.Category),
 		TagMask:         mask,
 		Lat:             p.Lat,
@@ -193,11 +190,11 @@ func expandEvent(city string, e Event, placeID uuid.UUID, ref Reference) EventRo
 		ageMin = &age
 	}
 	return EventRow{
-		ID:              entityID(externalID),
+		ID:              normalize.EntityID(externalID),
 		PlaceID:         placeID,
 		ExternalID:      externalID,
 		Title:           e.Title,
-		NormalizedTitle: normalizeTitle(e.Title),
+		NormalizedTitle: normalize.NormalizedTitle(e.Title),
 		Category:        e.Category,
 		TagMask:         mask,
 		Organizer:       optional(e.Organizer),
@@ -207,7 +204,7 @@ func expandEvent(city string, e Event, placeID uuid.UUID, ref Reference) EventRo
 
 func expandSession(city, eventKey string, eventID uuid.UUID, s Session, date time.Time, location *time.Location) SessionRow {
 	at := func(clock string) time.Time {
-		minutes, _ := clockMinutes(clock, true) // validated
+		minutes, _ := normalize.ClockMinutes(clock, true) // validated
 		return time.Date(date.Year(), date.Month(), date.Day(), 0, minutes, 0, 0, location)
 	}
 	externalID := fmt.Sprintf("session:%s:%s:%s:%s", city, eventKey, s.Key, date.Format(time.DateOnly))
@@ -216,7 +213,7 @@ func expandSession(city, eventKey string, eventID uuid.UUID, s Session, date tim
 		recommended = s.MinDuration
 	}
 	row := SessionRow{
-		ID:                   entityID(externalID),
+		ID:                   normalize.EntityID(externalID),
 		EventID:              eventID,
 		ExternalID:           externalID,
 		SlotType:             slotTypes[s.Slot],
@@ -258,7 +255,7 @@ func expandPrices(session SessionRow, s Session) []PriceRow {
 
 func priceRow(session SessionRow, p Price) PriceRow {
 	row := PriceRow{
-		ID:              entityID(session.ExternalID + ":price:" + p.Audience),
+		ID:              normalize.EntityID(session.ExternalID + ":price:" + p.Audience),
 		SessionID:       session.ID,
 		Status:          p.Status,
 		Audience:        p.Audience,
@@ -287,15 +284,6 @@ func priceRow(session SessionRow, p Price) PriceRow {
 func kopecks(rubles int64) *int64 {
 	amount := rubles * 100
 	return &amount
-}
-
-func entityID(externalID string) uuid.UUID {
-	return uuid.NewSHA1(idNamespace, []byte(externalID))
-}
-
-func normalizeTitle(title string) string {
-	lower := strings.ReplaceAll(strings.ToLower(title), "ё", "е")
-	return strings.Join(strings.Fields(lower), " ")
 }
 
 func optional(value string) *string {

@@ -1,0 +1,120 @@
+package materialize
+
+import (
+	"context"
+	"errors"
+	"reflect"
+	"testing"
+	"time"
+
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
+)
+
+const cafe = `{"type":"node","id":1,"lat":58.01,"lon":56.25,"tags":{"name":"Кофейня","amenity":"cafe"}}`
+
+func raw(id, external string, payload string) Raw {
+	return Raw{ID: id, SourceRecordID: "rec-" + external, Source: domain.OSM, ExternalID: external, Payload: []byte(payload),
+		ContentHash: []byte(id), FetchedAt: time.Date(2026, 9, 28, 10, 0, 0, 0, time.UTC), DataMode: domain.Live, Latest: true}
+}
+
+func ids(rs []Raw) []string {
+	var out []string
+	for _, r := range rs {
+		out = append(out, r.ID)
+	}
+	return out
+}
+
+func TestPrepareSortsTheBatch(t *testing.T) {
+	older := raw("r1", "node/1", cafe)
+	older.Latest = false
+	unchanged := raw("r2", "node/2", cafe)
+	unchanged.AcceptedHash = []byte("r2")
+	events := raw("r3", "event:5", `{}`)
+	events.Source = domain.KudaGo
+	broken := raw("r4", "node/4", `{"type":"node","id":4,"lat":58,"lon":56,"tags":{"amenity":"cafe"}}`)
+	fresh := raw("r5", "node/1", cafe)
+	changed := raw("r6", "node/6", cafe)
+	changed.AcceptedHash = []byte("before")
+
+	o, deferred := Prepare([]Raw{older, unchanged, events, broken, fresh, changed})
+
+	if got := ids(deferred); len(got) != 1 || got[0] != "r3" {
+		t.Fatalf("deferred %v", got)
+	}
+	if got := ids(o.Superseded); len(got) != 1 || got[0] != "r1" {
+		t.Fatalf("superseded %v", got)
+	}
+	if got := ids(o.Unchanged); len(got) != 1 || got[0] != "r2" {
+		t.Fatalf("unchanged %v", got)
+	}
+	if len(o.Failed) != 1 || o.Failed[0].Raw.ID != "r4" || o.Failed[0].Code != "missing_name" {
+		t.Fatalf("failed %+v", o.Failed)
+	}
+	if len(o.Apply) != 2 || o.Apply[0].Raw.ID != "r5" || o.Apply[1].Raw.ID != "r6" || o.Apply[0].Place.Category != "gastro" {
+		t.Fatalf("apply %+v", o.Apply)
+	}
+}
+
+type fakeStore struct {
+	pending   []Raw
+	published []Outcome
+	revision  int64
+	err       error
+}
+
+func (f *fakeStore) PendingBatch(context.Context, domain.City, []string) ([]Raw, error) {
+	return f.pending, f.err
+}
+
+func (f *fakeStore) Publish(_ context.Context, _ domain.City, o Outcome, _ time.Time) (int64, bool, error) {
+	f.published = append(f.published, o)
+	return f.revision, len(o.Apply) > 0, nil
+}
+
+func TestApplyPublishesThePreparedBatch(t *testing.T) {
+	s := &fakeStore{pending: []Raw{raw("r1", "node/1", cafe)}, revision: 12}
+	res, err := Apply(context.Background(), s, domain.Perm, []string{"r1"}, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.published) != 1 || res.Applied != 1 || res.CatalogRevision != 12 {
+		t.Fatalf("result %+v, published %d", res, len(s.published))
+	}
+}
+
+func TestApplyWithNothingPendingDoesNotPublish(t *testing.T) {
+	s := &fakeStore{}
+	res, err := Apply(context.Background(), s, domain.Perm, []string{"gone"}, time.Now)
+	if err != nil || len(s.published) != 0 || !reflect.DeepEqual(res, Result{}) {
+		t.Fatalf("result %+v, published %d, err %v", res, len(s.published), err)
+	}
+}
+
+func TestApplyLeavesDeferredRowsUntouched(t *testing.T) {
+	events := raw("r1", "event:5", `{}`)
+	events.Source = domain.KudaGo
+	s := &fakeStore{pending: []Raw{events}}
+	res, err := Apply(context.Background(), s, domain.Perm, []string{"r1"}, time.Now)
+	if err != nil || len(s.published) != 0 || res.Deferred != 1 {
+		t.Fatalf("result %+v, published %d, err %v", res, len(s.published), err)
+	}
+}
+
+func TestApplyReportsStoreErrors(t *testing.T) {
+	s := &fakeStore{err: errors.New("down")}
+	if _, err := Apply(context.Background(), s, domain.Perm, []string{"r1"}, time.Now); err == nil {
+		t.Fatal("no error")
+	}
+}
+
+func TestApplyReportsWhyRecordsFailed(t *testing.T) {
+	broken := raw("r1", "node/1", `{"type":"node","id":1,"lat":58,"lon":56,"tags":{"amenity":"cafe"}}`)
+	res, err := Apply(context.Background(), &fakeStore{pending: []Raw{broken}}, domain.Perm, []string{"r1"}, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Failures) != 1 || res.Failures[0] != (Failure{RawIngestID: "r1", Source: domain.OSM, Code: "missing_name"}) {
+		t.Fatalf("failures %+v", res.Failures)
+	}
+}
