@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/uber/h3-go/v4"
 
 	"github.com/andres1m/impuls-goroda/pkg/catalogevent"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
@@ -93,30 +93,34 @@ func (s *MaterializeStore) Publish(ctx context.Context, city domain.City, o mate
 		return 0, false, err
 	}
 
-	type changed struct {
-		id          string
-		res8, res11 int64
-	}
-	var places []changed
+	touched := make(map[string]bool)
 	for _, n := range o.Apply {
-		id, res8, res11, updated, err := upsertPlace(ctx, tx, city, n, ref.TagBits, at)
+		placeID, updated, err := upsertPlace(ctx, tx, city, n, ref.TagBits, at)
 		if err != nil {
 			return 0, false, err
 		}
 		if updated {
-			places = append(places, changed{id, res8, res11})
+			touched[placeID] = true
+		}
+		if n.Event == nil {
+			continue
+		}
+		places, err := writeEvent(ctx, tx, city, n, placeID, ref.TagBits, at)
+		if err != nil {
+			return 0, false, err
+		}
+		for _, id := range places {
+			touched[id] = true
 		}
 	}
-	if len(places) > 0 {
+	if len(touched) > 0 {
 		if err := tx.QueryRow(ctx, `
 			UPDATE ref.city SET catalog_revision = catalog_revision + 1, updated_at = $2
 			WHERE code = $1 RETURNING catalog_revision`, city, at).Scan(&revision); err != nil {
 			return 0, false, fmt.Errorf("bump catalog revision: %w", err)
 		}
-		for _, p := range places {
-			if err := projectPlace(ctx, tx, p.id, string(city), p.res8, p.res11, revision, at); err != nil {
-				return 0, false, fmt.Errorf("project place %s: %w", p.id, err)
-			}
+		if err := projectPlaces(ctx, tx, city, slices.Sorted(maps.Keys(touched)), revision, at); err != nil {
+			return 0, false, err
 		}
 		announcement := catalogevent.Invalidation{City: string(city), CatalogRevision: revision, Reason: catalogevent.ReasonIngest, PublishedAt: at}
 		if err := EnqueueRevision(ctx, tx, announcement); err != nil {
@@ -129,7 +133,7 @@ func (s *MaterializeStore) Publish(ctx context.Context, city domain.City, o mate
 	if err := tx.Commit(ctx); err != nil {
 		return 0, false, fmt.Errorf("commit: %w", err)
 	}
-	return revision, len(places) > 0, nil
+	return revision, len(touched) > 0, nil
 }
 
 // stillPending locks the batch's raw records and drops those another publish already settled.
@@ -184,24 +188,11 @@ func stillPending(ctx context.Context, tx pgx.Tx, o materialize.Outcome) (materi
 }
 
 // upsertPlace writes the place and reports whether its row changed.
-func upsertPlace(ctx context.Context, tx pgx.Tx, city domain.City, n materialize.Normalized, bits map[string]int, at time.Time) (id string, res8, res11 int64, updated bool, err error) {
+func upsertPlace(ctx context.Context, tx pgx.Tx, city domain.City, n materialize.Normalized, bits map[string]int, at time.Time) (id string, updated bool, err error) {
 	p := n.Place
-	var mask int64
-	for _, tag := range p.Tags {
-		bit, ok := bits[tag]
-		if !ok {
-			return "", 0, 0, false, fmt.Errorf("place %s: unknown interest tag %q", p.ExternalID, tag)
-		}
-		mask |= 1 << bit
-	}
-	point := h3.NewLatLng(p.Lat, p.Lon)
-	cell8, err := h3.LatLngToCell(point, 8)
+	mask, err := interestMask(p.Tags, bits, "place "+p.ExternalID)
 	if err != nil {
-		return "", 0, 0, false, fmt.Errorf("place %s: h3 cell: %w", p.ExternalID, err)
-	}
-	cell11, err := h3.LatLngToCell(point, 11)
-	if err != nil {
-		return "", 0, 0, false, fmt.Errorf("place %s: h3 cell: %w", p.ExternalID, err)
+		return "", false, err
 	}
 	id = normalize.EntityID(string(n.Raw.Source) + ":" + p.ExternalID).String()
 	rows, err := tx.Query(ctx, `
@@ -219,16 +210,16 @@ func upsertPlace(ctx context.Context, tx pgx.Tx, city domain.City, n materialize
 			IS DISTINCT FROM (EXCLUDED.title, EXCLUDED.category, EXCLUDED.tag_mask, EXCLUDED.coordinates,
 				EXCLUDED.address_text, EXCLUDED.opening_rules, EXCLUDED.data_mode, EXCLUDED.card_source_record_id, true)
 		RETURNING id::text`,
-		id, city, p.Title, p.NormalizedTitle, p.Category, mask, p.Lon, p.Lat,
+		id, city, p.Title, p.NormalizedTitle, nullIfEmpty(p.Category), mask, p.Lon, p.Lat,
 		p.Address, string(p.OpeningRules), n.Raw.DataMode, n.Raw.SourceRecordID, at)
 	if err != nil {
-		return "", 0, 0, false, fmt.Errorf("upsert place %s: %w", p.ExternalID, err)
+		return "", false, fmt.Errorf("upsert place %s: %w", p.ExternalID, err)
 	}
 	returned, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	if err != nil {
-		return "", 0, 0, false, fmt.Errorf("upsert place %s: %w", p.ExternalID, err)
+		return "", false, fmt.Errorf("upsert place %s: %w", p.ExternalID, err)
 	}
-	return id, int64(cell8), int64(cell11), len(returned) > 0, nil
+	return id, len(returned) > 0, nil
 }
 
 // settle records what the batch did to its raw and source records and advances the watermark of
