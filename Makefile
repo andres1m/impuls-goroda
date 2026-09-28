@@ -1,4 +1,4 @@
-.PHONY: fmt gen test race vet build verify cover-optimizer bench-optimizer up down reset logs ps migrate routing-data
+.PHONY: fmt fmt-check lint gen test race vet build verify cover cover-optimizer test-integration bench-optimizer up down reset logs ps migrate routing-data
 
 gen:
 	buf lint
@@ -6,6 +6,12 @@ gen:
 
 fmt:
 	gofmt -w pkg services
+
+fmt-check:
+	@unformatted=$$(gofmt -l pkg services); if [ -n "$$unformatted" ]; then echo "gofmt needed:"; echo "$$unformatted"; exit 1; fi
+
+lint:
+	golangci-lint run ./...
 
 test:
 	go test ./...
@@ -19,8 +25,20 @@ vet:
 build:
 	go build ./...
 
-verify: test race vet build cover-optimizer
+verify: fmt-check test race vet build cover-optimizer
 	go mod verify
+
+cover:
+	@mkdir -p bin
+	go test -coverprofile=bin/coverage.out ./... > /dev/null
+	go tool cover -func=bin/coverage.out > bin/coverage.txt
+	@tail -n 1 bin/coverage.txt
+
+# Packages share one database, so they run one at a time. Optimizer tests build fixtures that its
+# runtime role may not write, so they get their own URL and read the catalog the stand was seeded with.
+test-integration:
+	go test -count=1 -p 1 $$(go list ./... | grep -v /services/optimizer/)
+	OPTIMIZER_TEST_DATABASE_URL=$(OPTIMIZER_FIXTURE_DATABASE_URL) go test -count=1 -p 1 ./services/optimizer/...
 
 # The threshold covers the computational core; transport and storage adapters are left out.
 OPTIMIZER_CORE := $(addprefix ./services/optimizer/internal/,domain solver pricing validation usecase routing scenic semantic catalogslice)
