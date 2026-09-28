@@ -1152,6 +1152,7 @@ components:
           type: string
           minLength: 1
           maxLength: 64
+          description: Pace of the day, one of `relaxed`, `moderate` or `intense`. Any other value plans as `moderate`, so the list can grow without breaking older clients.
         budget:
           $ref: '#/components/schemas/Budget'
         benefit_programs:

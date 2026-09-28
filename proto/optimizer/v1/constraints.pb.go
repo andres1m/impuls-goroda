@@ -269,9 +269,11 @@ type RouteConstraints struct {
 	InterestMask       uint64                 `protobuf:"varint,1,opt,name=interest_mask,json=interestMask,proto3" json:"interest_mask,omitempty"`
 	ExcludedCategories []Category             `protobuf:"varint,2,rep,packed,name=excluded_categories,json=excludedCategories,proto3,enum=optimizer.v1.Category" json:"excluded_categories,omitempty"`
 	MovementModes      []string               `protobuf:"bytes,3,rep,name=movement_modes,json=movementModes,proto3" json:"movement_modes,omitempty"`
-	LoadProfile        string                 `protobuf:"bytes,4,opt,name=load_profile,json=loadProfile,proto3" json:"load_profile,omitempty"`
-	Budget             *Budget                `protobuf:"bytes,5,opt,name=budget,proto3" json:"budget,omitempty"`
-	BenefitPrograms    []string               `protobuf:"bytes,6,rep,name=benefit_programs,json=benefitPrograms,proto3" json:"benefit_programs,omitempty"`
+	// Pace of the day: "relaxed", "moderate" or "intense". Any other value, including an empty one,
+	// plans as "moderate", so the list can grow without breaking older clients.
+	LoadProfile     string   `protobuf:"bytes,4,opt,name=load_profile,json=loadProfile,proto3" json:"load_profile,omitempty"`
+	Budget          *Budget  `protobuf:"bytes,5,opt,name=budget,proto3" json:"budget,omitempty"`
+	BenefitPrograms []string `protobuf:"bytes,6,rep,name=benefit_programs,json=benefitPrograms,proto3" json:"benefit_programs,omitempty"`
 	// User-reported audience claims such as student or senior.
 	AudienceClaims   []string           `protobuf:"bytes,8,rep,name=audience_claims,json=audienceClaims,proto3" json:"audience_claims,omitempty"`
 	Obligations      []*RouteObligation `protobuf:"bytes,9,rep,name=obligations,proto3" json:"obligations,omitempty"`

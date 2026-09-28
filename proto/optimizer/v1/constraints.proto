@@ -41,6 +41,8 @@ message RouteConstraints {
   uint64 interest_mask = 1;
   repeated Category excluded_categories = 2;
   repeated string movement_modes = 3;
+  // Pace of the day: "relaxed", "moderate" or "intense". Any other value, including an empty one,
+  // plans as "moderate", so the list can grow without breaking older clients.
   string load_profile = 4;
   Budget budget = 5;
   repeated string benefit_programs = 6;
