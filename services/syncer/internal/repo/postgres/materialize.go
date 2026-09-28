@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/uber/h3-go/v4"
 
 	"github.com/andres1m/impuls-goroda/pkg/catalogevent"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
@@ -93,30 +93,47 @@ func (s *MaterializeStore) Publish(ctx context.Context, city domain.City, o mate
 		return 0, false, err
 	}
 
-	type changed struct {
-		id          string
-		res8, res11 int64
+	touched := make(map[string]bool)
+	placeIDs := make([]string, len(o.Apply))
+	// Events sharing a place may each describe it a little differently; writing the place once, from the
+	// batch's last description, keeps a repeated batch from counting it as changed.
+	last := make(map[string]int, len(o.Apply))
+	for i, n := range o.Apply {
+		placeIDs[i] = placeID(n)
+		last[placeIDs[i]] = i
 	}
-	var places []changed
-	for _, n := range o.Apply {
-		id, res8, res11, updated, err := upsertPlace(ctx, tx, city, n, ref.TagBits, at)
+	for i, n := range o.Apply {
+		if last[placeIDs[i]] != i {
+			continue
+		}
+		updated, err := upsertPlace(ctx, tx, city, n, placeIDs[i], ref.TagBits, at)
 		if err != nil {
 			return 0, false, err
 		}
 		if updated {
-			places = append(places, changed{id, res8, res11})
+			touched[placeIDs[i]] = true
 		}
 	}
-	if len(places) > 0 {
+	for i, n := range o.Apply {
+		if n.Event == nil {
+			continue
+		}
+		places, err := writeEvent(ctx, tx, city, n, placeIDs[i], ref.TagBits, at)
+		if err != nil {
+			return 0, false, err
+		}
+		for _, id := range places {
+			touched[id] = true
+		}
+	}
+	if len(touched) > 0 {
 		if err := tx.QueryRow(ctx, `
 			UPDATE ref.city SET catalog_revision = catalog_revision + 1, updated_at = $2
 			WHERE code = $1 RETURNING catalog_revision`, city, at).Scan(&revision); err != nil {
 			return 0, false, fmt.Errorf("bump catalog revision: %w", err)
 		}
-		for _, p := range places {
-			if err := projectPlace(ctx, tx, p.id, string(city), p.res8, p.res11, revision, at); err != nil {
-				return 0, false, fmt.Errorf("project place %s: %w", p.id, err)
-			}
+		if err := projectPlaces(ctx, tx, city, slices.Sorted(maps.Keys(touched)), revision, at); err != nil {
+			return 0, false, err
 		}
 		announcement := catalogevent.Invalidation{City: string(city), CatalogRevision: revision, Reason: catalogevent.ReasonIngest, PublishedAt: at}
 		if err := EnqueueRevision(ctx, tx, announcement); err != nil {
@@ -129,7 +146,7 @@ func (s *MaterializeStore) Publish(ctx context.Context, city domain.City, o mate
 	if err := tx.Commit(ctx); err != nil {
 		return 0, false, fmt.Errorf("commit: %w", err)
 	}
-	return revision, len(places) > 0, nil
+	return revision, len(touched) > 0, nil
 }
 
 // stillPending locks the batch's raw records and drops those another publish already settled.
@@ -183,27 +200,17 @@ func stillPending(ctx context.Context, tx pgx.Tx, o materialize.Outcome) (materi
 	return out, nil
 }
 
+func placeID(n materialize.Normalized) string {
+	return normalize.EntityID(string(n.Raw.Source) + ":" + n.Place.ExternalID).String()
+}
+
 // upsertPlace writes the place and reports whether its row changed.
-func upsertPlace(ctx context.Context, tx pgx.Tx, city domain.City, n materialize.Normalized, bits map[string]int, at time.Time) (id string, res8, res11 int64, updated bool, err error) {
+func upsertPlace(ctx context.Context, tx pgx.Tx, city domain.City, n materialize.Normalized, id string, bits map[string]int, at time.Time) (updated bool, err error) {
 	p := n.Place
-	var mask int64
-	for _, tag := range p.Tags {
-		bit, ok := bits[tag]
-		if !ok {
-			return "", 0, 0, false, fmt.Errorf("place %s: unknown interest tag %q", p.ExternalID, tag)
-		}
-		mask |= 1 << bit
-	}
-	point := h3.NewLatLng(p.Lat, p.Lon)
-	cell8, err := h3.LatLngToCell(point, 8)
+	mask, err := interestMask(p.Tags, bits, "place "+p.ExternalID)
 	if err != nil {
-		return "", 0, 0, false, fmt.Errorf("place %s: h3 cell: %w", p.ExternalID, err)
+		return false, err
 	}
-	cell11, err := h3.LatLngToCell(point, 11)
-	if err != nil {
-		return "", 0, 0, false, fmt.Errorf("place %s: h3 cell: %w", p.ExternalID, err)
-	}
-	id = normalize.EntityID(string(n.Raw.Source) + ":" + p.ExternalID).String()
 	rows, err := tx.Query(ctx, `
 		INSERT INTO catalog.place AS t (id, city, title, normalized_title, category, tag_mask, coordinates,
 			address_text, opening_rules, data_mode, card_source_record_id, is_active, review_required, created_at, updated_at)
@@ -219,16 +226,16 @@ func upsertPlace(ctx context.Context, tx pgx.Tx, city domain.City, n materialize
 			IS DISTINCT FROM (EXCLUDED.title, EXCLUDED.category, EXCLUDED.tag_mask, EXCLUDED.coordinates,
 				EXCLUDED.address_text, EXCLUDED.opening_rules, EXCLUDED.data_mode, EXCLUDED.card_source_record_id, true)
 		RETURNING id::text`,
-		id, city, p.Title, p.NormalizedTitle, p.Category, mask, p.Lon, p.Lat,
+		id, city, p.Title, p.NormalizedTitle, nullIfEmpty(p.Category), mask, p.Lon, p.Lat,
 		p.Address, string(p.OpeningRules), n.Raw.DataMode, n.Raw.SourceRecordID, at)
 	if err != nil {
-		return "", 0, 0, false, fmt.Errorf("upsert place %s: %w", p.ExternalID, err)
+		return false, fmt.Errorf("upsert place %s: %w", p.ExternalID, err)
 	}
 	returned, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	if err != nil {
-		return "", 0, 0, false, fmt.Errorf("upsert place %s: %w", p.ExternalID, err)
+		return false, fmt.Errorf("upsert place %s: %w", p.ExternalID, err)
 	}
-	return id, int64(cell8), int64(cell11), len(returned) > 0, nil
+	return len(returned) > 0, nil
 }
 
 // settle records what the batch did to its raw and source records and advances the watermark of
@@ -290,4 +297,35 @@ func settle(ctx context.Context, tx pgx.Tx, city domain.City, o materialize.Outc
 		return fmt.Errorf("advance materialized watermark: %w", err)
 	}
 	return nil
+}
+
+// Reopen makes the latest raw record of every source record of the source and city pending again and
+// forgets its accepted content, so the next batch materializes it against the current clock. Records
+// already pending are returned too: a run that stopped before signalling them resumes.
+func (s *MaterializeStore) Reopen(ctx context.Context, source domain.SourceKey, city domain.City) ([]string, error) {
+	pool, err := s.connected()
+	if err != nil {
+		return nil, err
+	}
+	ids, err := returnedIDs(pool.Query(ctx, `
+		WITH latest AS (
+			SELECT DISTINCT ON (ri.source_record_id) ri.id, ri.source_record_id, ri.processing_state
+			FROM integration.raw_ingest ri
+			JOIN integration.source_record sr ON sr.id = ri.source_record_id
+			JOIN integration.source src ON src.id = sr.source_id
+			WHERE src.source_key = $1 AND sr.city = $2
+			ORDER BY ri.source_record_id, ri.fetched_at DESC, ri.id DESC
+		), reopened AS (
+			UPDATE integration.raw_ingest ri SET processing_state = 'pending'
+			FROM latest l WHERE ri.id = l.id AND l.processing_state = 'applied'
+			RETURNING ri.source_record_id
+		), forgotten AS (
+			UPDATE integration.source_record sr SET accepted_hash = NULL
+			FROM reopened r WHERE sr.id = r.source_record_id
+		)
+		SELECT id::text FROM latest WHERE processing_state IN ('applied', 'pending') ORDER BY id::text`, source, city))
+	if err != nil {
+		return nil, fmt.Errorf("reopen %s %s: %w", source, city, err)
+	}
+	return ids, nil
 }
