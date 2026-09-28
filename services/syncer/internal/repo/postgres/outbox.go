@@ -61,7 +61,7 @@ const claimSQL = `
 	UPDATE integration.change_delivery d
 	SET state = 'in_flight', lease_until = $2, attempts = d.attempts + 1
 	FROM due WHERE d.id = due.id
-	RETURNING d.id, d.destination, d.event_type, d.payload, d.attempts, d.created_at`
+	RETURNING d.id, d.destination, d.event_type, d.payload, d.attempts, d.created_at, d.lease_until`
 
 func (d *Deliveries) Claim(ctx context.Context, now, leaseUntil time.Time, destinations []string, limit int) ([]delivery.Item, error) {
 	rows, err := d.db.Query(ctx, claimSQL, now, leaseUntil, destinations, limit)
@@ -70,30 +70,33 @@ func (d *Deliveries) Claim(ctx context.Context, now, leaseUntil time.Time, desti
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (delivery.Item, error) {
 		var it delivery.Item
-		err := row.Scan(&it.ID, &it.Destination, &it.EventType, &it.Payload, &it.Attempts, &it.CreatedAt)
+		err := row.Scan(&it.ID, &it.Destination, &it.EventType, &it.Payload, &it.Attempts, &it.CreatedAt, &it.LeaseUntil)
 		return it, err
 	})
 }
 
-func (d *Deliveries) Delivered(ctx context.Context, id uuid.UUID, at time.Time) error {
+// ErrLeaseLost means the row's lease ended and another relay may have taken it, so the mark is not made.
+var ErrLeaseLost = errors.New("outbox row is no longer leased to this relay")
+
+func (d *Deliveries) Delivered(ctx context.Context, item delivery.Item, at time.Time) error {
 	return d.mark(ctx, `
-		UPDATE integration.change_delivery SET state = 'delivered', delivered_at = $2, lease_until = NULL
-		WHERE id = $1`, id, at)
+		UPDATE integration.change_delivery SET state = 'delivered', delivered_at = $3, lease_until = NULL
+		WHERE id = $1 AND state = 'in_flight' AND lease_until = $2`, item, at)
 }
 
-func (d *Deliveries) Failed(ctx context.Context, id uuid.UUID, next time.Time) error {
+func (d *Deliveries) Failed(ctx context.Context, item delivery.Item, next time.Time) error {
 	return d.mark(ctx, `
-		UPDATE integration.change_delivery SET state = 'failed', next_attempt_at = $2, lease_until = NULL
-		WHERE id = $1`, id, next)
+		UPDATE integration.change_delivery SET state = 'failed', next_attempt_at = $3, lease_until = NULL
+		WHERE id = $1 AND state = 'in_flight' AND lease_until = $2`, item, next)
 }
 
-func (d *Deliveries) mark(ctx context.Context, sql string, id uuid.UUID, at time.Time) error {
-	tag, err := d.db.Exec(ctx, sql, id, at)
+func (d *Deliveries) mark(ctx context.Context, sql string, item delivery.Item, at time.Time) error {
+	tag, err := d.db.Exec(ctx, sql, item.ID, item.LeaseUntil, at)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() != 1 {
-		return errors.New("outbox row is gone")
+		return ErrLeaseLost
 	}
 	return nil
 }
