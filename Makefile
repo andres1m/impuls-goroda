@@ -23,7 +23,7 @@ verify: test race vet build cover-optimizer
 	go mod verify
 
 # The threshold covers the computational core; transport and storage adapters are left out.
-OPTIMIZER_CORE := $(addprefix ./services/optimizer/internal/,domain solver pricing validation usecase routing scenic semantic)
+OPTIMIZER_CORE := $(addprefix ./services/optimizer/internal/,domain solver pricing validation usecase routing scenic semantic catalogslice)
 OPTIMIZER_MIN_COVERAGE := 85.0
 
 cover-optimizer:

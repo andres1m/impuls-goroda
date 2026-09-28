@@ -116,6 +116,13 @@ func (q poolQuerier) QueryRow(ctx context.Context, sql string, args ...any) pgx.
 	return q.client.Pool.QueryRow(ctx, sql, args...)
 }
 
+func (q poolQuerier) BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error) {
+	if q.client == nil || q.client.Pool == nil {
+		return nil, usecase.ErrUnavailable
+	}
+	return q.client.Pool.BeginTx(ctx, opts)
+}
+
 type unavailableRow struct{}
 
 func (unavailableRow) Scan(...any) error { return usecase.ErrUnavailable }

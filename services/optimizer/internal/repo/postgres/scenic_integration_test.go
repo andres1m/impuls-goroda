@@ -46,7 +46,7 @@ func TestScenicPlacesIntegration(t *testing.T) {
 	}
 	park := point(permCenter)
 	square := point(domain.Coordinate{Longitude: permCenter.Longitude + 0.05, Latitude: permCenter.Latitude})
-	before, err := NewCatalog(tx).ScenicPlaces(ctx, "perm")
+	before, err := NewCatalog(savepointDB{tx}).ScenicPlaces(ctx, "perm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestScenicPlacesIntegration(t *testing.T) {
 	insertScenicPOI(t, tx, "perm", square, true, "walk")
 	insertScenicPOI(t, tx, "moscow", park, true, "walk")
 
-	after, err := NewCatalog(tx).ScenicPlaces(ctx, "perm")
+	after, err := NewCatalog(savepointDB{tx}).ScenicPlaces(ctx, "perm")
 	if err != nil {
 		t.Fatal(err)
 	}

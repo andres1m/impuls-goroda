@@ -98,7 +98,7 @@ func TestNearestEntitiesIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := NewCatalog(tx).NearestEntities(ctx, "perm", space, query, 10)
+	got, err := NewCatalog(savepointDB{tx}).NearestEntities(ctx, "perm", space, query, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,12 +110,12 @@ func TestNearestEntitiesIntegration(t *testing.T) {
 		t.Fatalf("matches %+v", got)
 	}
 
-	limited, err := NewCatalog(tx).NearestEntities(ctx, "perm", space, query, 1)
+	limited, err := NewCatalog(savepointDB{tx}).NearestEntities(ctx, "perm", space, query, 1)
 	if err != nil || len(limited) != 1 || limited[0].Place == nil || *limited[0].Place != near {
 		t.Fatalf("limited %+v, %v", limited, err)
 	}
 
-	none, err := NewCatalog(tx).NearestEntities(ctx, "perm", ai.Space{Key: "test/absent", Version: "d384"}, query, 10)
+	none, err := NewCatalog(savepointDB{tx}).NearestEntities(ctx, "perm", ai.Space{Key: "test/absent", Version: "d384"}, query, 10)
 	if err != nil || len(none) != 0 {
 		t.Fatalf("absent space %+v, %v", none, err)
 	}

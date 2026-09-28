@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"crypto/rand"
+	"github.com/jackc/pgx/v5"
 	"slices"
 	"testing"
 	"time"
@@ -29,6 +30,13 @@ type staticTransitProvider struct {
 
 func (p staticTransitProvider) Transit(context.Context, string, []domain.Coordinate, []domain.MovementMode) (solver.Transit, bool, error) {
 	return p.transit, false, nil
+}
+
+// savepointDB runs the catalog inside a test's fixture transaction: its snapshots become savepoints.
+type savepointDB struct{ pgx.Tx }
+
+func (d savepointDB) BeginTx(ctx context.Context, _ pgx.TxOptions) (pgx.Tx, error) {
+	return d.Begin(ctx)
 }
 
 func TestCatalogCandidatesAndPlannerIntegration(t *testing.T) {
@@ -144,6 +152,16 @@ func TestCatalogCandidatesAndPlannerIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Session 3: ended the day before, still held by the user; the snapshot of the day leaves it out.
+	sessionPastID := randomBytes16[domain.SessionID](t)
+	s3Start := time.Date(2026, 9, 27, 12, 0, 0, 0, loc).UTC()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO catalog.session (id, city, event_id, slot_type, starts_at, ends_at, min_duration_s, recommended_duration_s, buffer_s, access_type, availability_status, availability_observed_at, is_hard_constraint, data_mode, card_source_record_id, version, updated_at)
+		VALUES ($1, 'perm', $2, 'FIXED_SESSION', $3, $4, 3600, 3600, 0, 'ticket', 'available', $5, true, 'synthetic', $6, 1, $5)`,
+		sessionPastID, eventID, s3Start, s3Start.Add(time.Hour), cityUpdated, recordID); err != nil {
+		t.Fatal(err)
+	}
+
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO catalog.price_offer (id, city, session_id, price_status, audience, eligibility_age_min, eligibility_age_max, amount_min, amount_max, currency, benefit_programs, purchase_url, source_record_id, observed_at, data_mode, is_active)
 		VALUES
@@ -158,11 +176,14 @@ func TestCatalogCandidatesAndPlannerIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	catalog := NewCatalog(tx)
+	catalog := NewCatalog(savepointDB{tx})
 	req := validOptimizeRequest()
 	req.Constraints.Obligations = []domain.Obligation{{
 		SessionID:     &sessionMovedID,
 		StartsAt:      &s1Start,
+		Participation: domain.ParticipationUserReported,
+	}, {
+		SessionID:     &sessionPastID,
 		Participation: domain.ParticipationUserReported,
 	}}
 
@@ -176,8 +197,11 @@ func TestCatalogCandidatesAndPlannerIntegration(t *testing.T) {
 	if freshness.CatalogRevision != 11 || freshness.DataMode != domain.DataSynthetic {
 		t.Fatalf("unexpected freshness: %+v", freshness)
 	}
-	if len(candidates) != 3 {
-		t.Fatalf("expected 3 candidates (1 park window + 1 in-window session + 1 obligated moved session), got %d", len(candidates))
+	if len(candidates) != 4 {
+		t.Fatalf("expected 4 candidates (1 park window + 1 in-window session + 2 obligated sessions outside the day), got %d", len(candidates))
+	}
+	if !slices.ContainsFunc(candidates, func(c domain.Candidate) bool { return c.Session != nil && c.Session.ID == sessionPastID }) {
+		t.Fatal("the obligation that ended before the day is not read")
 	}
 	for i, c := range candidates {
 		if err := c.Validate(); err != nil {

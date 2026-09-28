@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/andres1m/impuls-goroda/services/optimizer/internal/catalogslice"
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/usecase"
 )
@@ -16,11 +17,17 @@ import (
 const defaultCurrency = "RUB"
 
 // Catalog reads places, entrances, events, sessions and price offers from the city catalog.
-type Catalog struct {
-	db Querier
+// CatalogDB reads the catalog; slices are read in one transaction so they match one revision.
+type CatalogDB interface {
+	Querier
+	BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error)
 }
 
-func NewCatalog(db Querier) *Catalog {
+type Catalog struct {
+	db CatalogDB
+}
+
+func NewCatalog(db CatalogDB) *Catalog {
 	return &Catalog{db: db}
 }
 
@@ -61,9 +68,16 @@ const activeSessionsSQL = `
 	JOIN catalog.place p ON p.id = e.place_id AND p.city = e.city
 	WHERE s.city = $1
 		AND p.is_active
-		AND e.is_active
-		AND ((s.starts_at < $3 AND s.ends_at > $2) OR s.id = ANY($4::uuid[]))
+		AND e.is_active`
+
+const (
+	sessionsAfterSQL = activeSessionsSQL + `
+		AND s.ends_at > $2
 	ORDER BY s.starts_at, s.id`
+	sessionsByIDSQL = activeSessionsSQL + `
+		AND s.id = ANY($2::uuid[])
+	ORDER BY s.starts_at, s.id`
+)
 
 const sessionPriceOffersSQL = `
 	SELECT id, session_id, price_status, audience,
@@ -74,89 +88,108 @@ const sessionPriceOffersSQL = `
 	WHERE city = $1 AND is_active AND session_id = ANY($2::uuid[])
 	ORDER BY session_id, id`
 
-type loadedPlace struct {
-	place     domain.Place
-	rules     domain.OpeningRules
-	baseScore float64
-}
-
-// Candidates loads the candidate pool and freshness metadata of a city for the requested interval.
+// Candidates reads the candidate pool of the request straight from the database, from one snapshot.
 func (c *Catalog) Candidates(ctx context.Context, req domain.OptimizeRequest) ([]domain.Candidate, domain.DataFreshness, error) {
 	if err := req.Validate(); err != nil {
 		return nil, domain.DataFreshness{}, fmt.Errorf("%w: %v", usecase.ErrInvalidRequest, err)
 	}
-	if c.db == nil {
-		return nil, domain.DataFreshness{}, usecase.ErrUnavailable
-	}
-	loc, err := time.LoadLocation(req.Timezone)
-	if err != nil {
+	if _, err := time.LoadLocation(req.Timezone); err != nil {
 		return nil, domain.DataFreshness{}, fmt.Errorf("%w: %v", usecase.ErrInvalidRequest, err)
 	}
-
-	var cityTZ string
-	var revision int64
-	var cityUpdated time.Time
-	err = c.db.QueryRow(ctx, cityCatalogSQL, req.City).Scan(&cityTZ, &revision, &cityUpdated)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, domain.DataFreshness{}, usecase.ErrCatalogNotReady
-	}
-	if err != nil {
-		return nil, domain.DataFreshness{}, wrapDBError("read city catalog", err)
-	}
-	if revision <= 0 {
-		return nil, domain.DataFreshness{}, usecase.ErrCatalogNotReady
-	}
-	if cityTZ != req.Timezone {
-		return nil, domain.DataFreshness{}, fmt.Errorf("%w: city %q timezone is %s, got %s", usecase.ErrInvalidRequest, req.City, cityTZ, req.Timezone)
-	}
-
-	places, placeByID, err := c.loadPlaces(ctx, req.City)
+	slice, err := c.LoadSlice(ctx, req.City, req.Start)
 	if err != nil {
 		return nil, domain.DataFreshness{}, err
 	}
-	entrancesByPlace, err := c.loadEntrances(ctx, req.City)
-	if err != nil {
-		return nil, domain.DataFreshness{}, err
-	}
-
-	var candidates []domain.Candidate
-	for _, lp := range places {
-		if lp.place.Category == nil || lp.rules.IsEmpty() {
-			continue
-		}
-		windows, err := lp.rules.Windows(req.Start, req.End, loc, domain.DefaultPlaceMinDuration, domain.DefaultPlaceRecommendedDuration)
-		if err != nil {
-			return nil, domain.DataFreshness{}, fmt.Errorf("expand opening rules for place %x: %w", lp.place.ID, err)
-		}
-		for _, w := range windows {
-			candidates = append(candidates, domain.Candidate{
-				Place:     lp.place,
-				Window:    w,
-				Entrances: entrancesByPlace[lp.place.ID],
-				BaseScore: lp.baseScore,
-			})
+	var extra []domain.Candidate
+	if missing := slice.Missing(req); len(missing) > 0 {
+		if extra, err = c.SessionsByID(ctx, slice, missing); err != nil {
+			return nil, domain.DataFreshness{}, err
 		}
 	}
-
-	sessionCandidates, err := c.loadSessionCandidates(ctx, req, placeByID, entrancesByPlace)
-	if err != nil {
-		return nil, domain.DataFreshness{}, err
-	}
-	candidates = append(candidates, sessionCandidates...)
-
-	freshness := buildFreshness(revision, cityUpdated.UTC(), candidates, places)
-	return candidates, freshness, nil
+	return slice.Candidates(req, extra)
 }
 
-func (c *Catalog) loadPlaces(ctx context.Context, city string) ([]loadedPlace, map[domain.PlaceID]loadedPlace, error) {
-	rows, err := c.db.Query(ctx, activePlacesSQL, city)
+// Revision is the city's published catalog revision; a city without one has no catalog yet.
+func (c *Catalog) Revision(ctx context.Context, city string) (domain.CatalogRevision, error) {
+	if c.db == nil {
+		return 0, usecase.ErrUnavailable
+	}
+	var revision int64
+	err := c.db.QueryRow(ctx, `SELECT catalog_revision FROM ref.city WHERE code = $1`, city).Scan(&revision)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, usecase.ErrCatalogNotReady
+	}
 	if err != nil {
-		return nil, nil, wrapDBError("query active places", err)
+		return 0, wrapDBError("read catalog revision", err)
+	}
+	if revision <= 0 {
+		return 0, usecase.ErrCatalogNotReady
+	}
+	return domain.CatalogRevision(revision), nil
+}
+
+// LoadSlice reads the city's catalog as one revision left it, with the sessions that end after horizon.
+func (c *Catalog) LoadSlice(ctx context.Context, city string, horizon time.Time) (*catalogslice.Slice, error) {
+	if c.db == nil {
+		return nil, usecase.ErrUnavailable
+	}
+	tx, err := c.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, wrapDBError("begin catalog snapshot", err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+
+	slice := &catalogslice.Slice{City: city, Horizon: horizon.UTC(), BuiltAt: time.Now().UTC()}
+	var revision int64
+	err = tx.QueryRow(ctx, cityCatalogSQL, city).Scan(&slice.Timezone, &revision, &slice.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, usecase.ErrCatalogNotReady
+	}
+	if err != nil {
+		return nil, wrapDBError("read city catalog", err)
+	}
+	if revision <= 0 {
+		return nil, usecase.ErrCatalogNotReady
+	}
+	slice.Revision, slice.UpdatedAt = domain.CatalogRevision(revision), slice.UpdatedAt.UTC()
+
+	if slice.Places, err = loadPlaces(ctx, tx, city); err != nil {
+		return nil, err
+	}
+	entrances, err := loadEntrances(ctx, tx, city)
+	if err != nil {
+		return nil, err
+	}
+	for i := range slice.Places {
+		slice.Places[i].Entrances = entrances[slice.Places[i].Place.ID]
+	}
+	if slice.Sessions, err = loadSessions(ctx, tx, slice, sessionsAfterSQL, horizon.UTC()); err != nil {
+		return nil, err
+	}
+	return slice, nil
+}
+
+// SessionsByID reads sessions the slice does not hold, such as a commitment to one that already ended,
+// with the places the slice knows.
+func (c *Catalog) SessionsByID(ctx context.Context, slice *catalogslice.Slice, ids []domain.SessionID) ([]domain.Candidate, error) {
+	if c.db == nil {
+		return nil, usecase.ErrUnavailable
+	}
+	uuids := make([]string, len(ids))
+	for i, id := range ids {
+		uuids[i] = formatUUID(id)
+	}
+	return loadSessions(ctx, c.db, slice, sessionsByIDSQL, uuids)
+}
+
+func loadPlaces(ctx context.Context, q Querier, city string) ([]catalogslice.Place, error) {
+	rows, err := q.Query(ctx, activePlacesSQL, city)
+	if err != nil {
+		return nil, wrapDBError("query active places", err)
 	}
 	defer rows.Close()
 
-	var list []loadedPlace
-	byID := make(map[domain.PlaceID]loadedPlace)
+	var list []catalogslice.Place
 	for rows.Next() {
 		var (
 			id        domain.PlaceID
@@ -171,43 +204,44 @@ func (c *Catalog) loadPlaces(ctx context.Context, city string) ([]loadedPlace, m
 			baseScore float64
 		)
 		if err := rows.Scan(&id, &title, &category, &tagMask, &lon, &lat, &rawRules, &dataMode, &recordID, &updatedAt, &baseScore); err != nil {
-			return nil, nil, wrapDBError("scan place", err)
+			return nil, wrapDBError("scan place", err)
 		}
 		rules, err := domain.ParseOpeningRules(rawRules)
 		if err != nil {
-			return nil, nil, fmt.Errorf("parse opening rules for place %x: %w", id, err)
+			return nil, fmt.Errorf("parse opening rules for place %x: %w", id, err)
 		}
 		var cat *domain.Category
 		if category != nil {
 			v := domain.Category(*category)
 			cat = &v
 		}
-		p := domain.Place{
-			ID:           id,
-			City:         city,
-			Title:        title,
-			Category:     cat,
-			InterestMask: domain.InterestMask(uint64(tagMask)),
-			Location:     domain.Coordinate{Longitude: lon, Latitude: lat},
-			DataMode:     domain.DataMode(dataMode),
-			Provenance: domain.Provenance{
-				SourceName:     dataMode,
-				SourceRecordID: recordID,
-				FetchedAt:      updatedAt.UTC(),
+		list = append(list, catalogslice.Place{
+			Place: domain.Place{
+				ID:           id,
+				City:         city,
+				Title:        title,
+				Category:     cat,
+				InterestMask: domain.InterestMask(uint64(tagMask)),
+				Location:     domain.Coordinate{Longitude: lon, Latitude: lat},
+				DataMode:     domain.DataMode(dataMode),
+				Provenance: domain.Provenance{
+					SourceName:     dataMode,
+					SourceRecordID: recordID,
+					FetchedAt:      updatedAt.UTC(),
+				},
 			},
-		}
-		lp := loadedPlace{place: p, rules: rules, baseScore: baseScore}
-		list = append(list, lp)
-		byID[id] = lp
+			Rules:     rules,
+			BaseScore: baseScore,
+		})
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, wrapDBError("iterate active places", err)
+		return nil, wrapDBError("iterate active places", err)
 	}
-	return list, byID, nil
+	return list, nil
 }
 
-func (c *Catalog) loadEntrances(ctx context.Context, city string) (map[domain.PlaceID][]domain.Entrance, error) {
-	rows, err := c.db.Query(ctx, placeEntrancesSQL, city)
+func loadEntrances(ctx context.Context, q Querier, city string) (map[domain.PlaceID][]domain.Entrance, error) {
+	rows, err := q.Query(ctx, placeEntrancesSQL, city)
 	if err != nil {
 		return nil, wrapDBError("query place entrances", err)
 	}
@@ -245,26 +279,10 @@ func (c *Catalog) loadEntrances(ctx context.Context, city string) (map[domain.Pl
 	return byPlace, nil
 }
 
-func (c *Catalog) loadSessionCandidates(
-	ctx context.Context,
-	req domain.OptimizeRequest,
-	placeByID map[domain.PlaceID]loadedPlace,
-	entrancesByPlace map[domain.PlaceID][]domain.Entrance,
-) ([]domain.Candidate, error) {
-	obligatedSet := make(map[domain.SessionID]struct{}, len(req.Constraints.Obligations))
-	obligatedUUIDs := make([]string, 0, len(req.Constraints.Obligations))
-	for _, o := range req.Constraints.Obligations {
-		if o.SessionID == nil {
-			continue
-		}
-		if _, exists := obligatedSet[*o.SessionID]; exists {
-			continue
-		}
-		obligatedSet[*o.SessionID] = struct{}{}
-		obligatedUUIDs = append(obligatedUUIDs, formatUUID(*o.SessionID))
-	}
-
-	rows, err := c.db.Query(ctx, activeSessionsSQL, req.City, req.Start.UTC(), req.End.UTC(), obligatedUUIDs)
+// loadSessions reads session candidates by one of the session queries; sessions of places the slice
+// does not hold are left out.
+func loadSessions(ctx context.Context, q Querier, slice *catalogslice.Slice, sql string, filter any) ([]domain.Candidate, error) {
+	rows, err := q.Query(ctx, sql, slice.City, filter)
 	if err != nil {
 		return nil, wrapDBError("query active sessions", err)
 	}
@@ -315,7 +333,7 @@ func (c *Catalog) loadSessionCandidates(
 		if err != nil {
 			return nil, wrapDBError("scan session", err)
 		}
-		lp, ok := placeByID[placeID]
+		place, ok := slice.PlaceByID(placeID)
 		if !ok {
 			continue
 		}
@@ -334,11 +352,6 @@ func (c *Catalog) loadSessionCandidates(
 			ArrivalBuffer:       time.Duration(bufS) * time.Second,
 			LateEntryAllowed:    lateEntryAllowed,
 		}
-		_, isObligated := obligatedSet[sessionID]
-		if !isObligated && overlapDuration(window.Start, window.End, req.Start.UTC(), req.End.UTC()) < window.MinDuration {
-			continue
-		}
-
 		event := &domain.Event{
 			ID:           eventID,
 			PlaceID:      placeID,
@@ -377,12 +390,12 @@ func (c *Catalog) loadSessionCandidates(
 			},
 		}
 		candidates = append(candidates, domain.Candidate{
-			Place:     lp.place,
+			Place:     place.Place,
 			Event:     event,
 			Session:   session,
 			Window:    window,
-			Entrances: entrancesByPlace[placeID],
-			BaseScore: lp.baseScore,
+			Entrances: place.Entrances,
+			BaseScore: place.BaseScore,
 		})
 		sessionUUIDs = append(sessionUUIDs, formatUUID(sessionID))
 	}
@@ -393,20 +406,18 @@ func (c *Catalog) loadSessionCandidates(
 		return candidates, nil
 	}
 
-	offersBySession, err := c.loadPriceOffers(ctx, req.City, sessionUUIDs)
+	offersBySession, err := loadPriceOffers(ctx, q, slice.City, sessionUUIDs)
 	if err != nil {
 		return nil, err
 	}
 	for i := range candidates {
-		if s := candidates[i].Session; s != nil {
-			candidates[i].Offers = offersBySession[s.ID]
-		}
+		candidates[i].Offers = offersBySession[candidates[i].Session.ID]
 	}
 	return candidates, nil
 }
 
-func (c *Catalog) loadPriceOffers(ctx context.Context, city string, sessionUUIDs []string) (map[domain.SessionID][]domain.PriceOffer, error) {
-	rows, err := c.db.Query(ctx, sessionPriceOffersSQL, city, sessionUUIDs)
+func loadPriceOffers(ctx context.Context, q Querier, city string, sessionUUIDs []string) (map[domain.SessionID][]domain.PriceOffer, error) {
+	rows, err := q.Query(ctx, sessionPriceOffersSQL, city, sessionUUIDs)
 	if err != nil {
 		return nil, wrapDBError("query session price offers", err)
 	}
@@ -475,28 +486,6 @@ func (c *Catalog) loadPriceOffers(ctx context.Context, city string, sessionUUIDs
 	return bySession, nil
 }
 
-func buildFreshness(revision int64, cityUpdated time.Time, candidates []domain.Candidate, places []loadedPlace) domain.DataFreshness {
-	mode := domain.DataPrepared
-	switch {
-	case len(candidates) > 0:
-		mode = candidates[0].DataMode()
-		for _, c := range candidates[1:] {
-			mode = domain.Weakest(mode, c.DataMode())
-		}
-	case len(places) > 0:
-		mode = places[0].place.DataMode
-		for _, p := range places[1:] {
-			mode = domain.Weakest(mode, p.place.DataMode)
-		}
-	}
-	asOf := cityUpdated
-	return domain.DataFreshness{
-		DataMode:        mode,
-		DataAsOf:        &asOf,
-		CatalogRevision: domain.CatalogRevision(revision),
-	}
-}
-
 func mapWindowKind(slotType string) (domain.WindowKind, error) {
 	switch slotType {
 	case "FIXED_SESSION":
@@ -506,21 +495,6 @@ func mapWindowKind(slotType string) (domain.WindowKind, error) {
 	default:
 		return "", fmt.Errorf("unknown session slot type %q", slotType)
 	}
-}
-
-func overlapDuration(aStart, aEnd, bStart, bEnd time.Time) time.Duration {
-	start := aStart
-	if bStart.After(start) {
-		start = bStart
-	}
-	end := aEnd
-	if bEnd.Before(end) {
-		end = bEnd
-	}
-	if !end.After(start) {
-		return 0
-	}
-	return end.Sub(start)
 }
 
 func utcTimePtr(t *time.Time) *time.Time {
