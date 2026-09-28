@@ -34,6 +34,10 @@ func Check(plan domain.Plan, in Input) []Violation {
 		c.add("INPUT_INVALID", nil, err.Error())
 		return c.violations
 	}
+	if in.Constraints.Budget.Limit != nil && in.Constraints.Budget.Limit.Currency != in.Currency {
+		c.add("INPUT_INVALID", nil, "The budget limit currency differs from the route currency")
+		return c.violations
+	}
 	if err := plan.Validate(); err != nil {
 		c.add("PLAN_MALFORMED", nil, err.Error())
 		return c.violations
@@ -162,6 +166,12 @@ func (c *checker) legs() {
 		if !slices.Contains(c.in.Constraints.MovementModes, leg.Mode) {
 			c.add("LEG_MODE_NOT_ALLOWED", leg.ToVisitID, "The user did not allow this way of travelling")
 		}
+		if c.in.Degraded && leg.Mode == domain.MovementCar {
+			c.add("LEG_MODE_UNAVAILABLE", leg.ToVisitID, "Car travel is unavailable when the routing engine is down")
+		}
+		if leg.Verification == domain.VerificationUnavailable {
+			c.add("LEG_UNAVAILABLE", leg.ToVisitID, "The travel is marked as unavailable")
+		}
 		// No source confirms a whole path yet, and a straight-line fallback cannot even rule out a river.
 		if leg.Verification == domain.VerificationVerified || (c.in.Degraded && leg.Verification != domain.VerificationUnknown) {
 			c.add("LEG_STATUS_OVERSTATED", leg.ToVisitID, "The travel is marked as more certain than its source allows")
@@ -171,8 +181,10 @@ func (c *checker) legs() {
 
 func (c *checker) obligations() {
 	for i, step := range c.plan.Steps {
-		if step.Obligation && step.Catalog != nil {
-			if _, ok := c.obligation(step); !ok {
+		if step.Obligation {
+			if step.Kind != domain.StepVisit {
+				c.add("OBLIGATION_UNEXPECTED", &c.plan.Steps[i].VisitID, "Free time cannot be an obligation")
+			} else if _, ok := c.obligation(step); !ok {
 				c.add("OBLIGATION_UNEXPECTED", &c.plan.Steps[i].VisitID, "The visit is marked as an obligation the user never made")
 			}
 		}

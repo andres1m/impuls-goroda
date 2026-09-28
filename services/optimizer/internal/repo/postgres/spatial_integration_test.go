@@ -56,8 +56,8 @@ func insertPOI(ctx context.Context, t *testing.T, tx pgx.Tx, city string, center
 		INSERT INTO catalog.place (id, city, title, normalized_title, category, coordinates, data_mode, is_active, review_required, created_at, updated_at)
 		VALUES ($1, $2, 'Fixture', 'fixture', 'culture',
 			ST_Project(ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5::float8, radians($6::float8))::geometry,
-			'synthetic', true, false, now(), now())`,
-		id, city, center.Longitude, center.Latitude, meters, azimuth)
+			'synthetic', $7, false, now(), now())`,
+		id, city, center.Longitude, center.Latitude, meters, azimuth, active)
 	if err != nil {
 		t.Fatal(err)
 	}

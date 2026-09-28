@@ -29,7 +29,7 @@ OPTIMIZER_MIN_COVERAGE := 85.0
 cover-optimizer:
 	@mkdir -p bin
 	go test -coverprofile=bin/optimizer-core.cov $(OPTIMIZER_CORE) > /dev/null
-	@go tool cover -func=bin/optimizer-core.cov | awk -v min=$(OPTIMIZER_MIN_COVERAGE) '/^total:/ { sub("%", "", $$3); printf "optimizer core coverage %s%% (minimum %s%%)\n", $$3, min; exit ($$3 + 0 < min + 0) }'
+	@go tool cover -func=bin/optimizer-core.cov | awk -v min=$(OPTIMIZER_MIN_COVERAGE) '/^total:/ { found = 1; sub("%", "", $$3); printf "optimizer core coverage %s%% (minimum %s%%)\n", $$3, min; exit ($$3 + 0 < min + 0) } END { if (!found) exit 1 }'
 
 PROFILES := bin/profiles
 OPTIMIZER_BENCH := '^Benchmark(Optimize|Recompute|Search|Repair)$$'

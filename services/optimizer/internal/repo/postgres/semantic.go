@@ -12,10 +12,29 @@ import (
 // The HNSW index is shared by every city and model and returns only its first candidates
 // before the filter, so the distance is wrapped to force an exact scan of the filtered rows.
 const nearestEntitiesSQL = `
-SELECT place_id, event_id, session_id
-FROM catalog.entity_embedding
-WHERE city = $1 AND model_key = $2 AND model_version = $3
-ORDER BY (embedding <=> $4::vector) + 0
+SELECT e.place_id, e.event_id, e.session_id
+FROM catalog.entity_embedding e
+WHERE e.city = $1 AND e.model_key = $2 AND e.model_version = $3
+  AND (
+    (e.place_id IS NOT NULL AND EXISTS (
+      SELECT 1 FROM catalog.place p
+      WHERE p.city = e.city AND p.id = e.place_id AND p.is_active
+    ))
+    OR (e.event_id IS NOT NULL AND EXISTS (
+      SELECT 1 FROM catalog.event ev
+      JOIN catalog.place p ON p.city = ev.city AND p.id = ev.place_id
+      WHERE ev.city = e.city AND ev.id = e.event_id AND ev.is_active AND p.is_active
+    ))
+    OR (e.session_id IS NOT NULL AND EXISTS (
+      SELECT 1 FROM catalog.session s
+      JOIN catalog.event ev ON ev.city = s.city AND ev.id = s.event_id
+      JOIN catalog.place p ON p.city = ev.city AND p.id = ev.place_id
+      WHERE s.city = e.city AND s.id = e.session_id
+        AND s.availability_status NOT IN ('cancelled', 'sold_out')
+        AND ev.is_active AND p.is_active
+    ))
+  )
+ORDER BY (e.embedding <=> $4::vector) + 0
 LIMIT $5`
 
 func (c *Catalog) NearestEntities(ctx context.Context, city string, space ai.Space, vector []float32, limit int) ([]semantic.Match, error) {

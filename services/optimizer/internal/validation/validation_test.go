@@ -281,6 +281,26 @@ func TestEveryRuleCatchesItsViolation(t *testing.T) {
 		}},
 		{"leg claimed as verified", "LEG_STATUS_OVERSTATED", func(p *domain.Plan, _ *Input) { p.Legs[0].Verification = domain.VerificationVerified }},
 		{"estimated leg while degraded", "LEG_STATUS_OVERSTATED", func(_ *domain.Plan, in *Input) { in.Degraded = true }},
+		{"unavailable leg", "LEG_UNAVAILABLE", func(p *domain.Plan, _ *Input) { p.Legs[0].Verification = domain.VerificationUnavailable }},
+		{"car leg while degraded", "LEG_MODE_UNAVAILABLE", func(p *domain.Plan, in *Input) {
+			in.Degraded = true
+			in.Constraints.MovementModes = append(in.Constraints.MovementModes, domain.MovementCar)
+			for i := range p.Legs {
+				p.Legs[i].Verification = domain.VerificationUnknown
+			}
+			p.Legs[0].Mode = domain.MovementCar
+		}},
+		{"free time marked as an obligation", "OBLIGATION_UNEXPECTED", func(p *domain.Plan, _ *Input) {
+			p.Steps[0] = domain.Step{
+				VisitID: museumVisit, Kind: domain.StepFreeTime, Position: 1,
+				ArrivalAt: at(10, 10), VisitStartAt: at(10, 10), VisitEndAt: at(11, 10), DepartureAt: at(11, 10),
+				Obligation:    true,
+				Participation: domain.Participation{Status: domain.ParticipationNotRequired, Evidence: domain.EvidenceNone},
+			}
+		}},
+		{"budget limit in another currency", "INPUT_INVALID", func(_ *domain.Plan, in *Input) {
+			in.Constraints.Budget = domain.Budget{Mode: domain.BudgetAdvisory, Limit: &domain.Money{AmountMinor: 50000, Currency: "EUR"}}
+		}},
 		{"obligation left out", "OBLIGATION_MISSING", func(_ *domain.Plan, in *Input) {
 			in.Constraints.Obligations = []domain.Obligation{{SessionID: &domain.SessionID{77}, Participation: domain.ParticipationActionRequired}}
 		}},

@@ -2,11 +2,37 @@ package usecase
 
 import (
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
+	"github.com/andres1m/impuls-goroda/services/optimizer/internal/solver"
 )
+
+type countingTransit struct {
+	base  solver.Transit
+	calls *atomic.Int64
+}
+
+func (c countingTransit) Estimate(from, to domain.Coordinate, departAt time.Time, modes []domain.MovementMode) (domain.TransitEstimate, bool) {
+	c.calls.Add(1)
+	return c.base.Estimate(from, to, departAt, modes)
+}
+
+type departStatusTransit struct {
+	base   solver.Transit
+	at     time.Time
+	status domain.VerificationStatus
+}
+
+func (d departStatusTransit) Estimate(from, to domain.Coordinate, departAt time.Time, modes []domain.MovementMode) (domain.TransitEstimate, bool) {
+	t, ok := d.base.Estimate(from, to, departAt, modes)
+	if departAt.Equal(d.at) {
+		t.Verification = d.status
+	}
+	return t, ok
+}
 
 func withLunch(r *domain.OptimizeRequest) {
 	r.Constraints.LunchWindow = &domain.LunchWindow{Start: at(13, 0), End: at(14, 30), MinDuration: 30 * time.Minute}
@@ -99,6 +125,30 @@ func TestOptimizeLunchNotReserved(t *testing.T) {
 				t.Fatal("route reserves a lunch that does not fit")
 			}
 		}
+	}
+
+	var withoutLunchCalls, outsideDayCalls atomic.Int64
+	base := statusTransit{base: baseline(), status: domain.VerificationEstimated}
+	optimize(t, city(), &fakeProvider{transit: countingTransit{base: base, calls: &withoutLunchCalls}}, nil)
+	res = optimize(t, city(), &fakeProvider{transit: countingTransit{base: base, calls: &outsideDayCalls}}, func(r *domain.OptimizeRequest) {
+		r.Constraints.LunchWindow = &domain.LunchWindow{Start: at(17, 30), End: at(18, 30), MinDuration: 30 * time.Minute}
+	})
+	if res.Status != domain.ResultReady || len(res.Routes) == 0 || !slices.Contains(warningCodes(res.Warnings), "LUNCH_NOT_RESERVED") {
+		t.Fatalf("outside-day lunch: status %s warnings %v", res.Status, warningCodes(res.Warnings))
+	}
+	if outsideDayCalls.Load() != withoutLunchCalls.Load() {
+		t.Fatalf("outside-day lunch made %d transit estimates, want %d (single search pass)", outsideDayCalls.Load(), withoutLunchCalls.Load())
+	}
+
+	overclaimingAfterLunch := &fakeProvider{
+		transit: departStatusTransit{base: base, at: at(13, 45), status: domain.VerificationVerified},
+	}
+	res = optimize(t, []domain.Candidate{place(1, domain.CategoryCulture, north(origin, 300))}, overclaimingAfterLunch, func(r *domain.OptimizeRequest) {
+		r.Start, r.End = at(13, 0), at(15, 0)
+		withLunch(r)
+	})
+	if res.Status != domain.ResultReady || len(res.Routes) == 0 || !slices.Contains(warningCodes(res.Warnings), "LUNCH_NOT_RESERVED") {
+		t.Fatalf("rejected lunch branches: status %s routes %d warnings %v", res.Status, len(res.Routes), warningCodes(res.Warnings))
 	}
 }
 

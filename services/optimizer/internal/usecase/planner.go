@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -248,19 +249,37 @@ type archetypeBeam struct {
 
 // plans also reports whether the requested lunch had to be left out because no route had room for it.
 func (p *Planner) plans(ctx context.Context, req domain.OptimizeRequest, policy pricing.Policy, s *solver.Solver, problem solver.Problem, pool []domain.Candidate, degraded bool, data domain.DataFreshness) ([]domain.Plan, bool, error) {
-	beams, err := searchArchetypes(ctx, s, problem, pool)
-	if err != nil {
-		return nil, false, err
-	}
 	lunchDropped := false
-	if len(beams) == 0 && problem.Lunch != nil {
+	if problem.Lunch != nil && !lunchFits(problem) {
 		problem.Lunch, lunchDropped = nil, true
-		if beams, err = searchArchetypes(ctx, s, problem, pool); err != nil {
-			return nil, false, err
-		}
 	}
-	plans, err := p.selectPlans(req, policy, beams, degraded, data)
-	return plans, lunchDropped, err
+	plans, err := p.searchPlans(ctx, req, policy, s, problem, pool, degraded, data)
+	if err != nil || len(plans) > 0 || problem.Lunch == nil {
+		return plans, lunchDropped, err
+	}
+	problem.Lunch = nil
+	plans, err = p.searchPlans(ctx, req, policy, s, problem, pool, degraded, data)
+	return plans, true, err
+}
+
+func (p *Planner) searchPlans(ctx context.Context, req domain.OptimizeRequest, policy pricing.Policy, s *solver.Solver, problem solver.Problem, pool []domain.Candidate, degraded bool, data domain.DataFreshness) ([]domain.Plan, error) {
+	beams, err := searchArchetypes(ctx, s, problem, pool)
+	if err != nil || len(beams) == 0 {
+		return nil, err
+	}
+	return p.selectPlans(req, policy, beams, degraded, data)
+}
+
+func lunchFits(p solver.Problem) bool {
+	start := p.Start
+	if p.Lunch.Start.After(start) {
+		start = p.Lunch.Start
+	}
+	end := p.End
+	if p.Lunch.End.Before(end) {
+		end = p.Lunch.End
+	}
+	return end.Sub(start) >= p.Lunch.Duration
 }
 
 func searchArchetypes(ctx context.Context, s *solver.Solver, problem solver.Problem, pool []domain.Candidate) ([]archetypeBeam, error) {
@@ -433,22 +452,12 @@ func points(req domain.OptimizeRequest, pool []domain.Candidate, anchors []solve
 		out = append(out, a.Candidate.Place.Location)
 	}
 	slices.SortFunc(out, func(a, b domain.Coordinate) int {
-		if a.Longitude != b.Longitude {
-			return compare(a.Longitude, b.Longitude)
+		if c := cmp.Compare(a.Longitude, b.Longitude); c != 0 {
+			return c
 		}
-		return compare(a.Latitude, b.Latitude)
+		return cmp.Compare(a.Latitude, b.Latitude)
 	})
 	return slices.Compact(out)
-}
-
-func compare(a, b float64) int {
-	switch {
-	case a < b:
-		return -1
-	case a > b:
-		return 1
-	}
-	return 0
 }
 
 func obligationsInfeasible(obligations []domain.Obligation) domain.Conflict {

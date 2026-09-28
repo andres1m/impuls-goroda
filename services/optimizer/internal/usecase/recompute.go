@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -453,10 +454,10 @@ func (w *rework) points(req domain.RecomputeRequest, catalog []domain.Candidate)
 		out = append(out, c.Place.Location)
 	}
 	slices.SortFunc(out, func(a, b domain.Coordinate) int {
-		if a.Longitude != b.Longitude {
-			return compare(a.Longitude, b.Longitude)
+		if c := cmp.Compare(a.Longitude, b.Longitude); c != 0 {
+			return c
 		}
-		return compare(a.Latitude, b.Latitude)
+		return cmp.Compare(a.Latitude, b.Latitude)
 	})
 	return slices.Compact(out)
 }
