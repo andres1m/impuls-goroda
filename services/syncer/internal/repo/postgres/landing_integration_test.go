@@ -66,6 +66,11 @@ func TestLandingIntegration(t *testing.T) {
 	record.Payload = []byte(`{"id": 1, "title": "changed"}`)
 	last := first.Add(2 * time.Minute)
 	saveExpect(ctx, t, landing, sourceID, record, last, true)
+	record.ContentHash = []byte("adapter-hash")
+	saveExpect(ctx, t, landing, sourceID, record, last.Add(time.Minute), true)
+	record.Payload = []byte(`{"id": 1, "title": "changed", "tags": ["reordered"]}`)
+	last = last.Add(2 * time.Minute)
+	saveExpect(ctx, t, landing, sourceID, record, last, false)
 
 	var rawCount int
 	var lastSeen time.Time
@@ -79,7 +84,7 @@ func TestLandingIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rawCount != 2 || !lastSeen.Equal(last) || state != "pending" || mode != "live" {
+	if rawCount != 3 || !lastSeen.Equal(last) || state != "pending" || mode != "live" {
 		t.Fatalf("raw rows = %d, last_seen_at = %s, state = %s, mode = %s", rawCount, lastSeen, state, mode)
 	}
 

@@ -62,4 +62,7 @@ type RawRecord struct {
 	ContentType     string
 	SourceUpdatedAt *time.Time
 	ProviderVersion string
+	// ContentHash overrides the hash of Payload for sources whose bytes change
+	// between requests while the content stays the same.
+	ContentHash []byte
 }

@@ -70,6 +70,34 @@ func TestFetchWalksAllPages(t *testing.T) {
 	}
 }
 
+func TestContentHashIgnoresTagOrder(t *testing.T) {
+	serve := func(event string) domain.RawRecord {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`{"next":null,"results":[` + event + `]}`))
+		}))
+		defer server.Close()
+		batch, err := newAdapter(server.URL).Fetch(context.Background(), domain.Moscow, nil)
+		if err != nil || len(batch.Records) != 1 {
+			t.Fatalf("batch = %+v, err = %v", batch, err)
+		}
+		return batch.Records[0]
+	}
+	const event = `{"id":1,"site_url":"https://kudago.com/msk/event/1/","title":"a","tags":[%s]}`
+	first := serve(strings.Replace(event, "%s", `"концерты","дети"`, 1))
+	shuffled := serve(strings.Replace(event, "%s", `"дети","концерты"`, 1))
+	changed := serve(strings.Replace(strings.Replace(event, "%s", `"дети","концерты"`, 1), `"a"`, `"b"`, 1))
+
+	if len(first.ContentHash) == 0 || string(first.ContentHash) != string(shuffled.ContentHash) {
+		t.Fatalf("tag order changed the hash: %x vs %x", first.ContentHash, shuffled.ContentHash)
+	}
+	if string(changed.ContentHash) == string(shuffled.ContentHash) {
+		t.Fatal("changed title kept the hash")
+	}
+	if !strings.Contains(string(shuffled.Payload), `"дети","концерты"`) {
+		t.Fatalf("payload bytes were rewritten: %s", shuffled.Payload)
+	}
+}
+
 func TestFetchPermHasNoEvents(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("KudaGo must not be called for Perm")

@@ -70,7 +70,11 @@ func (l *Landing) Cursor(ctx context.Context, source ingest.SourceID, city domai
 }
 
 func (l *Landing) SaveRecord(ctx context.Context, source ingest.SourceID, city domain.City, mode domain.DataMode, record domain.RawRecord, fetchedAt time.Time) (bool, error) {
-	hash := sha256.Sum256(record.Payload)
+	hash := record.ContentHash
+	if hash == nil {
+		sum := sha256.Sum256(record.Payload)
+		hash = sum[:]
+	}
 	inserted := false
 	err := pgx.BeginFunc(ctx, l.pool, func(tx pgx.Tx) error {
 		var recordID pgtype.UUID
@@ -103,7 +107,7 @@ func (l *Landing) SaveRecord(ctx context.Context, source ingest.SourceID, city d
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("read last hash: %w", err)
 		}
-		if bytes.Equal(lastHash, hash[:]) {
+		if bytes.Equal(lastHash, hash) {
 			return nil
 		}
 
@@ -111,7 +115,7 @@ func (l *Landing) SaveRecord(ctx context.Context, source ingest.SourceID, city d
 			INSERT INTO integration.raw_ingest
 				(id, source_record_id, raw_payload, content_type, content_hash, fetched_at, source_updated_at, data_mode, processing_state)
 			VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, 'pending')`,
-			recordID, record.Payload, record.ContentType, hash[:], fetchedAt, record.SourceUpdatedAt, string(mode),
+			recordID, record.Payload, record.ContentType, hash, fetchedAt, record.SourceUpdatedAt, string(mode),
 		)
 		if err != nil {
 			return fmt.Errorf("insert raw ingest: %w", err)
