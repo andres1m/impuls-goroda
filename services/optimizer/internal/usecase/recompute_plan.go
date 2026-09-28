@@ -137,7 +137,17 @@ func (w *rework) fill(ctx context.Context, s *solver.Solver, transit solver.Tran
 		return c.Kind == domain.ChangeRemoved && c.BeforeVisitID != nil && *c.BeforeVisitID == removed
 	})
 	var fillers []entry
-	for _, v := range best.Visits {
+	position := gap.Origin
+	restsBefore := func(j int) {
+		for _, x := range best.Rests {
+			if x.At == j {
+				fillers = append(fillers, entry{step: restStep(newID(), x), location: position, ahead: -1, fresh: true})
+			}
+		}
+	}
+	for j, v := range best.Visits {
+		restsBefore(j)
+		position = v.Candidate.Place.Location
 		id := newID()
 		transit := v.Transit
 		c := v.Candidate
@@ -154,6 +164,7 @@ func (w *rework) fill(ctx context.Context, s *solver.Solver, transit solver.Tran
 			Message: "A new visit takes the freed time",
 		})
 	}
+	restsBefore(len(best.Visits))
 	return slices.Insert(entries, next, fillers...), finish, nil
 }
 

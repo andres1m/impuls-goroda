@@ -172,14 +172,11 @@ func TestSearchScoreCountsFinishLeg(t *testing.T) {
 		}
 	}
 	single, ok := scores[fmt.Sprint([]byte{1})]
-	if !ok {
+	pair, paired := scores[fmt.Sprint([]byte{1, 2})]
+	if !ok || !paired {
 		t.Fatalf("routes = %v", routeKeys(routes))
 	}
 	assertScore(t, single, worth(visits[0])-0.2*(100.0/60)-5-0.2*(900.0/60))
-	pair, ok := scores[fmt.Sprint([]byte{1, 2})]
-	if !ok {
-		t.Fatalf("routes = %v", routeKeys(routes))
-	}
 	assertScore(t, pair, worth(visits[0])-0.2*(100.0/60)-5+worth(visits[1])-0.2*(200.0/60)-5-0.2*(700.0/60))
 }
 

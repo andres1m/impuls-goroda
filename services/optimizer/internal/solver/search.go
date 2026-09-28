@@ -71,7 +71,6 @@ func (s *Solver) Search(ctx context.Context, p Problem, pool []domain.Candidate)
 // newRun prepares one run over the pool with the problem's anchors in it.
 func (s *Solver) newRun(p Problem, pool []domain.Candidate) (searchRun, error) {
 	pool, anchors := mergeAnchors(pool, p.Anchors)
-	pool = p.Load.trim(pool)
 	isAnchor := make([]bool, len(pool))
 	var fixed, flexible []int
 	for _, i := range anchors {
@@ -88,6 +87,7 @@ func (s *Solver) newRun(p Problem, pool []domain.Candidate) (searchRun, error) {
 			return searchRun{}, fmt.Errorf("candidate %d: %w", i, err)
 		}
 	}
+	pool = p.Load.trim(pool, isAnchor)
 	run := searchRun{
 		Solver: s, problem: p, pool: pool, anchors: anchors, isAnchor: isAnchor, fixedAnchors: fixed, flexibleAnchors: flexible,
 		utilities: make([]float64, len(pool)), quotes: make([]pricing.Quote, len(pool)), priced: make([]bool, len(pool)),
@@ -154,6 +154,9 @@ func (r searchRun) expandAll(ctx context.Context, beam []*domain.Branch) ([]*dom
 
 func (r searchRun) expand(parent *domain.Branch) []*domain.Branch {
 	var children []*domain.Branch
+	rest, due := r.restDue(parent)
+	// A rest the day has no room for is simply left out; one that fits costs something to skip.
+	fits := due && r.restFits(parent, rest)
 	for i := range r.pool {
 		c := &r.pool[i]
 		_, visited := parent.VisitedPlaces[c.Place.ID]
@@ -167,10 +170,9 @@ func (r searchRun) expand(parent *domain.Branch) []*domain.Branch {
 		if !r.problem.Pricing.Fits(parent.KnownCost, r.quotes[i]) {
 			continue
 		}
-		rest, due := r.restDue(parent)
 		var child *domain.Branch
 		ok := false
-		if due {
+		if fits {
 			if child, ok = r.visit(parent, i, rest.EndAt); ok {
 				child.Rests = append(child.Rests, rest)
 			}
@@ -180,7 +182,7 @@ func (r searchRun) expand(parent *domain.Branch) []*domain.Branch {
 			if child, ok = r.visit(parent, i, parent.Now); !ok {
 				continue
 			}
-			if due {
+			if fits {
 				child.Score -= restSkipWeight
 			}
 		}
@@ -221,6 +223,21 @@ func (r searchRun) visit(parent *domain.Branch, i int, departAt time.Time) (*dom
 		return nil, false
 	}
 	return child, true
+}
+
+// restFits tells whether the branch can pause for the rest and still keep its commitments, its lunch
+// and the way to the destination.
+func (r searchRun) restFits(parent *domain.Branch, rest domain.Rest) bool {
+	rested := parent.Clone()
+	rested.Now = rest.EndAt
+	if !r.anchorsReachable(rested) || !r.lunchStillFits(rested) {
+		return false
+	}
+	if r.problem.Destination == nil {
+		return !rest.EndAt.After(r.problem.End)
+	}
+	finish, ok := r.transit.Estimate(parent.Position, *r.problem.Destination, rest.EndAt, r.problem.Modes)
+	return ok && !rest.EndAt.Add(finish.Duration).After(r.problem.End)
 }
 
 // restDue is the rest the pace asks for before the next visit, if one is due now.
@@ -266,7 +283,8 @@ func (r searchRun) finish(c *domain.Candidate, departAt time.Time) (domain.Trans
 	return r.transit.Estimate(c.Place.Location, *r.problem.Destination, departAt, r.problem.Modes)
 }
 
-func (r searchRun) extend(parent *domain.Branch, visit domain.SearchVisit, finish *domain.TransitEstimate, utility float64, quote pricing.Quote, anchor bool) *domain.Branch {
+// extend adds the visit; an exempt visit, a commitment or a lunch, never counts against the pace's norm.
+func (r searchRun) extend(parent *domain.Branch, visit domain.SearchVisit, finish *domain.TransitEstimate, utility float64, quote pricing.Quote, exempt bool) *domain.Branch {
 	child := parent.Clone()
 	c := visit.Candidate
 	category := c.Category()
@@ -278,8 +296,11 @@ func (r searchRun) extend(parent *domain.Branch, visit domain.SearchVisit, finis
 		child.WalkMinutes += visit.Transit.Duration.Minutes()
 	}
 	child.Score += r.walkPenalty(parent) - r.walkPenalty(child)
-	// Commitments are in every route, so only the visits the search chose pay for going over the norm.
-	if r.visitNorm > 0 && len(child.Visits) >= r.visitNorm && !anchor {
+	chosen := len(child.Visits)
+	if child.Lunch != nil && child.Lunch.Venue {
+		chosen--
+	}
+	if r.visitNorm > 0 && chosen >= r.visitNorm && !exempt {
 		child.Score -= r.problem.Load.OverVisitWeight
 	}
 	if upper, known := quote.Price.UpperBound(); known {

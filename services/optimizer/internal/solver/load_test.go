@@ -1,6 +1,7 @@
 package solver
 
 import (
+	"context"
 	"math"
 	"slices"
 	"testing"
@@ -146,5 +147,46 @@ func TestRepairKeepsTrimmedVisitLengths(t *testing.T) {
 		if !stop.Visit.StartAt.Equal(planned.Visits[i].StartAt) || !stop.Visit.EndAt.Equal(planned.Visits[i].EndAt) {
 			t.Fatalf("visit %d moved from %s-%s to %s-%s", i, planned.Visits[i].StartAt.Format("15:04"), planned.Visits[i].EndAt.Format("15:04"), stop.Visit.StartAt.Format("15:04"), stop.Visit.EndAt.Format("15:04"))
 		}
+	}
+}
+
+func TestSearchRejectsMalformedCandidateAtAnyPace(t *testing.T) {
+	broken := place(1, domain.CategoryCulture, 0, north(origin, 100))
+	broken.Window.RecommendedDuration = broken.Window.MinDuration - time.Minute
+	for _, name := range []string{"moderate", "intense"} {
+		p := problem()
+		p.Load = ProfileFor(name)
+		if _, err := newSolver(t, greedy).Search(context.Background(), p, []domain.Candidate{broken}); err == nil {
+			t.Fatalf("%s: a candidate recommended below its minimum was accepted", name)
+		}
+	}
+}
+
+func TestIntenseKeepsTheLengthOfACommitment(t *testing.T) {
+	museum := place(1, domain.CategoryCulture, 0, north(origin, 100))
+	committed := Anchor{Candidate: museum, Obligation: domain.Obligation{VisitID: &domain.VisitID{9}, Participation: domain.ParticipationUserReported}}
+	p := problem()
+	p.Load = ProfileFor("intense")
+	p.Anchors = []Anchor{committed}
+	b := search(t, greedy, p, nil)[0]
+	if len(b.Visits) != 1 || b.Visits[0].EndAt.Sub(b.Visits[0].StartAt) != time.Hour {
+		t.Fatalf("visits %+v", b.Visits)
+	}
+	r := repair(t, p, RepairStep{Candidate: &museum})
+	if len(r.Stops) != 1 || r.Stops[0].Visit.EndAt.Sub(r.Stops[0].Visit.StartAt) != time.Hour {
+		t.Fatalf("repair stops %+v", r.Stops)
+	}
+}
+
+func TestLunchVenueIsNotChargedAgainstTheNorm(t *testing.T) {
+	museum := place(1, domain.CategoryCulture, 0, north(origin, 100))
+	p := lunchProblem(at(12, 0), at(14, 0))
+	p.Load = LoadProfile{VisitHours: 24, OverVisitWeight: 1000}
+	b := search(t, wide, p, []domain.Candidate{museum, cafe(2, north(origin, 200))})[0]
+	if b.Lunch == nil || !b.Lunch.Venue || len(b.Visits) != 2 {
+		t.Fatalf("visits %v lunch %+v", placeIDs(b), b.Lunch)
+	}
+	if b.Score < 0 {
+		t.Fatalf("the lunch venue was charged as a visit over the norm: score %v", b.Score)
 	}
 }

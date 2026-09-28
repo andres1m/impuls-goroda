@@ -58,14 +58,17 @@ func (l LoadProfile) visitNorm(interval time.Duration) int {
 	return max(1, int(math.Floor(interval.Hours()/l.VisitHours)))
 }
 
-// trim shortens open-hours visits for a brisker pace; it copies the pool, which is shared between searches.
-func (l LoadProfile) trim(pool []domain.Candidate) []domain.Candidate {
+// trim shortens open-hours visits for a brisker pace, except the commitments marked in keep, which
+// stay as long as the user planned them. It copies the pool, which is shared between searches.
+func (l LoadProfile) trim(pool []domain.Candidate, keep []bool) []domain.Candidate {
 	if l.VisitTrim == 0 {
 		return pool
 	}
 	trimmed := slices.Clone(pool)
 	for i := range trimmed {
-		trimmed[i] = l.trimOne(trimmed[i])
+		if !keep[i] {
+			trimmed[i] = l.trimOne(trimmed[i])
+		}
 	}
 	return trimmed
 }

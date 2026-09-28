@@ -64,3 +64,32 @@ func TestOptimizePaceFollowsLoadProfile(t *testing.T) {
 		t.Fatalf("visits per profile %v", visits)
 	}
 }
+
+// A relaxed replacement of three or more visits rests like any relaxed route does.
+func TestRecomputeFillKeepsRests(t *testing.T) {
+	museum := place(1, domain.CategoryCulture, north(origin, 100))
+	relaxed := func(r *domain.OptimizeRequest) { r.Constraints.LoadProfile = "relaxed" }
+	base := optimize(t, []domain.Candidate{museum}, estimated(), relaxed).Routes[0]
+	// With the only visit gone, the whole day is free for replacements.
+	catalog := []domain.Candidate{museum}
+	for i := byte(2); i <= 6; i++ {
+		catalog = append(catalog, place(i, genCategories[int(i)%(len(genCategories)-1)], north(origin, float64(i)*90)))
+	}
+	req := request()
+	relaxed(&req)
+	res := recomputeRequest(t, catalog, domain.RecomputeRequest{
+		City: "perm", Timezone: "Asia/Yekaterinburg", Base: base, Constraints: req.Constraints,
+		Trigger: domain.RemovalTrigger{VisitID: base.Steps[0].VisitID, Mode: domain.RemovalRebuild},
+	})
+	if res.Candidate == nil {
+		t.Fatalf("status %s", res.Status)
+	}
+	steps := res.Candidate.Steps
+	i := slices.IndexFunc(steps, isRest)
+	if i <= 0 {
+		t.Fatalf("no rest among %d replacement steps", len(steps))
+	}
+	if steps[i].VisitEndAt.Sub(steps[i].VisitStartAt) != 15*time.Minute || steps[i].VisitStartAt.Before(steps[i-1].VisitEndAt) || steps[i+1].ArrivalAt.Before(steps[i].VisitEndAt) {
+		t.Fatalf("rest %d of %+v", i, steps)
+	}
+}

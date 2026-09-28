@@ -185,6 +185,8 @@ func generate(seed uint64) genCase {
 	if r.IntN(5) == 0 {
 		provider = &fakeProvider{transit: baseline(), degraded: true}
 	}
+	// Drawn last, so every seed keeps the problem it had before paces were added.
+	req.Constraints.LoadProfile = []string{"relaxed", "moderate", "intense"}[r.IntN(3)]
 	return genCase{req: req, pool: pool, provider: provider}
 }
 
@@ -215,7 +217,12 @@ func TestGeneratedCasesAreValidAndVaried(t *testing.T) {
 			degraded++
 		}
 	}
-	for name, n := range map[string]int{"strict": strict, "unknown price": unknownPrice, "obligations": obligations, "degraded": degraded} {
+	paces := map[string]int{}
+	for seed := range uint64(200) {
+		paces[generate(seed).req.Constraints.LoadProfile]++
+	}
+	for name, n := range map[string]int{"strict": strict, "unknown price": unknownPrice, "obligations": obligations, "degraded": degraded,
+		"relaxed pace": paces["relaxed"], "moderate pace": paces["moderate"], "intense pace": paces["intense"]} {
 		if n < 20 {
 			t.Errorf("only %d of 200 seeds have %s", n, name)
 		}

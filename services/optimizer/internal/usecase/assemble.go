@@ -58,15 +58,9 @@ func (p *Planner) assemble(req domain.OptimizeRequest, policy pricing.Policy, r 
 	rest := func(x domain.Rest) {
 		id := p.newID()
 		plan.Legs = append(plan.Legs, stay(len(plan.Legs)+1, from, &id, departure, plan.Geometry[len(plan.Geometry)-1], req.Constraints.MovementModes[0], degraded, policy.Currency))
-		plan.Steps = append(plan.Steps, domain.Step{
-			VisitID: id, Kind: domain.StepFreeTime, Position: len(plan.Steps) + 1,
-			ArrivalAt: departure, VisitStartAt: x.StartAt, VisitEndAt: x.EndAt, DepartureAt: x.EndAt,
-			Participation: domain.Participation{Status: domain.ParticipationNotRequired, Evidence: domain.EvidenceNone},
-			AppliedConstraints: []domain.AppliedConstraint{{
-				Code: "REST_BREAK", Strength: domain.StrengthSoft, Outcome: domain.OutcomeSatisfied,
-				Message: "A short rest keeps the day at the chosen pace",
-			}},
-		})
+		step := restStep(id, x)
+		step.Position, step.ArrivalAt = len(plan.Steps)+1, departure
+		plan.Steps = append(plan.Steps, step)
 		departure, from = x.EndAt, &id
 	}
 	// pausesAt writes the lunch pause and the rests due before visit i in the order they happen.
@@ -146,6 +140,19 @@ func (p *Planner) assemble(req domain.OptimizeRequest, policy pricing.Policy, r 
 		plan.Result = domain.ResultPartial
 	}
 	return plan, in, nil
+}
+
+// restStep is the free time a rest keeps; the caller places it in the plan.
+func restStep(id domain.VisitID, x domain.Rest) domain.Step {
+	return domain.Step{
+		VisitID: id, Kind: domain.StepFreeTime,
+		ArrivalAt: x.StartAt, VisitStartAt: x.StartAt, VisitEndAt: x.EndAt, DepartureAt: x.EndAt,
+		Participation: domain.Participation{Status: domain.ParticipationNotRequired, Evidence: domain.EvidenceNone},
+		AppliedConstraints: []domain.AppliedConstraint{{
+			Code: "REST_BREAK", Strength: domain.StrengthSoft, Outcome: domain.OutcomeSatisfied,
+			Message: "A short rest keeps the day at the chosen pace",
+		}},
+	}
 }
 
 // leg joins two stops; a nil visit is the origin before the first stop or the destination after the last.

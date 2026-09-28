@@ -71,8 +71,10 @@ func (s *Solver) Repair(ctx context.Context, p Problem, steps []RepairStep) (Rep
 		if a != nil {
 			step.Candidate = &a.Candidate
 		}
-		trimmed := p.Load.trimOne(*step.Candidate)
-		step.Candidate = &trimmed
+		if a == nil {
+			trimmed := p.Load.trimOne(*step.Candidate)
+			step.Candidate = &trimmed
+		}
 		next, ok := run.keep(b, step, a != nil)
 		if ok {
 			out.Stops = append(out.Stops, RepairStop{Step: i, Visit: &next.Visits[len(next.Visits)-1]})

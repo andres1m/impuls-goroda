@@ -109,7 +109,7 @@ func (r searchRun) lunchAt(parent *domain.Branch, i int) (*domain.Branch, bool) 
 		return nil, false
 	}
 	visit := domain.SearchVisit{Candidate: c, Transit: leg, ArrivalAt: arrival, Buffer: slot.Buffer, StartAt: slot.StartAt, EndAt: slot.EndAt}
-	child := r.extend(parent, visit, finish, r.utilities[i], r.quotes[i], false)
+	child := r.extend(parent, visit, finish, r.utilities[i], r.quotes[i], true)
 	child.Lunch = &domain.Lunch{At: len(child.Visits) - 1, Venue: true, StartAt: slot.StartAt, EndAt: slot.EndAt}
 	return child, r.anchorsReachable(child)
 }
