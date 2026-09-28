@@ -1,12 +1,16 @@
 package kudago
 
 import (
+	"bytes"
+	"cmp"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"time"
 
@@ -91,11 +95,16 @@ func (a *Adapter) Fetch(ctx context.Context, city domain.City, _ json.RawMessage
 				batch.Skipped++
 				continue
 			}
+			hash, err := contentHash(raw)
+			if err != nil {
+				return ingest.Batch{}, &ingest.FetchError{Code: "decode", Err: err}
+			}
 			batch.Records = append(batch.Records, domain.RawRecord{
 				ExternalID:  "event:" + strconv.FormatInt(it.ID, 10),
 				SourceURL:   it.SiteURL,
 				Payload:     raw,
 				ContentType: "application/json",
+				ContentHash: hash,
 			})
 		}
 		next = ""
@@ -104,6 +113,26 @@ func (a *Adapter) Fetch(ctx context.Context, city domain.City, _ json.RawMessage
 		}
 	}
 	return batch, nil
+}
+
+// contentHash ignores the order of tags: KudaGo returns them shuffled on every
+// request, and hashing raw bytes would land an unchanged event again each time.
+func contentHash(raw json.RawMessage) ([]byte, error) {
+	var event map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&event); err != nil {
+		return nil, err
+	}
+	if tags, ok := event["tags"].([]any); ok {
+		slices.SortFunc(tags, func(a, b any) int { return cmp.Compare(fmt.Sprint(a), fmt.Sprint(b)) })
+	}
+	canonical, err := json.Marshal(event)
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(canonical)
+	return sum[:], nil
 }
 
 func (a *Adapter) page(ctx context.Context, pageURL string) (page, error) {
