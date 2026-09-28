@@ -469,3 +469,32 @@ func TestReopenKeepsSessionVersionsIntegration(t *testing.T) {
 		t.Fatalf("session %+v, revision %d → %d", s, revision, f.revision(t))
 	}
 }
+
+// Events of one source may describe their shared place slightly differently; republishing them must not
+// count the place as changed just because the batch writes it once per event.
+func TestSharedPlaceDoesNotFlapIntegration(t *testing.T) {
+	f := newMaterializeFixture(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	batch := func(version int) materialize.Outcome {
+		first := f.save(t, "event:1", fmt.Sprintf(`{"v":%d,"e":1}`, version), now.Add(time.Duration(2*version)*time.Second))
+		second := f.save(t, "event:2", fmt.Sprintf(`{"v":%d,"e":2}`, version), now.Add(time.Duration(2*version+1)*time.Second))
+		raws := f.pending(t, first.ID, second.ID)
+		a := eventNormalized(raws[0], "a", now.Add(24*time.Hour))
+		b := eventNormalized(raws[1], "a", now.Add(48*time.Hour))
+		b.Event.ExternalID = "event:2@place:a"
+		a.Place.Address, b.Place.Address = ptr("ул Радио, д 17"), ptr("ул Радио,д 17")
+		return materialize.Outcome{Apply: []materialize.Normalized{a, b}}
+	}
+	if _, published, err := f.store.Publish(f.ctx, domain.Perm, batch(1), now); err != nil || !published {
+		t.Fatalf("first batch published %v, err %v", published, err)
+	}
+	revision := f.revision(t)
+	if _, published, err := f.store.Publish(f.ctx, domain.Perm, batch(2), now); err != nil || published || f.revision(t) != revision {
+		t.Fatalf("same batch again published %v, err %v, revision %d → %d", published, err, revision, f.revision(t))
+	}
+	var address string
+	if err := f.pool.QueryRow(f.ctx, `SELECT address_text FROM catalog.place WHERE city = 'perm' AND id = $1`,
+		normalize.EntityID(string(f.source)+":place:a")).Scan(&address); err != nil || address != "ул Радио,д 17" {
+		t.Fatalf("place keeps %q, %v; the last description in the batch wins", address, err)
+	}
+}

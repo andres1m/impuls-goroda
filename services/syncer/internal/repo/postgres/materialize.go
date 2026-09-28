@@ -94,18 +94,31 @@ func (s *MaterializeStore) Publish(ctx context.Context, city domain.City, o mate
 	}
 
 	touched := make(map[string]bool)
-	for _, n := range o.Apply {
-		placeID, updated, err := upsertPlace(ctx, tx, city, n, ref.TagBits, at)
+	placeIDs := make([]string, len(o.Apply))
+	// Events sharing a place may each describe it a little differently; writing the place once, from the
+	// batch's last description, keeps a repeated batch from counting it as changed.
+	last := make(map[string]int, len(o.Apply))
+	for i, n := range o.Apply {
+		placeIDs[i] = placeID(n)
+		last[placeIDs[i]] = i
+	}
+	for i, n := range o.Apply {
+		if last[placeIDs[i]] != i {
+			continue
+		}
+		updated, err := upsertPlace(ctx, tx, city, n, placeIDs[i], ref.TagBits, at)
 		if err != nil {
 			return 0, false, err
 		}
 		if updated {
-			touched[placeID] = true
+			touched[placeIDs[i]] = true
 		}
+	}
+	for i, n := range o.Apply {
 		if n.Event == nil {
 			continue
 		}
-		places, err := writeEvent(ctx, tx, city, n, placeID, ref.TagBits, at)
+		places, err := writeEvent(ctx, tx, city, n, placeIDs[i], ref.TagBits, at)
 		if err != nil {
 			return 0, false, err
 		}
@@ -187,14 +200,17 @@ func stillPending(ctx context.Context, tx pgx.Tx, o materialize.Outcome) (materi
 	return out, nil
 }
 
+func placeID(n materialize.Normalized) string {
+	return normalize.EntityID(string(n.Raw.Source) + ":" + n.Place.ExternalID).String()
+}
+
 // upsertPlace writes the place and reports whether its row changed.
-func upsertPlace(ctx context.Context, tx pgx.Tx, city domain.City, n materialize.Normalized, bits map[string]int, at time.Time) (id string, updated bool, err error) {
+func upsertPlace(ctx context.Context, tx pgx.Tx, city domain.City, n materialize.Normalized, id string, bits map[string]int, at time.Time) (updated bool, err error) {
 	p := n.Place
 	mask, err := interestMask(p.Tags, bits, "place "+p.ExternalID)
 	if err != nil {
-		return "", false, err
+		return false, err
 	}
-	id = normalize.EntityID(string(n.Raw.Source) + ":" + p.ExternalID).String()
 	rows, err := tx.Query(ctx, `
 		INSERT INTO catalog.place AS t (id, city, title, normalized_title, category, tag_mask, coordinates,
 			address_text, opening_rules, data_mode, card_source_record_id, is_active, review_required, created_at, updated_at)
@@ -213,13 +229,13 @@ func upsertPlace(ctx context.Context, tx pgx.Tx, city domain.City, n materialize
 		id, city, p.Title, p.NormalizedTitle, nullIfEmpty(p.Category), mask, p.Lon, p.Lat,
 		p.Address, string(p.OpeningRules), n.Raw.DataMode, n.Raw.SourceRecordID, at)
 	if err != nil {
-		return "", false, fmt.Errorf("upsert place %s: %w", p.ExternalID, err)
+		return false, fmt.Errorf("upsert place %s: %w", p.ExternalID, err)
 	}
 	returned, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	if err != nil {
-		return "", false, fmt.Errorf("upsert place %s: %w", p.ExternalID, err)
+		return false, fmt.Errorf("upsert place %s: %w", p.ExternalID, err)
 	}
-	return id, len(returned) > 0, nil
+	return len(returned) > 0, nil
 }
 
 // settle records what the batch did to its raw and source records and advances the watermark of
