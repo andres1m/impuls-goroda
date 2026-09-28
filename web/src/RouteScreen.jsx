@@ -1,4 +1,5 @@
 import React from 'react';
+import Brand from './Brand.jsx';
 
 const cityNames = { moscow: 'Москва', perm: 'Пермь' };
 const categoryNames = {
@@ -39,7 +40,7 @@ export default function RouteScreen({ route }) {
     <div className="route-page">
       <header className="route-heading">
         <div>
-          <span className="route-eyebrow">ИМПУЛЬС ГОРОДА · {cityNames[route.city] || route.city}</span>
+          <Brand className="route-eyebrow">ИМПУЛЬС ГОРОДА · {cityNames[route.city] || route.city}</Brand>
           <h1>Ваш маршрут</h1>
           <p>{date} · {start}–{end}</p>
         </div>
