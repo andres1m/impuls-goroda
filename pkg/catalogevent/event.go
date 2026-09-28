@@ -64,7 +64,8 @@ func Encode(m Invalidation) ([]byte, error) {
 	return json.Marshal(m)
 }
 
-// Decode accepts fields it does not know, so a newer producer does not break older consumers.
+// Decode accepts fields it does not know, so a newer producer does not break older consumers, and
+// gives the publish time in UTC whatever offset the producer wrote.
 func Decode(data []byte) (Invalidation, error) {
 	var m Invalidation
 	if err := json.Unmarshal(data, &m); err != nil {
@@ -73,5 +74,6 @@ func Decode(data []byte) (Invalidation, error) {
 	if err := m.Validate(); err != nil {
 		return Invalidation{}, fmt.Errorf("decode catalog invalidation: %w", err)
 	}
+	m.PublishedAt = m.PublishedAt.UTC()
 	return m, nil
 }
