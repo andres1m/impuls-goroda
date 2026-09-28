@@ -152,3 +152,12 @@ func TestPrepareNormalizesMkrfEvents(t *testing.T) {
 		t.Fatalf("outcome %+v deferred %v", o, deferred)
 	}
 }
+
+func TestPrepareNormalizesKudaGoEvents(t *testing.T) {
+	r := raw("r1", "event:1", `{"title":"Концерт","place":null}`)
+	r.Source = domain.KudaGo
+	o, deferred := Prepare(domain.Moscow, []Raw{r}, time.Now())
+	if len(deferred) != 0 || len(o.Failed) != 1 || o.Failed[0].Code != "missing_place" {
+		t.Fatalf("outcome %+v deferred %v", o, deferred)
+	}
+}
