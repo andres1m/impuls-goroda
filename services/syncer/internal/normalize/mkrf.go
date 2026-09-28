@@ -13,12 +13,12 @@ import (
 type mkrfRecord struct {
 	Data struct {
 		General struct {
-			Name           string     `json:"name"`
-			AgeRestriction *int16     `json:"ageRestriction"`
-			IsFree         bool       `json:"isFree"`
-			Price          *int64     `json:"price"`
-			MaxPrice       *int64     `json:"maxPrice"`
-			SaleLink       string     `json:"saleLink"`
+			Name           string        `json:"name"`
+			AgeRestriction *int16        `json:"ageRestriction"`
+			IsFree         bool          `json:"isFree"`
+			Price          *int64        `json:"price"`
+			MaxPrice       *int64        `json:"maxPrice"`
+			SaleLink       string        `json:"saleLink"`
 			Category       mkrfSysName   `json:"category"`
 			Tags           []mkrfSysName `json:"tags"`
 			Organization   struct {
