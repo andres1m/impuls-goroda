@@ -143,3 +143,12 @@ func TestApplyPublishesAtTheNormalizationClock(t *testing.T) {
 		t.Fatalf("clock read %d times, published at %v", calls, s.at)
 	}
 }
+
+func TestPrepareNormalizesMkrfEvents(t *testing.T) {
+	r := raw("r1", "event:1", `{"data":{"general":{"name":"Лекция","places":[]}}}`)
+	r.Source = domain.MkrfEvents
+	o, deferred := Prepare(domain.Moscow, []Raw{r}, time.Now())
+	if len(deferred) != 0 || len(o.Failed) != 1 || o.Failed[0].Code != "missing_place" {
+		t.Fatalf("outcome %+v deferred %v", o, deferred)
+	}
+}

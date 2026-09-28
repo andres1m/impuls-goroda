@@ -87,6 +87,7 @@ type Failure struct {
 type normalizer func(city domain.City, externalID string, payload []byte, now time.Time) (normalize.Draft, error)
 
 var normalizers = map[domain.SourceKey]normalizer{
+	domain.MkrfEvents: normalize.MkrfEvent,
 	domain.OSM: func(_ domain.City, externalID string, payload []byte, _ time.Time) (normalize.Draft, error) {
 		place, err := normalize.OSMPlace(externalID, payload)
 		return normalize.Draft{Place: place}, err
