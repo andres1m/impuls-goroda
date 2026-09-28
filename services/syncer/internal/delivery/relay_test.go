@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 var now = time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
@@ -27,11 +29,15 @@ type fakeStore struct {
 	leases       []time.Time
 	delivered    []uuid.UUID
 	failed       []mark
+	claims       int
+	// Leases the marks were made under.
+	markLeases []time.Time
 }
 
 func (s *fakeStore) Claim(_ context.Context, _ time.Time, leaseUntil time.Time, destinations []string, limit int) ([]Item, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.claims++
 	if s.claimErr != nil {
 		return nil, s.claimErr
 	}
@@ -40,21 +46,32 @@ func (s *fakeStore) Claim(_ context.Context, _ time.Time, leaseUntil time.Time, 
 	n := min(limit, len(s.queue))
 	out := slices.Clone(s.queue[:n])
 	s.queue = s.queue[n:]
+	for i := range out {
+		out[i].LeaseUntil = leaseUntil
+	}
 	return out, nil
 }
 
-func (s *fakeStore) Delivered(_ context.Context, id uuid.UUID, _ time.Time) error {
+func (s *fakeStore) Delivered(_ context.Context, item Item, _ time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.delivered = append(s.delivered, id)
+	s.delivered = append(s.delivered, item.ID)
+	s.markLeases = append(s.markLeases, item.LeaseUntil)
 	return nil
 }
 
-func (s *fakeStore) Failed(_ context.Context, id uuid.UUID, next time.Time) error {
+func (s *fakeStore) Failed(_ context.Context, item Item, next time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.failed = append(s.failed, mark{id, next})
+	s.failed = append(s.failed, mark{item.ID, next})
+	s.markLeases = append(s.markLeases, item.LeaseUntil)
 	return nil
+}
+
+func (s *fakeStore) claimCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.claims
 }
 
 func (s *fakeStore) Backlog(context.Context, time.Time) (int, time.Duration, error) { return 0, 0, nil }
@@ -99,8 +116,8 @@ func TestTickDeliversAndMarks(t *testing.T) {
 	if len(sender.sent) != 1 || len(store.delivered) != 1 || store.delivered[0] != sender.sent[0] || len(store.failed) != 0 {
 		t.Fatalf("sent %v delivered %v failed %v", sender.sent, store.delivered, store.failed)
 	}
-	if !store.leases[0].Equal(now.Add(30 * time.Second)) {
-		t.Fatalf("lease until %v", store.leases[0])
+	if !store.leases[0].Equal(now.Add(30*time.Second)) || !store.markLeases[0].Equal(store.leases[0]) {
+		t.Fatalf("lease until %v, marked under %v", store.leases[0], store.markLeases)
 	}
 }
 
@@ -156,6 +173,91 @@ func TestRunKeepsPollingAfterErrors(t *testing.T) {
 	defer cancel()
 	if err := r.Run(ctx); err != nil {
 		t.Fatalf("run stopped with %v", err)
+	}
+	if n := store.claimCount(); n < 2 {
+		t.Fatalf("%d claims: the relay stopped polling after an error", n)
+	}
+}
+
+func TestRunWarnsOncePerOutage(t *testing.T) {
+	core, logs := observer.New(zapcore.InfoLevel)
+	store := &fakeStore{claimErr: errors.New("db down")}
+	cfg := testConfig()
+	cfg.PollInterval = time.Millisecond
+	r, err := NewRelay(cfg, store, map[string]Sender{"redis": &fakeSender{}}, zap.New(core))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- r.Run(ctx) }()
+	for store.claimCount() < 5 {
+		time.Sleep(time.Millisecond)
+	}
+	store.mu.Lock()
+	store.claimErr = nil
+	store.mu.Unlock()
+	for n := store.claimCount(); store.claimCount() < n+2; {
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	var levels []zapcore.Level
+	for _, e := range logs.All() {
+		levels = append(levels, e.Level)
+	}
+	if !slices.Equal(levels, []zapcore.Level{zapcore.WarnLevel, zapcore.InfoLevel}) {
+		t.Fatalf("log levels %v", levels)
+	}
+}
+
+// blockingSender holds a delivery until released.
+type blockingSender struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingSender) Send(context.Context, Item) error {
+	close(b.started)
+	<-b.release
+	return nil
+}
+
+func TestStopWaitsForTheDeliveryInProgress(t *testing.T) {
+	store := &fakeStore{queue: items(1, 1)}
+	sender := &blockingSender{started: make(chan struct{}), release: make(chan struct{})}
+	r := newTestRelay(t, store, map[string]Sender{"redis": sender})
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { _ = r.Run(ctx) }()
+	<-sender.started
+	cancel()
+	stopped := make(chan error, 1)
+	go func() { stopped <- r.Stop(context.Background()) }()
+	select {
+	case <-stopped:
+		t.Fatal("stopped while a delivery was in progress")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(sender.release)
+	if err := <-stopped; err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.delivered) != 1 {
+		t.Fatal("the delivery was not marked before stopping")
+	}
+}
+
+func TestStopWithoutRun(t *testing.T) {
+	r := newTestRelay(t, &fakeStore{}, map[string]Sender{"redis": &fakeSender{}})
+	if err := r.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Run(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }
 

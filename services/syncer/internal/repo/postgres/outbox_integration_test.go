@@ -2,7 +2,7 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"os"
 	"sync"
 	"testing"
@@ -108,10 +108,6 @@ func TestEnqueueRevisionIntegration(t *testing.T) {
 	if err != nil || got.CatalogRevision != 42 || got.City != "perm" {
 		t.Fatalf("payload %s: %v", payload, err)
 	}
-	var raw map[string]any
-	if err := json.Unmarshal(payload, &raw); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func TestClaimSkipsRowsAnotherRelayHolds(t *testing.T) {
@@ -194,11 +190,12 @@ func TestMarksAndBacklog(t *testing.T) {
 	if err != nil || count < 2 || age < time.Minute {
 		t.Fatalf("backlog %d, oldest %v: %v", count, age, err)
 	}
-	if err := store.Delivered(ctx, ids[0], now); err != nil {
+	items := claimOwn(t, store, ids, now, now.Add(time.Minute))
+	if err := store.Delivered(ctx, items[ids[0]], now); err != nil {
 		t.Fatal(err)
 	}
 	next := now.Add(time.Hour).Truncate(time.Microsecond)
-	if err := store.Failed(ctx, ids[1], next); err != nil {
+	if err := store.Failed(ctx, items[ids[1]], next); err != nil {
 		t.Fatal(err)
 	}
 	if state, _, _ := rowState(t, pool, ids[0]); state != "delivered" {
@@ -206,5 +203,49 @@ func TestMarksAndBacklog(t *testing.T) {
 	}
 	if state, _, at := rowState(t, pool, ids[1]); state != "failed" || !at.Equal(next) {
 		t.Fatalf("failed row is %s, next at %v", state, at)
+	}
+}
+
+// claimOwn claims the rows and returns the items by id; it fails if any was not claimed.
+func claimOwn(t *testing.T, store *Deliveries, ids []uuid.UUID, now, leaseUntil time.Time) map[uuid.UUID]delivery.Item {
+	t.Helper()
+	items, err := store.Claim(context.Background(), now, leaseUntil, []string{testDestination}, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	own := map[uuid.UUID]delivery.Item{}
+	for _, it := range items {
+		for _, id := range ids {
+			if it.ID == id {
+				own[id] = it
+			}
+		}
+	}
+	if len(own) != len(ids) {
+		t.Fatalf("claimed %d of %d rows", len(own), len(ids))
+	}
+	return own
+}
+
+func TestMarkAfterLostLeaseIsRefused(t *testing.T) {
+	pool := outboxPool(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	ids := insertTestRows(t, pool, 1, "pending", now.Add(-time.Minute), nil)
+	store := NewDeliveries(pool)
+	first := claimOwn(t, store, ids, now, now.Add(time.Second))[ids[0]]
+	later := now.Add(2 * time.Second)
+	second := claimOwn(t, store, ids, later, later.Add(time.Minute))[ids[0]]
+	if err := store.Delivered(ctx, first, later); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("mark under a lost lease: %v", err)
+	}
+	if err := store.Failed(ctx, first, later); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("mark under a lost lease: %v", err)
+	}
+	if state, attempts, _ := rowState(t, pool, ids[0]); state != "in_flight" || attempts != 2 {
+		t.Fatalf("row is %s after %d attempts", state, attempts)
+	}
+	if err := store.Delivered(ctx, second, later); err != nil {
+		t.Fatal(err)
 	}
 }
