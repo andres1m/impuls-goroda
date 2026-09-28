@@ -37,7 +37,7 @@ type groupClient interface {
 	PollFetches(ctx context.Context) kgo.Fetches
 	CommitRecords(ctx context.Context, records ...*kgo.Record) error
 	AllowRebalance()
-	Close()
+	CloseAllowingRebalance()
 }
 
 type Consumer struct {
@@ -112,8 +112,9 @@ func (c *Consumer) Run(ctx context.Context) error {
 }
 
 func (c *Consumer) Stop(context.Context) error {
+	// A plain Close would wait forever to leave the group: polling blocks rebalances until allowed.
 	if c.client != nil {
-		c.client.Close()
+		c.client.CloseAllowingRebalance()
 	}
 	return nil
 }

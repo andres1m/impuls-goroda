@@ -39,8 +39,8 @@ func (g *fakeGroup) CommitRecords(_ context.Context, records ...*kgo.Record) err
 	return g.commitErr
 }
 
-func (g *fakeGroup) AllowRebalance() { g.allowed++ }
-func (g *fakeGroup) Close()          {}
+func (g *fakeGroup) AllowRebalance()         { g.allowed++ }
+func (g *fakeGroup) CloseAllowingRebalance() {}
 
 type fakeStarter struct {
 	calls int
