@@ -20,7 +20,7 @@ func fullSlice(t *testing.T) *catalogslice.Slice {
 	record := domain.SourceRecordID{9}
 	url := "https://example.org/buy"
 	late := true
-	amount := int64(50000)
+	amount, zero := int64(50000), int64(0)
 	place := domain.Place{ID: domain.PlaceID{1}, City: "perm", Title: "Museum", Category: &category, InterestMask: 5,
 		Location: center, DataMode: domain.DataLive, Provenance: domain.Provenance{SourceName: "live", SourceRecordID: &record, FetchedAt: now}}
 	entrances := []domain.Entrance{{ID: domain.EntranceID{2}, PlaceID: place.ID, Location: center, AllowedModes: []domain.MovementMode{domain.MovementWalk},
@@ -36,7 +36,10 @@ func fullSlice(t *testing.T) *catalogslice.Slice {
 				Availability: domain.AvailabilitySoldOut, Version: 3, DataMode: domain.DataLive, Provenance: domain.Provenance{SourceName: "live", SourceURL: &url, FetchedAt: now}},
 			Offers: []domain.PriceOffer{{ID: domain.PriceOfferID{5}, SessionID: domain.SessionID{4},
 				Price:    domain.Price{Status: domain.PriceFixed, Currency: "RUB", LowerMinor: &amount, UpperMinor: &amount},
-				Audience: domain.AudienceGeneral, BenefitPrograms: []string{domain.ProgramPushkinCard}}},
+				Audience: domain.AudienceGeneral, BenefitPrograms: []string{domain.ProgramPushkinCard}}, {
+				ID: domain.PriceOfferID{6}, SessionID: domain.SessionID{4},
+				Price:    domain.Price{Status: domain.PriceFree, Currency: "RUB", LowerMinor: &zero, UpperMinor: &zero},
+				Audience: domain.AudienceGeneral, BenefitPrograms: []string{}}},
 		}},
 	}
 }
@@ -57,13 +60,16 @@ func TestSliceSurvivesTheSharedCache(t *testing.T) {
 	if err := got.Places[0].Rules.Validate(); err != nil {
 		t.Fatalf("rules with closed days no longer valid: %v", err)
 	}
+	if err := got.Sessions[0].Offers[1].Price.Validate(); err != nil {
+		t.Fatalf("free price no longer valid: %v", err)
+	}
 	if _, err := decode([]byte("not a slice")); err == nil {
 		t.Fatal("garbage decoded")
 	}
 }
 
 func TestKeyNamesFormatCityAndRevision(t *testing.T) {
-	if k := key("perm", 12); k != "optimizer:slice:v1:perm:12" || !strings.HasPrefix(k, "optimizer:slice:v1:") {
+	if k := key("perm", 12); k != "optimizer:slice:v2:perm:12" || !strings.HasPrefix(k, "optimizer:slice:v2:") {
 		t.Fatalf("key %q", k)
 	}
 }

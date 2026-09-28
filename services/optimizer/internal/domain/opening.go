@@ -22,6 +22,11 @@ type OpeningHours struct {
 	End   string
 }
 
+// MarshalJSON writes the interval as stored, ["10:00","18:00"].
+func (h OpeningHours) MarshalJSON() ([]byte, error) {
+	return json.Marshal([2]string{h.Start, h.End})
+}
+
 func (h *OpeningHours) UnmarshalJSON(data []byte) error {
 	var raw []string
 	if err := json.Unmarshal(data, &raw); err != nil {

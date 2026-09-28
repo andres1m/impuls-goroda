@@ -1,6 +1,8 @@
 package domain
 
 import (
+	"encoding/json"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -255,5 +257,24 @@ func TestOpeningRulesWindowsValidation(t *testing.T) {
 	}
 	if _, err := rules.Windows(t0, t1, time.UTC, time.Hour, 30*time.Minute); err == nil {
 		t.Error("expected error for recommendedDuration < minDuration")
+	}
+}
+
+func TestOpeningRulesWriteAsStored(t *testing.T) {
+	raw := `{"schema_version":1,"weekly":{"fri":[],"mon":[["10:00","18:00"]],"sat":[],"sun":[],"thu":[],"tue":[],"wed":[]},"closed_dates":["2026-10-05"],"source_text":"Mon 10-18"}`
+	rules, err := ParseOpeningRules([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	written, err := json.Marshal(rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(written) != raw {
+		t.Fatalf("written %s", written)
+	}
+	again, err := ParseOpeningRules(written)
+	if err != nil || !reflect.DeepEqual(again, rules) {
+		t.Fatalf("read back %+v: %v", again, err)
 	}
 }
