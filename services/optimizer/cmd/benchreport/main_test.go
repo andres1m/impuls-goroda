@@ -18,10 +18,10 @@ func TestParseTakesMedianOfRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("results %+v", got)
+	if len(got.Results) != 1 {
+		t.Fatalf("results %+v", got.Results)
 	}
-	r := got[0]
+	r := got.Results[0]
 	if r.Name != "BenchmarkOptimize/pool=60" || r.Runs != 3 || r.Iters != 100 || r.NsOp != 3e6 || r.P50 != 2 || r.P99 != 5 || r.AllocsOp != 800 {
 		t.Fatalf("result %+v", r)
 	}
@@ -58,5 +58,65 @@ func TestRenderTable(t *testing.T) {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("report misses %q:\n%s", want, buf.String())
 		}
+	}
+}
+
+func TestParseRejectsSkippedBenchmark(t *testing.T) {
+	in := sample + "--- SKIP: BenchmarkRepair\n"
+	if _, err := parse(strings.NewReader(in)); err == nil {
+		t.Fatal("skipped benchmark accepted")
+	}
+}
+
+func TestParseJoinsNameSplitByLog(t *testing.T) {
+	in := "BenchmarkX-16\n    bench_test.go:10: warming up\n     100\t  2000 ns/op\t 1 p50-ms\t 2 p95-ms\t 3 p99-ms\t 5 B/op\t 1 allocs/op\n"
+	got, err := parse(strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Name != "BenchmarkX" || got.Results[0].NsOp != 2000 {
+		t.Fatalf("results %+v", got.Results)
+	}
+}
+
+func TestParseRejectsOrphanResult(t *testing.T) {
+	in := "     100\t  2000 ns/op\t 1 p50-ms\t 2 p95-ms\t 3 p99-ms\t 5 B/op\t 1 allocs/op\n"
+	if _, err := parse(strings.NewReader(sample + in)); err == nil {
+		t.Fatal("result without a benchmark name accepted")
+	}
+}
+
+func TestParseRejectsUnevenRuns(t *testing.T) {
+	other := "BenchmarkRepair-16  10  100 ns/op  1 p50-ms  2 p95-ms  3 p99-ms  5 B/op  1 allocs/op\n"
+	if _, err := parse(strings.NewReader(sample + other + other)); err == nil {
+		t.Fatal("benchmarks with different run counts accepted")
+	}
+}
+
+func TestParseReadsGOMAXPROCS(t *testing.T) {
+	got, err := parse(strings.NewReader(sample))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Procs != 16 {
+		t.Fatalf("procs %d", got.Procs)
+	}
+	mixed := strings.Replace(sample, "pool=60-16 ", "pool=60-8 ", 1)
+	if _, err := parse(strings.NewReader(mixed)); err == nil {
+		t.Fatal("runs with different GOMAXPROCS accepted")
+	}
+}
+
+func TestRenderStatesMedianAndProcs(t *testing.T) {
+	var buf bytes.Buffer
+	rep, err := parse(strings.NewReader(sample))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := render(&buf, map[string]string{}, rep, "cpu", "mem"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "- GOMAXPROCS: 16") || strings.Contains(buf.String(), "one machine and one run") {
+		t.Fatalf("report:\n%s", buf.String())
 	}
 }

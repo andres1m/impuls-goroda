@@ -39,7 +39,9 @@ func FuzzOptimize(f *testing.F) {
 				t.Fatalf("parallelism %d: %s with %d routes, first run %s with %d", parallelism, other.Status, len(other.Routes), res.Status, len(res.Routes))
 			}
 			for i := range res.Routes {
-				if !slices.Equal(signature(res.Routes[i]), signature(other.Routes[i])) || !reflect.DeepEqual(res.Routes[i].Cost, other.Routes[i].Cost) {
+				a, b := res.Routes[i], other.Routes[i]
+				if a.Archetype != b.Archetype || a.Result != b.Result || !slices.Equal(signature(a), signature(b)) ||
+					!slices.Equal(legSignature(a), legSignature(b)) || !reflect.DeepEqual(a.Cost, b.Cost) {
 					t.Fatalf("parallelism %d: route %d differs", parallelism, i)
 				}
 			}

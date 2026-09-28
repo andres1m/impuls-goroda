@@ -185,13 +185,21 @@ func generate(seed uint64) genCase {
 	if r.IntN(5) == 0 {
 		provider = &fakeProvider{transit: baseline(), degraded: true}
 	}
-	// Drawn last, so the pace never changes the rest of the problem a seed generates.
+	// Drawn after the rest of the problem, so the pace never changes what a seed generates before it.
 	req.Constraints.LoadProfile = []string{"relaxed", "moderate", "intense"}[r.IntN(3)]
+	// A reported ticket holds a place even once the session sells out. Drawn after the pace for the same
+	// reason, and only a session the day can reach, so the ticket itself does not make the day infeasible.
+	for _, c := range pool {
+		reachable := c.Session != nil && !c.Window.Start.Before(req.Start.Add(time.Hour)) && !c.Window.End.After(req.End)
+		if reachable && c.Session.Availability == domain.AvailabilitySoldOut && len(req.Constraints.Obligations) == 0 && r.IntN(2) == 0 {
+			req.Constraints.Obligations = append(req.Constraints.Obligations, domain.Obligation{SessionID: &c.Session.ID, Participation: domain.ParticipationUserReported})
+		}
+	}
 	return genCase{req: req, pool: pool, provider: provider}
 }
 
 func TestGeneratedCasesAreValidAndVaried(t *testing.T) {
-	var strict, unknownPrice, obligations, degraded int
+	var strict, unknownPrice, obligations, soldOutObligations, degraded int
 	for seed := range uint64(200) {
 		c := generate(seed)
 		if err := c.req.Validate(); err != nil {
@@ -213,6 +221,13 @@ func TestGeneratedCasesAreValidAndVaried(t *testing.T) {
 		if len(c.req.Constraints.Obligations) > 0 {
 			obligations++
 		}
+		if slices.ContainsFunc(c.req.Constraints.Obligations, func(o domain.Obligation) bool {
+			return slices.ContainsFunc(c.pool, func(cand domain.Candidate) bool {
+				return cand.Session != nil && cand.Session.ID == *o.SessionID && cand.Session.Availability == domain.AvailabilitySoldOut
+			})
+		}) {
+			soldOutObligations++
+		}
 		if c.provider.degraded {
 			degraded++
 		}
@@ -226,6 +241,9 @@ func TestGeneratedCasesAreValidAndVaried(t *testing.T) {
 		if n < 20 {
 			t.Errorf("only %d of 200 seeds have %s", n, name)
 		}
+	}
+	if soldOutObligations < 10 {
+		t.Errorf("only %d of 200 seeds hold a place in a sold-out session", soldOutObligations)
 	}
 }
 

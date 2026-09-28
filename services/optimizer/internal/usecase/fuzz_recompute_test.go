@@ -80,7 +80,7 @@ func recomputeOnce(t *testing.T, seed uint64) bool {
 	if n := rejections(logs); n > 0 {
 		t.Fatalf("validator rejected %d plans", n)
 	}
-	if v := checkRecompute(req, out); len(v) > 0 {
+	if v := checkRecompute(req, pool, out); len(v) > 0 {
 		t.Fatalf("%T: %s", req.Trigger, describe(v))
 	}
 	return false
@@ -90,7 +90,11 @@ func FuzzRecompute(f *testing.F) {
 	for seed := range uint64(200) {
 		f.Add(seed)
 	}
-	f.Fuzz(func(t *testing.T, seed uint64) { recomputeOnce(t, seed) })
+	f.Fuzz(func(t *testing.T, seed uint64) {
+		if recomputeOnce(t, seed) {
+			t.Skip("the seed has no route to recompute")
+		}
+	})
 }
 
 // Seeds without a route have nothing to recompute; the rest must still leave a real sample.

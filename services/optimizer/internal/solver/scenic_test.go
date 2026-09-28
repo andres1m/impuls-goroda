@@ -131,7 +131,11 @@ func TestScenicKeepsAnchors(t *testing.T) {
 	p := problem()
 	p.Scenic = northScenic{}
 	p.Anchors = []Anchor{{Candidate: ticket}}
-	for _, r := range scenicSearch(t, 0.19, p, []domain.Candidate{scenicDetour}) {
+	routes := scenicSearch(t, 0.19, p, []domain.Candidate{scenicDetour})
+	if len(routes) == 0 {
+		t.Fatal("no routes")
+	}
+	for _, r := range routes {
 		i := len(r.Visits)
 		for j, v := range r.Visits {
 			if v.Candidate.Session != nil && v.Candidate.Session.ID == ticket.Session.ID {

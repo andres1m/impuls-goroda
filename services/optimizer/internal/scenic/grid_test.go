@@ -164,3 +164,25 @@ func TestSourceCachesByRevision(t *testing.T) {
 		t.Fatalf("cached revision lost after a failure: %v", err)
 	}
 }
+
+func TestGridStopsCachingAtTheLimit(t *testing.T) {
+	a, _, from, _ := near(t)
+	ring, err := a.GridDisk(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	places := map[h3.Cell]int{ring[1]: 2}
+	limited, fresh := NewGrid(places, nil), NewGrid(places, nil)
+	limited.walkLimit = 2
+	for _, c := range ring[1:4] {
+		centre, _ := c.LatLng()
+		if got, want := limited.Score(from, point(centre)), fresh.Score(from, point(centre)); got != want {
+			t.Fatalf("score %v past the limit, want %v", got, want)
+		}
+	}
+	cached := 0
+	limited.walks.Range(func(_, _ any) bool { cached++; return true })
+	if cached != 2 {
+		t.Fatalf("%d walks cached, limit 2", cached)
+	}
+}

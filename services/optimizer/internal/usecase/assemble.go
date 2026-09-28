@@ -51,7 +51,7 @@ func (p *Planner) assemble(req domain.OptimizeRequest, policy pricing.Policy, r 
 		})
 		plan.Warnings = append(plan.Warnings, domain.Warning{
 			Code: "LUNCH_NO_VENUE", Scope: domain.ScopeVisit, VisitID: &id,
-			Message: "No suitable place to eat within 1 km; the lunch time is left free with nothing booked",
+			Message: "No place to eat within 1 km fits the lunch time and the route's conditions; the lunch time is left free with nothing booked",
 		})
 		departure, from = lunch.EndAt, &id
 	}

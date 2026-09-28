@@ -8,15 +8,11 @@ import (
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
 )
 
-func isRest(s domain.Step) bool {
-	return s.Kind == domain.StepFreeTime && slices.ContainsFunc(s.AppliedConstraints, func(c domain.AppliedConstraint) bool { return c.Code == "REST_BREAK" })
-}
-
 func stepKinds(steps []domain.Step) []string {
 	var kinds []string
 	for _, s := range steps {
 		kind := string(s.Kind)
-		if isRest(s) {
+		if isRestStep(s) {
 			kind = "rest"
 		}
 		kinds = append(kinds, kind)
@@ -31,7 +27,7 @@ func TestRelaxedPlanShowsRestSteps(t *testing.T) {
 	}
 	res := optimize(t, pool, estimated(), func(r *domain.OptimizeRequest) { r.Constraints.LoadProfile = "relaxed" })
 	route := res.Routes[0]
-	i := slices.IndexFunc(route.Steps, isRest)
+	i := slices.IndexFunc(route.Steps, isRestStep)
 	if i < 0 {
 		t.Fatalf("no rest step in %d steps", len(route.Steps))
 	}
@@ -56,7 +52,7 @@ func TestRestAndLunchPauseKeepTimeOrder(t *testing.T) {
 				t.Fatalf("step %d starts before step %d ends", i+1, i)
 			}
 		}
-		sawRest = sawRest || slices.ContainsFunc(route.Steps, isRest)
+		sawRest = sawRest || slices.ContainsFunc(route.Steps, isRestStep)
 	}
 	if !sawRest {
 		t.Fatal("no route rests, so the order check proved nothing")
@@ -97,7 +93,7 @@ func TestRecomputeFillKeepsRests(t *testing.T) {
 		t.Fatalf("status %s", res.Status)
 	}
 	steps := res.Candidate.Steps
-	i := slices.IndexFunc(steps, isRest)
+	i := slices.IndexFunc(steps, isRestStep)
 	if i <= 0 {
 		t.Fatalf("no rest among %d replacement steps", len(steps))
 	}
@@ -112,7 +108,7 @@ func TestRecomputeFillCountsVisitsBeforeTheGapTowardsRest(t *testing.T) {
 	park := place(2, domain.CategoryWalk, north(origin, 200))
 	relaxed := func(r *domain.OptimizeRequest) { r.Constraints.LoadProfile = "relaxed" }
 	base := optimize(t, []domain.Candidate{museum, park}, estimated(), relaxed).Routes[0]
-	if len(base.Steps) != 2 || slices.ContainsFunc(base.Steps, isRest) {
+	if len(base.Steps) != 2 || slices.ContainsFunc(base.Steps, isRestStep) {
 		t.Fatalf("base steps %+v", base.Steps)
 	}
 	catalog := []domain.Candidate{museum, park}
@@ -159,7 +155,7 @@ func TestRecomputeFillStartsWithADueRest(t *testing.T) {
 		t.Fatalf("status %s", res.Status)
 	}
 	steps := res.Candidate.Steps
-	if len(steps) < 4 || isRest(steps[1]) || !isRest(steps[2]) || steps[3].Kind != domain.StepVisit {
+	if len(steps) < 4 || isRestStep(steps[1]) || !isRestStep(steps[2]) || steps[3].Kind != domain.StepVisit {
 		t.Fatalf("steps %v, want two kept visits, a rest and replacements", stepKinds(steps))
 	}
 }

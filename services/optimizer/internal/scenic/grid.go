@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/uber/h3-go/v4"
 
@@ -16,6 +17,9 @@ import (
 // placesForFullScore scenic places in a cell make its catalog part as scenic as it gets.
 const placesForFullScore = 3
 
+// maxWalks bounds the walk cache of one city; past it scores are computed on every call.
+const maxWalks = 1 << 16
+
 // Grid scores walks in one city from its catalog's scenic places and, when the city has one, its
 // layer of green and water areas.
 type Grid struct {
@@ -23,11 +27,13 @@ type Grid struct {
 	// Nil when the city has no layer; the catalog then decides alone.
 	shares Shares
 	// Walk scores by pair of end cells; the search asks for the same walks many times.
-	walks sync.Map
+	walks     sync.Map
+	cached    atomic.Int64
+	walkLimit int64
 }
 
 func NewGrid(places map[h3.Cell]int, shares Shares) *Grid {
-	return &Grid{places: places, shares: shares}
+	return &Grid{places: places, shares: shares, walkLimit: maxWalks}
 }
 
 func (g *Grid) cell(c h3.Cell) float64 {
@@ -60,7 +66,11 @@ func (g *Grid) Score(from, to domain.Coordinate) float64 {
 		sum += g.cell(c)
 	}
 	score := sum / float64(len(path))
-	g.walks.Store(key, score)
+	if g.cached.Load() < g.walkLimit {
+		if _, loaded := g.walks.LoadOrStore(key, score); !loaded {
+			g.cached.Add(1)
+		}
+	}
 	return score
 }
 

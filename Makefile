@@ -41,7 +41,7 @@ bench-optimizer:
 	go tool pprof -top -nodecount 10 $(PROFILES)/usecase.test $(PROFILES)/cpu.pprof > $(PROFILES)/cpu.txt
 	go tool pprof -top -nodecount 10 -sample_index alloc_space $(PROFILES)/usecase.test $(PROFILES)/mem.pprof > $(PROFILES)/mem.txt
 	go run ./services/optimizer/cmd/benchreport -bench $(PROFILES)/bench.txt -cpu-top $(PROFILES)/cpu.txt -mem-top $(PROFILES)/mem.txt \
-		-env "Source=the commit that last changed this file" -env "Go=$$(go env GOVERSION)" \
+		-env "Source=the commit that last changed this file" -env "Date=$$(date -u +%F)" -env "Go=$$(go env GOVERSION)" \
 		-env "CPU=$$(lscpu | sed -n 's/^Model name: *//p')" -env "Cores=$$(nproc)" \
 		-env "Search config=beam width 16, parallelism 4" \
 		-env "Pools=60, 200 and 500 synthetic candidates; planner pools within about 1.5 km" \

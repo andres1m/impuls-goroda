@@ -159,16 +159,16 @@ func (c *Catalog) loadPlaces(ctx context.Context, city string) ([]loadedPlace, m
 	byID := make(map[domain.PlaceID]loadedPlace)
 	for rows.Next() {
 		var (
-			id         domain.PlaceID
-			title      string
-			category   *string
-			tagMask    int64
-			lon, lat   float64
-			rawRules   []byte
-			dataMode   string
-			recordID   *domain.SourceRecordID
-			updatedAt  time.Time
-			baseScore  float64
+			id        domain.PlaceID
+			title     string
+			category  *string
+			tagMask   int64
+			lon, lat  float64
+			rawRules  []byte
+			dataMode  string
+			recordID  *domain.SourceRecordID
+			updatedAt time.Time
+			baseScore float64
 		)
 		if err := rows.Scan(&id, &title, &category, &tagMask, &lon, &lat, &rawRules, &dataMode, &recordID, &updatedAt, &baseScore); err != nil {
 			return nil, nil, wrapDBError("scan place", err)

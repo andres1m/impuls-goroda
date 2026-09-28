@@ -87,6 +87,16 @@ func halfHour(id byte, category domain.Category, location domain.Coordinate) dom
 	return c
 }
 
+// threeHalfHours are three half-hour visits of different categories a hundred metres apart.
+func threeHalfHours() []domain.Candidate {
+	categories := []domain.Category{domain.CategoryCulture, domain.CategoryWalk, domain.CategorySport}
+	var pool []domain.Candidate
+	for i := byte(1); i <= 3; i++ {
+		pool = append(pool, halfHour(i, categories[i-1], north(origin, float64(i)*100)))
+	}
+	return pool
+}
+
 // requireFreeSkip checks the rested search keeps three visits without the rest and scores as if no rest was asked for.
 func requireFreeSkip(t *testing.T, rested, unrested Problem, pool []domain.Candidate) {
 	t.Helper()
@@ -123,11 +133,7 @@ func TestRestYieldsToTheWayToTheDestination(t *testing.T) {
 }
 
 func TestRestYieldsToLunch(t *testing.T) {
-	pool := []domain.Candidate{
-		halfHour(1, domain.CategoryCulture, north(origin, 100)),
-		halfHour(2, domain.CategoryWalk, north(origin, 200)),
-		halfHour(3, domain.CategorySport, north(origin, 300)),
-	}
+	pool := threeHalfHours()
 	day := search(t, wide, problem(), pool)[0]
 	if len(day.Visits) != 3 {
 		t.Fatalf("visits %v", placeIDs(day))
@@ -146,10 +152,7 @@ func TestRestYieldsToLunch(t *testing.T) {
 }
 
 func TestVisitsBeforeTheRunCountTowardsTheFirstRest(t *testing.T) {
-	var pool []domain.Candidate
-	for i := byte(1); i <= 3; i++ {
-		pool = append(pool, halfHour(i, []domain.Category{domain.CategoryCulture, domain.CategoryWalk, domain.CategorySport}[i-1], north(origin, float64(i)*100)))
-	}
+	pool := threeHalfHours()
 	p := restProblem()
 	p.VisitsSinceRest = 1
 	b := search(t, wide, p, pool)[0]
@@ -159,10 +162,7 @@ func TestVisitsBeforeTheRunCountTowardsTheFirstRest(t *testing.T) {
 }
 
 func TestRestDueBeforeTheFirstVisitOfTheRun(t *testing.T) {
-	var pool []domain.Candidate
-	for i := byte(1); i <= 3; i++ {
-		pool = append(pool, halfHour(i, []domain.Category{domain.CategoryCulture, domain.CategoryWalk, domain.CategorySport}[i-1], north(origin, float64(i)*100)))
-	}
+	pool := threeHalfHours()
 	p := restProblem()
 	p.VisitsSinceRest = 2
 	b := search(t, wide, p, pool)[0]

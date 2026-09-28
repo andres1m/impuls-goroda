@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -97,8 +98,10 @@ func TestOptimizeFreeLunch(t *testing.T) {
 				if *into.DistanceMeters != 0 || into.Cost.Price.Status != domain.PriceFree {
 					t.Fatalf("leg into the free lunch %+v moves or costs", into)
 				}
+				// With the cafe excluded a venue exists, so the warning must not claim there is none.
 				if !slices.ContainsFunc(route.Warnings, func(w domain.Warning) bool {
-					return w.Code == "LUNCH_NO_VENUE" && w.VisitID != nil && *w.VisitID == step.VisitID
+					return w.Code == "LUNCH_NO_VENUE" && w.VisitID != nil && *w.VisitID == step.VisitID &&
+						strings.Contains(w.Message, "fits the lunch time and the route's conditions")
 				}) {
 					t.Fatalf("warnings %v miss LUNCH_NO_VENUE for the pause", warningCodes(route.Warnings))
 				}
