@@ -142,11 +142,48 @@ func checkOptimize(req domain.OptimizeRequest, pool []domain.Candidate, res doma
 			}
 		}
 	}
+	conflicts := slices.Clone(res.Conflicts)
+	for _, route := range res.Routes {
+		conflicts = append(conflicts, route.Conflicts...)
+	}
+	for _, c := range conflicts {
+		if c.Code != "OBLIGATION_SOLD_OUT" {
+			continue
+		}
+		for _, id := range c.SessionIDs {
+			if session := sessions[id]; session == nil || session.Availability != domain.AvailabilitySoldOut {
+				fail("an obligation is refused as sold out, but its session is not")
+			}
+			if slices.ContainsFunc(req.Constraints.Obligations, func(o domain.Obligation) bool {
+				return o.SessionID != nil && *o.SessionID == id && holdsPlace(o.Participation)
+			}) {
+				fail("an obligation with a held place is refused as sold out")
+			}
+		}
+	}
 	return v
 }
 
+// holdsPlace tells whether the user already has a place, which a sold-out session does not take away.
+func holdsPlace(status domain.ParticipationStatus) bool {
+	return status == domain.ParticipationUserReported || status == domain.ParticipationProviderConfirmed
+}
+
+// lateEntrySession tells whether the visit attends a session the source lets people into late, within its
+// rules: a repaired day may enter such a commitment at another moment than before, later after a
+// delay or at the start once the day frees time.
+func lateEntrySession(s domain.Step, sessions map[domain.SessionID]*domain.Session) bool {
+	if s.Catalog == nil || s.Catalog.SessionID == nil {
+		return false
+	}
+	session := sessions[*s.Catalog.SessionID]
+	return session != nil && session.Window.LateEntryAllowed != nil && *session.Window.LateEntryAllowed &&
+		!fixedSessionMoved(s, session)
+}
+
 // fixedSessionMoved tells whether a visit left the fixed session's times: it starts with the session,
-// or later only when the source lets people in late, and always lasts until the session ends.
+// or later only when the source lets people in late and not after the last entry, and always lasts
+// until the session ends.
 func fixedSessionMoved(s domain.Step, session *domain.Session) bool {
 	w := session.Window
 	if w.Kind != domain.WindowFixed {
@@ -155,8 +192,17 @@ func fixedSessionMoved(s domain.Step, session *domain.Session) bool {
 	if !s.VisitEndAt.Equal(w.End) || s.VisitStartAt.Before(w.Start) {
 		return true
 	}
-	lateEntry := w.LateEntryAllowed != nil && *w.LateEntryAllowed
-	return !lateEntry && !s.VisitStartAt.Equal(w.Start)
+	if s.VisitStartAt.Equal(w.Start) {
+		return false
+	}
+	if w.LateEntryAllowed == nil || !*w.LateEntryAllowed {
+		return true
+	}
+	lastEntry := w.End.Add(-w.MinDuration)
+	if w.LastEntryAt != nil {
+		lastEntry = *w.LastEntryAt
+	}
+	return s.VisitStartAt.After(lastEntry)
 }
 
 // checkRecompute holds a proposal to what already happened, to what the user committed to and to
@@ -181,19 +227,21 @@ func checkRecompute(req domain.RecomputeRequest, pool []domain.Candidate, res do
 			v = append(v, "a completed visit changed or disappeared")
 		}
 	}
-	for _, b := range req.Base.Steps {
-		if !b.Obligation {
-			continue
-		}
-		if s, ok := byID[b.VisitID]; ok && (!s.VisitStartAt.Equal(b.VisitStartAt) || !s.VisitEndAt.Equal(b.VisitEndAt)) {
-			v = append(v, "an obligation moved")
-		}
-	}
 	sessions := make(map[domain.SessionID]*domain.Session)
 	for _, c := range pool {
 		if c.Session != nil {
 			sessions[c.Session.ID] = c.Session
 		}
+	}
+	for _, b := range req.Base.Steps {
+		if !b.Obligation {
+			continue
+		}
+		s, ok := byID[b.VisitID]
+		if !ok || (s.VisitStartAt.Equal(b.VisitStartAt) && s.VisitEndAt.Equal(b.VisitEndAt)) || lateEntrySession(s, sessions) {
+			continue
+		}
+		v = append(v, "an obligation moved")
 	}
 	for _, s := range res.Candidate.Steps {
 		if done[s.VisitID] || s.Catalog == nil || s.Catalog.SessionID == nil {
@@ -258,6 +306,41 @@ func setAvailability(pool []domain.Candidate, id domain.SessionID, availability 
 	}
 }
 
+// setWindow changes the window of the catalog's copy of the session.
+func setWindow(pool []domain.Candidate, id domain.SessionID, change func(w *domain.VisitWindow)) {
+	for i := range pool {
+		if pool[i].Session != nil && pool[i].Session.ID == id {
+			session := *pool[i].Session
+			change(&session.Window)
+			pool[i].Session = &session
+			pool[i].Window = session.Window
+		}
+	}
+}
+
+// soldOutRefusal turns the result into a refusal of an obligation to a sold-out session, held as given.
+func soldOutRefusal(t *testing.T, req *domain.OptimizeRequest, pool []domain.Candidate, res *domain.OptimizeResult, held domain.ParticipationStatus) {
+	t.Helper()
+	i := slices.IndexFunc(pool, func(c domain.Candidate) bool { return c.Session != nil })
+	if i < 0 {
+		t.Fatal("no sessions in the catalog")
+	}
+	id := pool[i].Session.ID
+	setAvailability(pool, id, domain.AvailabilitySoldOut)
+	req.Constraints.Obligations = []domain.Obligation{{SessionID: &id, Participation: held}}
+	res.Routes = nil
+	res.Status = domain.ResultConflict
+	res.Conflicts = []domain.Conflict{{Code: "OBLIGATION_SOLD_OUT", SessionIDs: []domain.SessionID{id}, Message: "No places are left"}}
+}
+
+func TestCheckOptimizeAcceptsSoldOutRefusal(t *testing.T) {
+	req, pool, res := readyResult(t)
+	soldOutRefusal(t, &req, pool, &res, domain.ParticipationActionRequired)
+	if v := checkOptimize(req, pool, res); len(v) > 0 {
+		t.Fatal(describe(v))
+	}
+}
+
 func TestCheckOptimizeCatchesTampering(t *testing.T) {
 	price := int64(100)
 	type result = domain.OptimizeResult
@@ -315,6 +398,22 @@ func TestCheckOptimizeCatchesTampering(t *testing.T) {
 			i, j := sessionVisit(t, *res)
 			res.Routes[i].Steps[j].VisitStartAt = res.Routes[i].Steps[j].VisitStartAt.Add(5 * time.Minute)
 		},
+		"late entry after the last entry": func(t *testing.T, _ *domain.OptimizeRequest, pool *[]domain.Candidate, res *result) {
+			i, j := sessionVisit(t, *res)
+			step := &res.Routes[i].Steps[j]
+			late, lastEntry := true, step.VisitStartAt.Add(time.Minute)
+			setWindow(*pool, *step.Catalog.SessionID, func(w *domain.VisitWindow) {
+				w.LateEntryAllowed, w.LastEntryAt, w.MinDuration = &late, &lastEntry, time.Minute
+			})
+			step.VisitStartAt = step.VisitStartAt.Add(5 * time.Minute)
+		},
+		"sold-out refusal of a held place": func(t *testing.T, req *domain.OptimizeRequest, pool *[]domain.Candidate, res *result) {
+			soldOutRefusal(t, req, *pool, res, domain.ParticipationUserReported)
+		},
+		"sold-out refusal of an available session": func(t *testing.T, req *domain.OptimizeRequest, pool *[]domain.Candidate, res *result) {
+			soldOutRefusal(t, req, *pool, res, domain.ParticipationActionRequired)
+			setAvailability(*pool, res.Conflicts[0].SessionIDs[0], domain.AvailabilityAvailable)
+		},
 	}
 	for name, change := range tamper {
 		t.Run(name, func(t *testing.T) {
@@ -353,6 +452,26 @@ func TestCheckRecomputeCatchesMovedObligation(t *testing.T) {
 	moved.Steps[i].VisitStartAt = moved.Steps[i].VisitStartAt.Add(10 * time.Minute)
 	if v := checkRecompute(req, dayCatalog(), domain.RecomputeResult{Status: domain.RecomputeProposed, Candidate: &moved}); len(v) == 0 {
 		t.Fatal("moved obligation passed the oracle")
+	}
+}
+
+func TestCheckRecomputeAcceptsLateEntryToAnObligation(t *testing.T) {
+	base := basePlan(t)
+	i := slices.IndexFunc(base.Steps, func(s domain.Step) bool { return s.Obligation && s.Catalog != nil && s.Catalog.SessionID != nil })
+	if i < 0 {
+		t.Fatal("base plan has no obligation to a session")
+	}
+	req := reworkRequest(base, domain.PinTrigger{VisitID: base.Steps[0].VisitID, Kind: domain.PinPreferred})
+	pool := dayCatalog()
+	late := true
+	setWindow(pool, *base.Steps[i].Catalog.SessionID, func(w *domain.VisitWindow) {
+		w.LateEntryAllowed, w.MinDuration = &late, w.End.Sub(w.Start)/2
+	})
+	moved := base
+	moved.Steps = slices.Clone(base.Steps)
+	moved.Steps[i].VisitStartAt = moved.Steps[i].VisitStartAt.Add(10 * time.Minute)
+	if v := checkRecompute(req, pool, domain.RecomputeResult{Status: domain.RecomputeProposed, Candidate: &moved}); len(v) > 0 {
+		t.Fatalf("late entry the source allows: %s", describe(v))
 	}
 }
 

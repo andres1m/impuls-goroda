@@ -135,3 +135,10 @@ func TestRenderStatesMedianAndProcs(t *testing.T) {
 		t.Fatalf("report:\n%s", buf.String())
 	}
 }
+
+func TestParseRejectsNameFollowedByAnotherBenchmark(t *testing.T) {
+	in := "BenchmarkX-16\nBenchmarkY-16  10  100 ns/op  1 p50-ms  2 p95-ms  3 p99-ms  5 B/op  1 allocs/op\n"
+	if _, err := parse(strings.NewReader(in)); err == nil {
+		t.Fatal("a benchmark without a result accepted")
+	}
+}
