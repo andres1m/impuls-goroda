@@ -19,6 +19,9 @@ func TestInHorizon(t *testing.T) {
 		"starts before horizon":   {now.Add(SessionHorizon - time.Minute), now.Add(SessionHorizon + time.Hour), true},
 		"shorter than one minute": {now.Add(time.Hour), now.Add(time.Hour + 59*time.Second), false},
 		"end before start":        {now.Add(2 * time.Hour), now.Add(time.Hour), false},
+		"just under 23 hours":     {now, now.Add(23*time.Hour - time.Minute), true},
+		"23 hours":                {now, now.Add(23 * time.Hour), false},
+		"runs for decades":        {now.AddDate(-1, 0, 0), now.AddDate(55, 0, 0), false},
 	} {
 		if got := inHorizon(tc.start, tc.end, now); got != tc.want {
 			t.Errorf("%s: got %v", name, got)

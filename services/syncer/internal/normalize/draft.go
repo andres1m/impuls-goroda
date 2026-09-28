@@ -47,6 +47,10 @@ type PriceDraft struct {
 // SessionHorizon bounds how far ahead sessions are materialized: the optimizer loads every future session.
 const SessionHorizon = 14 * 24 * time.Hour
 
+// A slot this long states no real visiting hours: sources use it for "open some time during these days"
+// or for runs spanning years, and the place's own hours are unknown.
+const longestSession = 23 * time.Hour
+
 const (
 	longestPerformance        = 4 * time.Hour
 	windowMinDuration         = 30 * time.Minute
@@ -62,7 +66,8 @@ func PriceID(sessionID uuid.UUID) uuid.UUID {
 }
 
 func inHorizon(start, end, now time.Time) bool {
-	return end.Sub(start) >= time.Minute && end.After(now) && start.Before(now.Add(SessionHorizon))
+	d := end.Sub(start)
+	return d >= time.Minute && d < longestSession && end.After(now) && start.Before(now.Add(SessionHorizon))
 }
 
 // newSession treats a short slot as a performance attended whole and a long one as an opening window
