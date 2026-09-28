@@ -47,6 +47,8 @@ func (p TransitParams) Validate() error {
 }
 
 type ScoreParams struct {
+	// Score earned per minute of a visit at affinity 1; it must outweigh a minute of travel for a day to fill.
+	VisitValue     float64
 	AffinityBase   float64
 	AffinityScale  float64
 	NoMatchFactor  float64
@@ -60,19 +62,20 @@ type ScoreParams struct {
 
 func DefaultScoreParams() ScoreParams {
 	return ScoreParams{
+		VisitValue:     0.5,
 		AffinityBase:   1,
 		AffinityScale:  2,
 		NoMatchFactor:  0.15,
 		ArchetypeBonus: 1.5,
 		WaitWeight:     0.3,
 		TransitWeight:  0.2,
-		CategoryWeight: 0.5,
+		CategoryWeight: 5,
 	}
 }
 
 func (p ScoreParams) Validate() error {
 	if !positive(p.ArchetypeBonus) ||
-		!nonNegative(p.AffinityBase, p.AffinityScale, p.NoMatchFactor, p.WaitWeight, p.TransitWeight, p.CategoryWeight, p.ScenicWeight) {
+		!nonNegative(p.VisitValue, p.AffinityBase, p.AffinityScale, p.NoMatchFactor, p.WaitWeight, p.TransitWeight, p.CategoryWeight, p.ScenicWeight) {
 		return errors.New("score parameters must be finite and non-negative with a positive archetype bonus")
 	}
 	// A scenic walk must still cost time, or the search would add detours for their own sake.

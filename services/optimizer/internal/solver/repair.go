@@ -71,6 +71,8 @@ func (s *Solver) Repair(ctx context.Context, p Problem, steps []RepairStep) (Rep
 		if a != nil {
 			step.Candidate = &a.Candidate
 		}
+		trimmed := p.Load.trimOne(*step.Candidate)
+		step.Candidate = &trimmed
 		next, ok := run.keep(b, step, a != nil)
 		if ok {
 			out.Stops = append(out.Stops, RepairStop{Step: i, Visit: &next.Visits[len(next.Visits)-1]})
@@ -131,7 +133,7 @@ func (r searchRun) keep(b *domain.Branch, step RepairStep, anchor bool) (*domain
 			return nil, time.Time{}, false
 		}
 		visit := domain.SearchVisit{Candidate: c, Transit: leg, ArrivalAt: arrival, Buffer: slot.Buffer, StartAt: slot.StartAt, EndAt: slot.EndAt}
-		child := r.extend(b, visit, finish, 0, quote)
+		child := r.extend(b, visit, finish, 0, quote, false)
 		return child, slot.StartAt, r.anchorsReachable(child)
 	}
 	child, start, ok := attempt(r.problem.End)

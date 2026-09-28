@@ -109,7 +109,7 @@ func (r searchRun) lunchAt(parent *domain.Branch, i int) (*domain.Branch, bool) 
 		return nil, false
 	}
 	visit := domain.SearchVisit{Candidate: c, Transit: leg, ArrivalAt: arrival, Buffer: slot.Buffer, StartAt: slot.StartAt, EndAt: slot.EndAt}
-	child := r.extend(parent, visit, finish, r.utilities[i], r.quotes[i])
+	child := r.extend(parent, visit, finish, r.utilities[i], r.quotes[i], false)
 	child.Lunch = &domain.Lunch{At: len(child.Visits) - 1, Venue: true, StartAt: slot.StartAt, EndAt: slot.EndAt}
 	return child, r.anchorsReachable(child)
 }
@@ -135,6 +135,7 @@ func (r searchRun) lunchPause(parent *domain.Branch) (*domain.Branch, bool) {
 	// The user stays put, so only the time the leg to the destination starts at can change.
 	child.Score += r.finishPenalty(parent.Position, parent.Finish) - r.finishPenalty(parent.Position, finish) - r.score.WaitWeight*start.Sub(parent.Now).Minutes()
 	child.Finish = finish
+	child.Score += r.walkPenalty(parent) - r.walkPenalty(child)
 	child.Now = end
 	child.Lunch = &domain.Lunch{At: len(child.Visits), StartAt: start, EndAt: end}
 	return child, r.anchorsReachable(child)

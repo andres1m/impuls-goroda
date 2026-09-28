@@ -75,6 +75,7 @@ func (p *Planner) Recompute(ctx context.Context, req domain.RecomputeRequest) (d
 		Start: w.start, End: req.Base.End, Origin: w.position, Destination: req.Base.Destination,
 		Interests: req.Constraints.InterestMask, Archetype: req.Base.Archetype, Modes: req.Constraints.MovementModes,
 		Pricing: w.leftover(policy, nil), Anchors: anchors, Visited: w.historyPlaces(),
+		Load: solver.ProfileFor(req.Constraints.LoadProfile),
 	}
 	steps, order := w.repairSteps()
 	repair, err := s.Repair(ctx, problem, steps)

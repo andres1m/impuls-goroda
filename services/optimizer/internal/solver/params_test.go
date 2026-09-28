@@ -58,7 +58,7 @@ func TestDefaultParams(t *testing.T) {
 	if DefaultTransitParams() != transit {
 		t.Fatalf("transit defaults = %+v", DefaultTransitParams())
 	}
-	score := ScoreParams{AffinityBase: 1, AffinityScale: 2, NoMatchFactor: 0.15, ArchetypeBonus: 1.5, WaitWeight: 0.3, TransitWeight: 0.2, CategoryWeight: 0.5}
+	score := ScoreParams{VisitValue: 0.5, AffinityBase: 1, AffinityScale: 2, NoMatchFactor: 0.15, ArchetypeBonus: 1.5, WaitWeight: 0.3, TransitWeight: 0.2, CategoryWeight: 5}
 	if DefaultScoreParams() != score {
 		t.Fatalf("score defaults = %+v", DefaultScoreParams())
 	}

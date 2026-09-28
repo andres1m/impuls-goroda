@@ -241,7 +241,8 @@ func TestOptimizeContrastingArchetypes(t *testing.T) {
 	shared.Place.InterestMask = domain.Interests(domain.InterestContemporaryArt, domain.InterestClassicalArt)
 	southHeritage := place(5, domain.CategoryTourism, north(origin, -300))
 	southHeritage.Place.InterestMask = domain.Interests(domain.InterestClassicalArt)
-	res = optimize(t, []domain.Candidate{shared, southHeritage}, estimated(), nil)
+	// A day with room for one visit keeps each route to a single place, so the fallback is what decides.
+	res = optimize(t, []domain.Candidate{shared, southHeritage}, estimated(), func(r *domain.OptimizeRequest) { r.End = at(11, 15) })
 	if len(res.Routes) != 2 || res.Routes[0].Archetype != domain.ArchetypeUrbanAvantgarde || res.Routes[1].Archetype != domain.ArchetypeHistoryHeritage {
 		t.Fatalf("routes %+v", res.Routes)
 	}

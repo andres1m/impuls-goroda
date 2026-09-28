@@ -85,7 +85,7 @@ func TestScenicLowersWalkCostOnly(t *testing.T) {
 	p.Scenic = flatScenic(1)
 	routes := scenicSearch(t, 0.1, p, []domain.Candidate{museum})
 	minutes := 1000 * 1.25 / 75
-	want := 10 - 0.2*minutes + 0.1*minutes - 0.5
+	want := worth(routes[0].Visits[0]) - 0.2*minutes + 0.1*minutes - 5
 	if math.Abs(routes[0].Score-want) > 1e-9 {
 		t.Fatalf("score = %f, want %f", routes[0].Score, want)
 	}
@@ -108,7 +108,7 @@ func TestScenicCountsWalkToDestination(t *testing.T) {
 	p.Scenic = flatScenic(0.5)
 	routes := scenicSearch(t, 0.1, p, []domain.Candidate{museum})
 	leg := 1000 * 1.25 / 75
-	want := 10 - 2*(0.2*leg-0.1*0.5*leg) - 0.5
+	want := worth(routes[0].Visits[0]) - 2*(0.2*leg-0.1*0.5*leg) - 5
 	if math.Abs(routes[0].Score-want) > 1e-9 {
 		t.Fatalf("score = %f, want %f", routes[0].Score, want)
 	}
@@ -119,7 +119,7 @@ func TestScenicClampsOutOfRangeScores(t *testing.T) {
 	p := oneVisitDay()
 	p.Scenic = flatScenic(5)
 	routes := scenicSearch(t, 0.19, p, []domain.Candidate{museum})
-	if routes[0].Score >= 10-0.5 {
+	if routes[0].Score >= worth(routes[0].Visits[0])-5 {
 		t.Fatalf("scenic made a walk free: score %f", routes[0].Score)
 	}
 }

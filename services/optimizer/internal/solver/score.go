@@ -21,9 +21,10 @@ func (p ScoreParams) affinity(user, visit domain.InterestMask, archetype domain.
 	return p.NoMatchFactor * bonus
 }
 
-// gain is the score added by one visit; the quadratic category penalty grows by 2n+1 when n visits of the category exist.
-func (p ScoreParams) gain(utility float64, wait time.Duration, travel float64, categoryCount int) float64 {
-	return utility -
+// gain is the score added by one visit: its minutes are worth their affinity, the way there and the
+// wait cost their minutes, and the quadratic category penalty grows by 2n+1 when n visits of the category exist.
+func (p ScoreParams) gain(utility float64, duration, wait time.Duration, travel float64, categoryCount int) float64 {
+	return p.VisitValue*utility*duration.Minutes() -
 		p.WaitWeight*wait.Minutes() -
 		travel -
 		p.CategoryWeight*float64(2*categoryCount+1)
@@ -43,6 +44,16 @@ func (r searchRun) travelPenalty(from, to domain.Coordinate, leg domain.TransitE
 		penalty -= r.score.ScenicWeight * min(max(r.problem.Scenic.Score(from, to), 0), 1) * minutes
 	}
 	return penalty
+}
+
+// walkPenalty charges walking beyond the pace's limit, the walk to the destination included; charging
+// the difference between parent and child keeps the finish from being counted twice.
+func (r searchRun) walkPenalty(b *domain.Branch) float64 {
+	minutes := b.WalkMinutes
+	if b.Finish != nil && b.Finish.Mode == domain.MovementWalk {
+		minutes += b.Finish.Duration.Minutes()
+	}
+	return r.problem.Load.overWalk(minutes)
 }
 
 // finishPenalty charges the leg from position to the destination, which is part of the route's travel.

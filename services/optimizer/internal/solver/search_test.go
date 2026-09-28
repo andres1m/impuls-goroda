@@ -69,7 +69,7 @@ func TestSearchSingleCandidate(t *testing.T) {
 	if !visit.ArrivalAt.Equal(at(10, 0).Add(1000*time.Second)) || !visit.StartAt.Equal(visit.ArrivalAt) || !visit.EndAt.Equal(visit.StartAt.Add(time.Hour)) {
 		t.Fatalf("visit = %+v", visit)
 	}
-	want := 10 - 0.2*(1000.0/60) - 0.5
+	want := worth(visit) - 0.2*(1000.0/60) - 5
 	if diff := routes[0].Score - want; diff > 1e-9 || diff < -1e-9 {
 		t.Fatalf("score = %f, want %f", routes[0].Score, want)
 	}
@@ -82,6 +82,11 @@ func TestSearchSingleCandidate(t *testing.T) {
 	if routes[0].Finish != nil {
 		t.Fatalf("finish leg without a destination: %+v", routes[0].Finish)
 	}
+}
+
+// worth is what a visit to a fixture place earns: base score 10 at affinity 1 for each minute spent.
+func worth(v domain.SearchVisit) float64 {
+	return 0.5 * 10 * v.EndAt.Sub(v.StartAt).Minutes()
 }
 
 func assertScore(t *testing.T, got, want float64) {
@@ -103,7 +108,7 @@ func TestSearchBufferIsNotWaiting(t *testing.T) {
 	if visit.Buffer != 10*time.Minute || !visit.StartAt.Equal(visit.ArrivalAt.Add(10*time.Minute)) {
 		t.Fatalf("visit = %+v", visit)
 	}
-	assertScore(t, routes[0].Score, 10-0.2*(1000.0/60)-0.5)
+	assertScore(t, routes[0].Score, worth(visit)-0.2*(1000.0/60)-5)
 }
 
 func TestSearchReachesDestination(t *testing.T) {
@@ -159,19 +164,23 @@ func TestSearchScoreCountsFinishLeg(t *testing.T) {
 	routes := search(t, wide, p, []domain.Candidate{a, b})
 
 	scores := map[string]float64{}
+	var visits []domain.SearchVisit
 	for _, r := range routes {
 		scores[fmt.Sprint(placeIDs(r))] = r.Score
+		if len(r.Visits) == 2 {
+			visits = r.Visits
+		}
 	}
 	single, ok := scores[fmt.Sprint([]byte{1})]
 	if !ok {
 		t.Fatalf("routes = %v", routeKeys(routes))
 	}
-	assertScore(t, single, 10-0.2*(100.0/60)-0.5-0.2*(900.0/60))
+	assertScore(t, single, worth(visits[0])-0.2*(100.0/60)-5-0.2*(900.0/60))
 	pair, ok := scores[fmt.Sprint([]byte{1, 2})]
 	if !ok {
 		t.Fatalf("routes = %v", routeKeys(routes))
 	}
-	assertScore(t, pair, 10-0.2*(100.0/60)-0.5+10-0.2*(200.0/60)-0.5-0.2*(700.0/60))
+	assertScore(t, pair, worth(visits[0])-0.2*(100.0/60)-5+worth(visits[1])-0.2*(200.0/60)-5-0.2*(700.0/60))
 }
 
 func TestSearchPrefersInterestMatch(t *testing.T) {
@@ -212,10 +221,13 @@ func TestSearchCategoryPenaltyBelongsToBranch(t *testing.T) {
 }
 
 func TestSearchBestRouteMayBeShorter(t *testing.T) {
-	near := place(1, domain.CategoryCulture, 0, north(origin, 100))
+	// the far place matches none of the user's interests, so the trip there costs more than the hour earns
+	near := place(1, domain.CategoryCulture, domain.Interests(domain.InterestCinema), north(origin, 100))
 	far := place(2, domain.CategoryCulture, 0, north(origin, 3000))
 	near.BaseScore, far.BaseScore = 1, 1
-	routes := search(t, wide, problem(), []domain.Candidate{near, far})
+	p := problem()
+	p.Interests = domain.Interests(domain.InterestCinema)
+	routes := search(t, wide, p, []domain.Candidate{near, far})
 	if got := placeIDs(routes[0]); !slices.Equal(got, []byte{1}) {
 		t.Fatalf("best route = %v, want [1]", got)
 	}

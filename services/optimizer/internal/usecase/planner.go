@@ -179,6 +179,7 @@ func (p *Planner) Optimize(ctx context.Context, req domain.OptimizeRequest) (dom
 		Interests: req.Constraints.InterestMask, Modes: req.Constraints.MovementModes,
 		Pricing: policy, Anchors: anchors, Archetype: archetypes[0],
 		Scenic: p.scenicFor(ctx, req.City, data.CatalogRevision, scenicWeight),
+		Load:   solver.ProfileFor(req.Constraints.LoadProfile),
 	}
 	if w := req.Constraints.LunchWindow; w != nil {
 		slot := solver.LunchSlotFor(*w)

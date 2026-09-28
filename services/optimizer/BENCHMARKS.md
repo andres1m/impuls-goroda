@@ -21,59 +21,59 @@ One in-process call with the candidate pool already in memory and straight-line 
 
 | Benchmark | Runs | iterations/run | mean ms | p50 ms | p95 ms | p99 ms | B/op | allocs/op |
 |---|---|---|---|---|---|---|---|---|
-| BenchmarkOptimize/pool=60 | 10 | 60 | 20.443 | 20.320 | 21.980 | 22.640 | 23717814 | 90177 |
-| BenchmarkOptimize/pool=200 | 10 | 25 | 46.252 | 46.370 | 49.540 | 50.440 | 94050920 | 342517 |
-| BenchmarkOptimize/pool=500 | 10 | 9 | 126.990 | 126.500 | 134.900 | 134.900 | 287216184 | 991598 |
-| BenchmarkRecompute/trigger=delay | 10 | 20206 | 0.060 | 0.041 | 0.146 | 0.354 | 80147 | 203 |
-| BenchmarkRecompute/trigger=remove | 10 | 3949 | 0.321 | 0.272 | 0.625 | 0.787 | 152506 | 1269 |
-| BenchmarkSearch/pool=60 | 10 | 151 | 8.027 | 7.855 | 9.630 | 10.230 | 17782969 | 42021 |
-| BenchmarkSearch/pool=200 | 10 | 40 | 27.779 | 27.630 | 31.190 | 33.790 | 75062501 | 157243 |
-| BenchmarkSearch/pool=500 | 10 | 15 | 72.538 | 71.700 | 82.330 | 82.330 | 193928162 | 399959 |
-| BenchmarkRepair | 10 | 110335 | 0.012 | 0.007 | 0.024 | 0.089 | 20483 | 56 |
+| BenchmarkOptimize/pool=60 | 10 | 187 | 6.630 | 6.473 | 7.962 | 8.710 | 8603509 | 47561 |
+| BenchmarkOptimize/pool=200 | 10 | 61 | 20.023 | 20.010 | 22.520 | 23.570 | 28473670 | 164792 |
+| BenchmarkOptimize/pool=500 | 10 | 28 | 40.522 | 40.450 | 44.370 | 45.310 | 61400188 | 373982 |
+| BenchmarkRecompute/trigger=delay | 10 | 31687 | 0.040 | 0.028 | 0.080 | 0.263 | 49951 | 136 |
+| BenchmarkRecompute/trigger=remove | 10 | 1857 | 0.648 | 0.572 | 1.011 | 1.248 | 477254 | 4097 |
+| BenchmarkSearch/pool=60 | 10 | 152 | 7.972 | 7.851 | 9.633 | 10.580 | 17314608 | 41300 |
+| BenchmarkSearch/pool=200 | 10 | 40 | 28.595 | 28.380 | 32.420 | 35.270 | 75761055 | 157243 |
+| BenchmarkSearch/pool=500 | 10 | 14 | 75.547 | 74.700 | 86.910 | 86.910 | 195715858 | 399959 |
+| BenchmarkRepair | 10 | 97688 | 0.013 | 0.008 | 0.025 | 0.091 | 20705 | 56 |
 
 ## CPU profile, top functions
 
 ```
 File: usecase.test
-Build ID: 3f0a97d908c6b95cfba5427e36ba2624719363c7
+Build ID: 60b73120aa0eb2d7a1e37ef3423e6a5749692b30
 Type: cpu
-Time: 2026-09-28 11:24:47 +05
-Duration: 8.31s, Total samples = 38690ms (465.80%)
-Showing nodes accounting for 14280ms, 36.91% of 38690ms total
-Dropped 364 nodes (cum <= 193.45ms)
-Showing top 10 nodes out of 182
+Time: 2026-09-28 12:45:56 +05
+Duration: 3.69s, Total samples = 15210ms (411.68%)
+Showing nodes accounting for 5360ms, 35.24% of 15210ms total
+Dropped 266 nodes (cum <= 76.05ms)
+Showing top 10 nodes out of 177
       flat  flat%   sum%        cum   cum%
-    2270ms  5.87%  5.87%     4070ms 10.52%  runtime.tryDeferToSpanScan
-    2050ms  5.30% 11.17%     2080ms  5.38%  runtime.heapSetTypeSmallHeader (inline)
-    1840ms  4.76% 15.92%     3840ms  9.93%  runtime.scanObjectsSmall
-    1750ms  4.52% 20.44%     5440ms 14.06%  runtime.scanObject
-    1250ms  3.23% 23.68%     1370ms  3.54%  runtime.heapArenaOf (inline)
-    1240ms  3.20% 26.88%    21720ms 56.14%  github.com/andres1m/impuls-goroda/services/optimizer/internal/solver.searchRun.expand
-    1160ms  3.00% 29.88%     1160ms  3.00%  runtime.memclrNoHeapPointers
-    1020ms  2.64% 32.51%     1020ms  2.64%  runtime.futex
-     870ms  2.25% 34.76%     1130ms  2.92%  runtime.typePointers.next
-     830ms  2.15% 36.91%     1010ms  2.61%  math.sin
+     970ms  6.38%  6.38%     1500ms  9.86%  runtime.tryDeferToSpanScan
+     950ms  6.25% 12.62%     2020ms 13.28%  runtime.scanObjectsSmall
+     690ms  4.54% 17.16%     8470ms 55.69%  github.com/andres1m/impuls-goroda/services/optimizer/internal/solver.searchRun.visit
+     470ms  3.09% 20.25%      470ms  3.09%  runtime.futex
+     400ms  2.63% 22.88%     9190ms 60.42%  github.com/andres1m/impuls-goroda/services/optimizer/internal/solver.searchRun.expand
+     400ms  2.63% 25.51%      400ms  2.63%  math.sin
+     390ms  2.56% 28.07%     1610ms 10.59%  github.com/andres1m/impuls-goroda/services/optimizer/internal/solver.searchRun.placeBy
+     380ms  2.50% 30.57%      380ms  2.50%  runtime.memclrNoHeapPointers
+     370ms  2.43% 33.00%      380ms  2.50%  runtime.heapArenaOf (inline)
+     340ms  2.24% 35.24%      340ms  2.24%  runtime.memmove
 ```
 
 ## Allocation profile, top functions
 
 ```
 File: usecase.test
-Build ID: 3f0a97d908c6b95cfba5427e36ba2624719363c7
+Build ID: 60b73120aa0eb2d7a1e37ef3423e6a5749692b30
 Type: alloc_space
-Time: 2026-09-28 11:24:55 +05
-Showing nodes accounting for 17.44GB, 99.48% of 17.53GB total
-Dropped 82 nodes (cum <= 0.09GB)
-Showing top 10 nodes out of 14
+Time: 2026-09-28 12:46:00 +05
+Showing nodes accounting for 5354.71MB, 98.85% of 5417MB total
+Dropped 69 nodes (cum <= 27.09MB)
+Showing top 10 nodes out of 25
       flat  flat%   sum%        cum   cum%
-    8.72GB 49.74% 49.74%    15.90GB 90.73%  github.com/andres1m/impuls-goroda/services/optimizer/internal/solver.searchRun.extend
-    4.08GB 23.29% 73.03%     4.08GB 23.29%  slices.Clone[go.shape.[]github.com/andres1m/impuls-goroda/services/optimizer/internal/domain.SearchVisit,go.shape.struct { Candidate *github.com/andres1m/impuls-goroda/services/optimizer/internal/domain.Candidate; Transit github.com/andres1m/impuls-goroda/services/optimizer/internal/domain.TransitEstimate; ArrivalAt time.Time; Buffer time.Duration; StartAt time.Time; EndAt time.Time }] (inline)
-    1.80GB 10.26% 83.29%     7.18GB 40.99%  github.com/andres1m/impuls-goroda/services/optimizer/internal/domain.(*Branch).Clone
-    1.30GB  7.44% 90.73%     1.30GB  7.44%  maps.clone
-    0.79GB  4.49% 95.22%     0.98GB  5.58%  github.com/andres1m/impuls-goroda/services/optimizer/internal/solver.searchRun.placeBy
-    0.62GB  3.52% 98.74%     0.62GB  3.52%  github.com/andres1m/impuls-goroda/services/optimizer/internal/solver.(*BaselineTransit).Estimate
-    0.13GB  0.74% 99.48%    17.44GB 99.48%  github.com/andres1m/impuls-goroda/services/optimizer/internal/solver.searchRun.expand
-         0     0% 99.48%    17.44GB 99.48%  github.com/andres1m/impuls-goroda/services/optimizer/internal/solver.searchRun.expandAll.func1
-         0     0% 99.48%     0.19GB  1.09%  github.com/andres1m/impuls-goroda/services/optimizer/internal/solver.searchRun.finish
-         0     0% 99.48%     0.98GB  5.58%  github.com/andres1m/impuls-goroda/services/optimizer/internal/solver.searchRun.place (inline)
+ 2003.41MB 36.98% 36.98%  4633.62MB 85.54%  github.com/andres1m/impuls-goroda/services/optimizer/internal/solver.searchRun.extend
+  944.46MB 17.44% 54.42%   944.46MB 17.44%  slices.Clone[go.shape.[]github.com/andres1m/impuls-goroda/services/optimizer/internal/domain.SearchVisit,go.shape.struct { Candidate *github.com/andres1m/impuls-goroda/services/optimizer/internal/domain.Candidate; Transit github.com/andres1m/impuls-goroda/services/optimizer/internal/domain.TransitEstimate; ArrivalAt time.Time; Buffer time.Duration; StartAt time.Time; EndAt time.Time }] (inline)
+  900.17MB 16.62% 71.04%  2630.21MB 48.55%  github.com/andres1m/impuls-goroda/services/optimizer/internal/domain.(*Branch).Clone
+  785.59MB 14.50% 85.54%   785.59MB 14.50%  maps.clone
+  339.05MB  6.26% 91.80%   413.05MB  7.63%  github.com/andres1m/impuls-goroda/services/optimizer/internal/solver.searchRun.placeBy
+  334.01MB  6.17% 97.96%   334.01MB  6.17%  github.com/andres1m/impuls-goroda/services/optimizer/internal/solver.(*BaselineTransit).Estimate
+   40.03MB  0.74% 98.70%  5346.71MB 98.70%  github.com/andres1m/impuls-goroda/services/optimizer/internal/solver.searchRun.expand
+       8MB  0.15% 98.85%    27.70MB  0.51%  github.com/andres1m/impuls-goroda/services/optimizer/internal/solver.searchRun.expandAll
+         0     0% 98.85%    63.39MB  1.17%  github.com/andres1m/impuls-goroda/services/optimizer/internal/benchlat.(*Recorder).Time
+         0     0% 98.85%    38.30MB  0.71%  github.com/andres1m/impuls-goroda/services/optimizer/internal/solver.(*Solver).Search
 ```

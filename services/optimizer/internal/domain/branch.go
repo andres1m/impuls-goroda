@@ -41,7 +41,10 @@ type Branch struct {
 	Score          float64
 	// Leg from Position to the destination when the route has one.
 	Finish *TransitEstimate
-	Lunch  *Lunch
+	// Minutes walked between stops; the walk to the destination is in Finish.
+	WalkMinutes float64
+	Lunch       *Lunch
+	Rests       []Rest
 }
 
 // Lunch is the lunch a route reserves: a visit to a venue, or a pause where the user stands.
@@ -49,6 +52,14 @@ type Lunch struct {
 	// Index of the venue's visit in Visits; for a pause, the number of visits before it.
 	At      int
 	Venue   bool
+	StartAt time.Time
+	EndAt   time.Time
+}
+
+// Rest is a pause the pace asks for; it earns nothing and is not waiting.
+type Rest struct {
+	// The number of visits before the rest.
+	At      int
 	StartAt time.Time
 	EndAt   time.Time
 }
@@ -68,6 +79,7 @@ func (b *Branch) Clone() *Branch {
 	clone.Visits = slices.Clone(b.Visits)
 	clone.VisitedPlaces = maps.Clone(b.VisitedPlaces)
 	clone.UsedSessions = maps.Clone(b.UsedSessions)
+	clone.Rests = slices.Clone(b.Rests)
 	if b.Finish != nil {
 		finish := *b.Finish
 		clone.Finish = &finish

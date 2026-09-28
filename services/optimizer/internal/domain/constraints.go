@@ -144,9 +144,6 @@ func (c RouteConstraints) Validate() error {
 			return err
 		}
 	}
-	if strings.TrimSpace(c.LoadProfile) == "" {
-		return errors.New("load profile is required")
-	}
 	if err := c.Budget.Validate(); err != nil {
 		return err
 	}

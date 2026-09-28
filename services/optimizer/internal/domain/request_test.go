@@ -34,7 +34,7 @@ func TestRouteConstraintsValidate(t *testing.T) {
 		{"blank soft preference", func(c *RouteConstraints) { c.SoftPreferences = []string{""} }, false},
 		{"blank accepted unknown", func(c *RouteConstraints) { c.AcceptedUnknowns = []string{" "} }, false},
 		{"unknown excluded category", func(c *RouteConstraints) { c.ExcludedCategories = []Category{"nightlife"} }, false},
-		{"no load profile", func(c *RouteConstraints) { c.LoadProfile = "" }, false},
+		{"no load profile plans at the default pace", func(c *RouteConstraints) { c.LoadProfile = "" }, true},
 		{"none budget with limit", func(c *RouteConstraints) { c.Budget = Budget{Mode: BudgetNone, Limit: moneyPtr(1)} }, false},
 		{"strict budget without limit", func(c *RouteConstraints) { c.Budget = Budget{Mode: BudgetStrict} }, false},
 		{"obligation without ids", func(c *RouteConstraints) { c.Obligations[0].SessionID = nil }, false},

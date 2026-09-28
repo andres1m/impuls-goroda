@@ -27,6 +27,8 @@ type Problem struct {
 	Lunch *LunchSlot
 	// Rates walks for the scenic part of the score; nil scores no walk as scenic.
 	Scenic Scenic
+	// Pace of the day; the zero value sets no norm, limit or rest.
+	Load LoadProfile
 }
 
 func (p Problem) Validate() error {
@@ -42,6 +44,9 @@ func (p Problem) Validate() error {
 		}
 	}
 	if err := p.Archetype.Validate(); err != nil {
+		return err
+	}
+	if err := p.Load.Validate(); err != nil {
 		return err
 	}
 	if len(p.Modes) == 0 {

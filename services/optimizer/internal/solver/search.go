@@ -71,6 +71,7 @@ func (s *Solver) Search(ctx context.Context, p Problem, pool []domain.Candidate)
 // newRun prepares one run over the pool with the problem's anchors in it.
 func (s *Solver) newRun(p Problem, pool []domain.Candidate) (searchRun, error) {
 	pool, anchors := mergeAnchors(pool, p.Anchors)
+	pool = p.Load.trim(pool)
 	isAnchor := make([]bool, len(pool))
 	var fixed, flexible []int
 	for _, i := range anchors {
@@ -90,7 +91,7 @@ func (s *Solver) newRun(p Problem, pool []domain.Candidate) (searchRun, error) {
 	run := searchRun{
 		Solver: s, problem: p, pool: pool, anchors: anchors, isAnchor: isAnchor, fixedAnchors: fixed, flexibleAnchors: flexible,
 		utilities: make([]float64, len(pool)), quotes: make([]pricing.Quote, len(pool)), priced: make([]bool, len(pool)),
-		lunchOnly: make([]bool, len(pool)),
+		lunchOnly: make([]bool, len(pool)), visitNorm: p.Load.visitNorm(p.End.Sub(p.Start)),
 	}
 	for i := range pool {
 		run.utilities[i] = pool[i].BaseScore * s.score.affinity(p.Interests, pool[i].InterestMask(), p.Archetype)
@@ -122,6 +123,8 @@ type searchRun struct {
 	flexibleAnchors []int
 	utilities       []float64
 	quotes          []pricing.Quote
+	// Visits the pace allows before each further one is charged; zero sets no norm.
+	visitNorm int
 	// False when the route's money constraints exclude the candidate.
 	priced []bool
 	// Pool indices of the places that can host the problem's lunch; they are visited for lunch only,
@@ -164,37 +167,70 @@ func (r searchRun) expand(parent *domain.Branch) []*domain.Branch {
 		if !r.problem.Pricing.Fits(parent.KnownCost, r.quotes[i]) {
 			continue
 		}
-		leg, ok := r.transit.Estimate(parent.Position, c.Place.Location, parent.Now, r.problem.Modes)
+		rest, due := r.restDue(parent)
+		var child *domain.Branch
+		ok := false
+		if due {
+			if child, ok = r.visit(parent, i, rest.EndAt); ok {
+				child.Rests = append(child.Rests, rest)
+			}
+		}
 		if !ok {
-			continue
-		}
-		arrival := parent.Now.Add(leg.Duration)
-		slot, finish, ok := r.place(c, arrival)
-		if !ok {
-			continue
-		}
-		visit := domain.SearchVisit{Candidate: c, Transit: leg, ArrivalAt: arrival, Buffer: slot.Buffer, StartAt: slot.StartAt, EndAt: slot.EndAt}
-		child := r.extend(parent, visit, finish, r.utilities[i], r.quotes[i])
-		if !r.anchorsReachable(child) {
-			// A shorter stay in an open window may still leave time for the commitments ahead.
-			if c.Window.Kind != domain.WindowContinuous {
+			// The rest is soft: without room for it the visit still goes ahead.
+			if child, ok = r.visit(parent, i, parent.Now); !ok {
 				continue
 			}
-			short, shortFinish, ok := r.placeBy(c, arrival, slot.StartAt.Add(c.Window.MinDuration))
-			if !ok {
-				continue
+			if due {
+				child.Score -= restSkipWeight
 			}
-			visit.Buffer, visit.StartAt, visit.EndAt = short.Buffer, short.StartAt, short.EndAt
-			if child = r.extend(parent, visit, shortFinish, r.utilities[i], r.quotes[i]); !r.anchorsReachable(child) {
-				continue
-			}
-		}
-		if !r.lunchStillFits(child) {
-			continue
 		}
 		children = append(children, child)
 	}
 	return append(children, r.lunches(parent)...)
+}
+
+// visit extends the branch with the pool's candidate i, leaving the current place at departAt.
+func (r searchRun) visit(parent *domain.Branch, i int, departAt time.Time) (*domain.Branch, bool) {
+	c := &r.pool[i]
+	leg, ok := r.transit.Estimate(parent.Position, c.Place.Location, departAt, r.problem.Modes)
+	if !ok {
+		return nil, false
+	}
+	arrival := departAt.Add(leg.Duration)
+	slot, finish, ok := r.place(c, arrival)
+	if !ok {
+		return nil, false
+	}
+	visit := domain.SearchVisit{Candidate: c, Transit: leg, ArrivalAt: arrival, Buffer: slot.Buffer, StartAt: slot.StartAt, EndAt: slot.EndAt}
+	child := r.extend(parent, visit, finish, r.utilities[i], r.quotes[i], r.isAnchor[i])
+	if !r.anchorsReachable(child) {
+		// A shorter stay in an open window may still leave time for the commitments ahead.
+		if c.Window.Kind != domain.WindowContinuous {
+			return nil, false
+		}
+		short, shortFinish, ok := r.placeBy(c, arrival, slot.StartAt.Add(c.Window.MinDuration))
+		if !ok {
+			return nil, false
+		}
+		visit.Buffer, visit.StartAt, visit.EndAt = short.Buffer, short.StartAt, short.EndAt
+		if child = r.extend(parent, visit, shortFinish, r.utilities[i], r.quotes[i], r.isAnchor[i]); !r.anchorsReachable(child) {
+			return nil, false
+		}
+	}
+	if !r.lunchStillFits(child) {
+		return nil, false
+	}
+	return child, true
+}
+
+// restDue is the rest the pace asks for before the next visit, if one is due now.
+func (r searchRun) restDue(b *domain.Branch) (domain.Rest, bool) {
+	l := r.problem.Load
+	n := len(b.Visits)
+	if l.RestEvery == 0 || l.Rest == 0 || n == 0 || n%l.RestEvery != 0 || slices.ContainsFunc(b.Rests, func(x domain.Rest) bool { return x.At == n }) {
+		return domain.Rest{}, false
+	}
+	return domain.Rest{At: n, StartAt: b.Now, EndAt: b.Now.Add(l.Rest)}, true
 }
 
 // place fits the visit into the day so that the destination, if any, is still reachable in time.
@@ -230,14 +266,22 @@ func (r searchRun) finish(c *domain.Candidate, departAt time.Time) (domain.Trans
 	return r.transit.Estimate(c.Place.Location, *r.problem.Destination, departAt, r.problem.Modes)
 }
 
-func (r searchRun) extend(parent *domain.Branch, visit domain.SearchVisit, finish *domain.TransitEstimate, utility float64, quote pricing.Quote) *domain.Branch {
+func (r searchRun) extend(parent *domain.Branch, visit domain.SearchVisit, finish *domain.TransitEstimate, utility float64, quote pricing.Quote, anchor bool) *domain.Branch {
 	child := parent.Clone()
 	c := visit.Candidate
 	category := c.Category()
 	wait := visit.StartAt.Sub(visit.ArrivalAt) - visit.Buffer
-	child.Score += r.score.gain(utility, wait, r.travelPenalty(parent.Position, c.Place.Location, visit.Transit), child.CountCategory(category))
+	child.Score += r.score.gain(utility, visit.EndAt.Sub(visit.StartAt), wait, r.travelPenalty(parent.Position, c.Place.Location, visit.Transit), child.CountCategory(category))
 	child.Score += r.finishPenalty(parent.Position, parent.Finish) - r.finishPenalty(c.Place.Location, finish)
 	child.Finish = finish
+	if visit.Transit.Mode == domain.MovementWalk {
+		child.WalkMinutes += visit.Transit.Duration.Minutes()
+	}
+	child.Score += r.walkPenalty(parent) - r.walkPenalty(child)
+	// Commitments are in every route, so only the visits the search chose pay for going over the norm.
+	if r.visitNorm > 0 && len(child.Visits) >= r.visitNorm && !anchor {
+		child.Score -= r.problem.Load.OverVisitWeight
+	}
 	if upper, known := quote.Price.UpperBound(); known {
 		child.KnownCost.AmountMinor = saturatingAdd(child.KnownCost.AmountMinor, upper.AmountMinor)
 	} else {
@@ -268,7 +312,10 @@ func compareBranches(a, b *domain.Branch) int {
 	if c := slices.CompareFunc(a.Visits, b.Visits, compareVisits); c != 0 {
 		return c
 	}
-	return compareLunches(a.Lunch, b.Lunch)
+	if c := compareLunches(a.Lunch, b.Lunch); c != 0 {
+		return c
+	}
+	return cmp.Compare(len(a.Rests), len(b.Rests))
 }
 
 func compareVisits(a, b domain.SearchVisit) int {

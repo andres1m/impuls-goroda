@@ -55,12 +55,38 @@ func (p *Planner) assemble(req domain.OptimizeRequest, policy pricing.Policy, r 
 		})
 		departure, from = lunch.EndAt, &id
 	}
-	pauseAt := func(i int) bool { return lunch != nil && !lunch.Venue && lunch.At == i }
-	unknownPrice := false
-	for i, v := range visits {
-		if pauseAt(i) {
+	rest := func(x domain.Rest) {
+		id := p.newID()
+		plan.Legs = append(plan.Legs, stay(len(plan.Legs)+1, from, &id, departure, plan.Geometry[len(plan.Geometry)-1], req.Constraints.MovementModes[0], degraded, policy.Currency))
+		plan.Steps = append(plan.Steps, domain.Step{
+			VisitID: id, Kind: domain.StepFreeTime, Position: len(plan.Steps) + 1,
+			ArrivalAt: departure, VisitStartAt: x.StartAt, VisitEndAt: x.EndAt, DepartureAt: x.EndAt,
+			Participation: domain.Participation{Status: domain.ParticipationNotRequired, Evidence: domain.EvidenceNone},
+			AppliedConstraints: []domain.AppliedConstraint{{
+				Code: "REST_BREAK", Strength: domain.StrengthSoft, Outcome: domain.OutcomeSatisfied,
+				Message: "A short rest keeps the day at the chosen pace",
+			}},
+		})
+		departure, from = x.EndAt, &id
+	}
+	// pausesAt writes the lunch pause and the rests due before visit i in the order they happen.
+	pausesAt := func(i int) {
+		rests := slices.DeleteFunc(slices.Clone(r.branch.Rests), func(x domain.Rest) bool { return x.At != i })
+		lunchHere := lunch != nil && !lunch.Venue && lunch.At == i
+		for _, x := range rests {
+			if lunchHere && lunch.StartAt.Before(x.StartAt) {
+				pause()
+				lunchHere = false
+			}
+			rest(x)
+		}
+		if lunchHere {
 			pause()
 		}
+	}
+	unknownPrice := false
+	for i, v := range visits {
+		pausesAt(i)
 		id := p.newID()
 		c := v.Candidate
 		in.Candidates[id] = *c
@@ -100,9 +126,7 @@ func (p *Planner) assemble(req domain.OptimizeRequest, policy pricing.Policy, r 
 		plan.Geometry = append(plan.Geometry, c.Place.Location)
 		departure, from = v.EndAt, &id
 	}
-	if pauseAt(len(visits)) {
-		pause()
-	}
+	pausesAt(len(visits))
 	if req.Destination != nil && r.branch.Finish != nil {
 		finish := *r.branch.Finish
 		plan.Legs = append(plan.Legs, leg(len(plan.Legs)+1, from, nil, departure, departure.Add(finish.Duration), finish, plan.Geometry[len(plan.Geometry)-1], *req.Destination, policy.Currency))
