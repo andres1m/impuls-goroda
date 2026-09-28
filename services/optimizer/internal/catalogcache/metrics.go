@@ -29,7 +29,7 @@ var (
 	})
 	reconciles = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "optimizer_catalog_reconcile_total",
-		Help: "Revision comparisons with the database by result: match, behind (a slice was older) or error.",
+		Help: "Revision comparisons with the database by result: match, behind (a slice was older), gone (the city left the catalog) or error.",
 	}, []string{"result"})
 	invalidationLag = promauto.NewHistogram(prometheus.HistogramOpts{
 		Name:    "optimizer_catalog_invalidation_lag_seconds",

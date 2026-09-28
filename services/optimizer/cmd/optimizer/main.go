@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/andres1m/impuls-goroda/pkg/ai"
@@ -126,6 +127,35 @@ func (q poolQuerier) BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, e
 	return q.client.Pool.BeginTx(ctx, opts)
 }
 
+// redisHandle hands out the Redis client between its start and its stop; it stops before the client
+// is closed, so the cache and the subscriber never read it while the Redis component resets it.
+type redisHandle struct {
+	redis  *redis.RedisClient
+	client atomic.Pointer[goredis.UniversalClient]
+}
+
+func (h *redisHandle) Name() string        { return "redis-handle" }
+func (h *redisHandle) DependsOn() []string { return []string{"redis"} }
+func (h *redisHandle) Init(context.Context) error {
+	if h.redis.Pool != nil {
+		h.client.Store(&h.redis.Pool)
+	}
+	return nil
+}
+func (h *redisHandle) HealthCheck(context.Context) error { return nil }
+func (h *redisHandle) Run(context.Context) error         { return nil }
+func (h *redisHandle) Stop(context.Context) error {
+	h.client.Store(nil)
+	return nil
+}
+
+func (h *redisHandle) get() goredis.UniversalClient {
+	if c := h.client.Load(); c != nil {
+		return *c
+	}
+	return nil
+}
+
 type unavailableRow struct{}
 
 func (unavailableRow) Scan(...any) error { return usecase.ErrUnavailable }
@@ -168,14 +198,9 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("init semantic retriever error: %w", err)
 	}
-	redisClient := func() goredis.UniversalClient {
-		if infra.redis.Pool == nil {
-			return nil
-		}
-		return infra.redis.Pool
-	}
+	redisClient := &redisHandle{redis: infra.redis}
 	cache, err := catalogcache.New(infra.cfg.CatalogCache, catalog,
-		catalogcache.NewRedisStore(redisClient, infra.cfg.CatalogCache.L2TTL), infra.log.Log)
+		catalogcache.NewRedisStore(redisClient.get, infra.cfg.CatalogCache.L2TTL), infra.log.Log)
 	if err != nil {
 		return fmt.Errorf("init catalog cache error: %w", err)
 	}
@@ -201,9 +226,10 @@ func run(ctx context.Context) error {
 		infra.log,
 		infra.pool,
 		infra.redis,
+		redisClient,
 		infra.grpcServer,
 		opsServer,
-		catalogcache.NewSubscriber(cache, catalogcache.RedisPubSub(redisClient), infra.log.Log),
+		catalogcache.NewSubscriber(cache, catalogcache.RedisPubSub(redisClient.get), infra.log.Log),
 	}
 	if infra.cfg.AI.Admin.Enabled {
 		services = append(services, ai.NewAdmin(models, infra.cfg.AI.Admin, infra.log.Log))

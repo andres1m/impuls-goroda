@@ -30,15 +30,6 @@ type Slice struct {
 	Sessions []domain.Candidate
 }
 
-func (s *Slice) PlaceByID(id domain.PlaceID) (Place, bool) {
-	for _, p := range s.Places {
-		if p.Place.ID == id {
-			return p, true
-		}
-	}
-	return Place{}, false
-}
-
 // Covers tells whether every session the request's day may use is in the slice.
 func (s *Slice) Covers(req domain.OptimizeRequest) bool {
 	return !req.Start.Before(s.Horizon)

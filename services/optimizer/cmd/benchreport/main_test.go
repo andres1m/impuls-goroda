@@ -107,6 +107,21 @@ func TestParseReadsGOMAXPROCS(t *testing.T) {
 	}
 }
 
+func TestParseTreatsMissingSuffixAsOneProc(t *testing.T) {
+	single := strings.ReplaceAll(sample, "pool=60-16 ", "pool=60 ")
+	got, err := parse(strings.NewReader(single))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Procs != 1 || got.Results[0].Name != "BenchmarkOptimize/pool=60" {
+		t.Fatalf("report %+v", got)
+	}
+	mixed := strings.Replace(sample, "pool=60-16 ", "pool=60 ", 1)
+	if _, err := parse(strings.NewReader(mixed)); err == nil {
+		t.Fatal("runs with and without GOMAXPROCS suffix accepted")
+	}
+}
+
 func TestRenderStatesMedianAndProcs(t *testing.T) {
 	var buf bytes.Buffer
 	rep, err := parse(strings.NewReader(sample))

@@ -185,9 +185,6 @@ func TestMissingAndCovers(t *testing.T) {
 	if s.Covers(req) {
 		t.Fatal("a day before the horizon is covered")
 	}
-	if p, ok := s.PlaceByID(domain.PlaceID{3}); !ok || p.Place.ID != (domain.PlaceID{3}) {
-		t.Fatal("place lookup")
-	}
 }
 
 func TestSizeGrowsWithTheCatalog(t *testing.T) {

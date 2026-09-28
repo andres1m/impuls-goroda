@@ -69,16 +69,16 @@ func parse(r io.Reader) (report, error) {
 			continue
 		}
 		pending = ""
-		m := procSuffix.FindStringSubmatch(name)
-		if m == nil {
-			return report{}, fmt.Errorf("%s: no GOMAXPROCS suffix", name)
+		// go test leaves the suffix out when GOMAXPROCS is 1.
+		p := 1
+		if m := procSuffix.FindStringSubmatch(name); m != nil {
+			p, _ = strconv.Atoi(m[1])
+			name = strings.TrimSuffix(name, m[0])
 		}
-		p, _ := strconv.Atoi(m[1])
 		if procs != 0 && p != procs {
 			return report{}, fmt.Errorf("%s: GOMAXPROCS %d, other benchmarks ran with %d", name, p, procs)
 		}
 		procs = p
-		name = strings.TrimSuffix(name, m[0])
 		if len(fields) < 3 || len(fields)%2 != 1 {
 			return report{}, fmt.Errorf("%s: malformed result line: %s", name, line)
 		}

@@ -91,6 +91,9 @@ type Cache struct {
 	stopWarm  context.CancelFunc
 	warmGroup sync.WaitGroup
 	closeOnce sync.Once
+	// Writes to memory hold it for reading, so none runs into a closed cache.
+	closing sync.RWMutex
+	closed  bool
 }
 
 type Option func(*Cache)
@@ -126,8 +129,20 @@ func (c *Cache) Close() {
 	c.closeOnce.Do(func() {
 		c.stopWarm()
 		c.warmGroup.Wait()
+		c.closing.Lock()
+		defer c.closing.Unlock()
+		c.closed = true
 		c.l1.Close()
 	})
+}
+
+// write changes memory unless the cache is closed.
+func (c *Cache) write(change func()) {
+	c.closing.RLock()
+	defer c.closing.RUnlock()
+	if !c.closed {
+		change()
+	}
 }
 
 // Candidates expands the city's slice for the request.
@@ -176,7 +191,7 @@ func (c *Cache) slice(ctx context.Context, city string) (*catalogslice.Slice, st
 	if s, ok := c.l1.Get(city); ok && s.Revision >= revision {
 		return s, levelChecked, nil
 	}
-	return c.obtain(ctx, city, revision)
+	return c.build(ctx, city, revision)
 }
 
 func (c *Cache) trusted(city string, revision domain.CatalogRevision) bool {
@@ -193,19 +208,11 @@ type obtained struct {
 	level string
 }
 
-// obtain gets the slice of at least the revision from the shared store or the database; one build
-// per city runs at a time and the others wait for it. Joining a build that started before the
-// revision was heard of can yield an older slice, so that case builds once more.
-func (c *Cache) obtain(ctx context.Context, city string, revision domain.CatalogRevision) (*catalogslice.Slice, string, error) {
-	s, level, err := c.build(ctx, city, revision)
-	if err == nil && s.Revision < revision {
-		s, level, err = c.build(ctx, city, revision)
-	}
-	return s, level, err
-}
-
+// build gets the slice of at least the revision from the shared store or the database. Requests for
+// the same revision share one build; a build for an older one is not joined, since it may have read
+// the catalog before the revision was published.
 func (c *Cache) build(ctx context.Context, city string, revision domain.CatalogRevision) (*catalogslice.Slice, string, error) {
-	ch := c.builds.DoChan(city, func() (any, error) {
+	ch := c.builds.DoChan(fmt.Sprintf("%s:%d", city, revision), func() (any, error) {
 		if s, ok := c.l1.Get(city); ok && s.Revision >= revision {
 			return obtained{s, levelChecked}, nil
 		}
@@ -246,12 +253,14 @@ func (c *Cache) build(ctx context.Context, city string, revision domain.CatalogR
 // keep puts the slice in memory unless a newer one is there already.
 func (c *Cache) keep(s *catalogslice.Slice) {
 	c.Observe(s.City, s.Revision)
-	if cur, ok := c.l1.Get(s.City); ok && cur.Revision >= s.Revision {
-		return
-	}
-	c.l1.Set(s.City, s, s.Size())
-	c.l1.Wait()
-	sliceRevision.WithLabelValues(s.City).Set(float64(s.Revision))
+	c.write(func() {
+		if cur, ok := c.l1.Get(s.City); ok && cur.Revision >= s.Revision {
+			return
+		}
+		c.l1.Set(s.City, s, s.Size())
+		c.l1.Wait()
+		sliceRevision.WithLabelValues(s.City).Set(float64(s.Revision))
+	})
 }
 
 // Observe notes that the city's catalog reached the revision, so older slices are no longer trusted.
@@ -274,6 +283,7 @@ func (c *Cache) SetHealthy(healthy bool) {
 }
 
 // Reconcile compares every city the cache knows with the database; it fails if any cannot be read.
+// A city the catalog no longer has is forgotten.
 func (c *Cache) Reconcile(ctx context.Context) error {
 	c.mu.Lock()
 	cities := make([]string, 0, len(c.known))
@@ -283,6 +293,11 @@ func (c *Cache) Reconcile(ctx context.Context) error {
 	c.mu.Unlock()
 	for _, city := range cities {
 		revision, err := c.loader.Revision(ctx, city)
+		if errors.Is(err, usecase.ErrCatalogNotReady) {
+			reconciles.WithLabelValues("gone").Inc()
+			c.forget(city)
+			continue
+		}
 		if err != nil {
 			reconciles.WithLabelValues("error").Inc()
 			return fmt.Errorf("reconcile %s: %w", city, err)
@@ -296,6 +311,17 @@ func (c *Cache) Reconcile(ctx context.Context) error {
 		reconciles.WithLabelValues("match").Inc()
 	}
 	return nil
+}
+
+func (c *Cache) forget(city string) {
+	c.mu.Lock()
+	delete(c.known, city)
+	c.mu.Unlock()
+	c.write(func() {
+		c.l1.Del(city)
+		c.l1.Wait()
+		sliceRevision.DeleteLabelValues(city)
+	})
 }
 
 // Announce takes a published revision: a city held in memory is rebuilt in the background.
@@ -313,7 +339,7 @@ func (c *Cache) warm(city string, revision domain.CatalogRevision) {
 		return
 	}
 	c.warmGroup.Go(func() {
-		if _, _, err := c.obtain(c.warmCtx, city, revision); err != nil && c.warmCtx.Err() == nil {
+		if _, _, err := c.build(c.warmCtx, city, revision); err != nil && c.warmCtx.Err() == nil {
 			c.log.Warn("warm catalog slice", zap.String("city", city), zap.Error(err))
 		}
 	})

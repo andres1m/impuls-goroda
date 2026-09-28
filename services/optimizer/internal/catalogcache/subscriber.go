@@ -13,8 +13,7 @@ import (
 	"github.com/andres1m/impuls-goroda/pkg/svc"
 )
 
-// PubSub is one subscription to catalog announcements; it reconnects and resubscribes on its own
-// after a failed read.
+// PubSub is one subscription to catalog announcements.
 type PubSub interface {
 	Receive(ctx context.Context, timeout time.Duration) (any, error)
 	Ping(ctx context.Context) error
@@ -31,6 +30,9 @@ type Subscriber struct {
 	cache *Cache
 	open  func(ctx context.Context) PubSub
 	log   *zap.Logger
+	// Set from the first failure until announcements are trusted again, so that an outage is
+	// reported once rather than on every attempt.
+	failing bool
 
 	// Test hooks.
 	pause      func(ctx context.Context, d time.Duration)
@@ -64,15 +66,17 @@ func (s *Subscriber) Run(ctx context.Context) error {
 			s.log.Debug("close catalog subscription", zap.Error(err))
 		}
 		s.cache.SetHealthy(false)
+		s.pause(ctx, min(time.Second, s.cache.cfg.HealthInterval))
 	}
 	return nil
 }
 
-// listen returns when the connection looks dead, so that a new one is opened.
+// listen returns when the connection fails or looks dead, so that a new one is opened.
 func (s *Subscriber) listen(ctx context.Context, ps PubSub) {
 	cfg := s.cache.cfg
 	subscribed := false
-	var reconciled time.Time
+	// When to compare with the database next: soon after a failed comparison, then periodically.
+	var nextReconcile time.Time
 	seen := s.cache.now()
 	for {
 		msg, err := ps.Receive(ctx, cfg.HealthInterval)
@@ -91,26 +95,25 @@ func (s *Subscriber) listen(ctx context.Context, ps PubSub) {
 				return
 			}
 		case err != nil:
-			subscribed = false
 			s.lost("read catalog subscription", err)
-			s.pause(ctx, min(time.Second, cfg.HealthInterval))
-			continue
+			return
 		default:
 			seen = now
 			switch m := msg.(type) {
 			case *goredis.Subscription:
 				if m.Kind == "subscribe" {
 					subscribed = true
-					s.reconcile(ctx)
-					reconciled = now
+					nextReconcile = now
 				}
 			case *goredis.Message:
 				s.announce(m.Payload)
 			}
 		}
-		if subscribed && now.Sub(reconciled) >= cfg.ReconcileInterval {
-			s.reconcile(ctx)
-			reconciled = now
+		if subscribed && !now.Before(nextReconcile) {
+			nextReconcile = now.Add(cfg.ReconcileInterval)
+			if !s.reconcile(ctx) {
+				nextReconcile = now.Add(cfg.HealthInterval)
+			}
 		}
 		s.afterReply()
 	}
@@ -118,18 +121,32 @@ func (s *Subscriber) listen(ctx context.Context, ps PubSub) {
 
 func (s *Subscriber) lost(what string, err error) {
 	s.cache.SetHealthy(false)
-	s.log.Warn(what, zap.Error(err))
+	s.warn(what, err)
 	s.afterReply()
 }
 
 // reconcile trusts memory again only once every known city matches the database.
-func (s *Subscriber) reconcile(ctx context.Context) {
+func (s *Subscriber) reconcile(ctx context.Context) bool {
 	if err := s.cache.Reconcile(ctx); err != nil {
 		s.cache.SetHealthy(false)
-		s.log.Warn("reconcile catalog revisions", zap.Error(err))
-		return
+		s.warn("reconcile catalog revisions", err)
+		return false
+	}
+	if s.failing {
+		s.log.Info("catalog announcements are trusted again")
+		s.failing = false
 	}
 	s.cache.SetHealthy(true)
+	return true
+}
+
+func (s *Subscriber) warn(what string, err error) {
+	if s.failing {
+		s.log.Debug(what, zap.Error(err))
+		return
+	}
+	s.failing = true
+	s.log.Warn(what, zap.Error(err))
 }
 
 func (s *Subscriber) announce(payload string) {
