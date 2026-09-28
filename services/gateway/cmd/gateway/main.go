@@ -13,11 +13,13 @@ import (
 	"github.com/andres1m/impuls-goroda/pkg/config"
 	"github.com/andres1m/impuls-goroda/pkg/db"
 	"github.com/andres1m/impuls-goroda/pkg/logger"
+	"github.com/andres1m/impuls-goroda/pkg/router"
 	"github.com/andres1m/impuls-goroda/pkg/server"
 	"github.com/andres1m/impuls-goroda/pkg/svc"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/app"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/auth"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/httpapi"
+	"github.com/andres1m/impuls-goroda/services/gateway/internal/maxbot"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/optimizerclient"
 )
 
@@ -111,12 +113,24 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("create CORS middleware: %w", err)
 	}
+	routers := []router.Router{
+		httpapi.NewAuthRouter(authRuntime),
+		httpapi.NewVisitRouter(authRuntime),
+		httpapi.NewDirectionsRouter(os.Getenv("TWO_GIS_API_KEY"), authRuntime),
+	}
+	if username := os.Getenv("MAX_BOT_USERNAME"); username != "" {
+		bot, err := maxbot.NewClient(infra.cfg.Gateway.Auth.BotToken, username)
+		if err != nil {
+			return fmt.Errorf("create MAX bot: %w", err)
+		}
+		routers = append(routers, httpapi.NewBotRouter(authRuntime, bot))
+	}
 	apiServer := server.New("api-server", infra.cfg.APIServer,
 		server.WithLogger(infra.log.Log),
 		server.WithDependsOn("logger", "db", "gateway-auth"),
 		server.WithHTTPErrorHandler(httpapi.ErrorHandler),
 		server.WithMiddleware(httpapi.RequestIDMiddleware, cors),
-		server.WithRouter(ctx, httpapi.NewAuthRouter(authRuntime), httpapi.NewVisitRouter(authRuntime)),
+		server.WithRouter(ctx, routers...),
 		server.WithHealth(),
 	)
 	opsServer := server.New("ops-server", infra.cfg.OpsServer,
