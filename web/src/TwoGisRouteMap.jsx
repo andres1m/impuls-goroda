@@ -235,7 +235,7 @@ export default function TwoGisRouteMap({ apiKey, city, stops, startPlace, finish
     }
     loadRoute();
     return () => { active = false; controller.abort(); };
-  }, [ready, city, stops.map((stop) => `${stop.id}:${stop.removed}:${stop.pause}`).join(','), startPlace, finishPlace, startPoint?.join(','), finishPoint?.join(','), JSON.stringify(lunches.map((item) => [item.id, item.afterStopID, item.cafe?.coordinates])), movement, apiKey]);
+  }, [ready, city, JSON.stringify(stops.map((stop) => [stop.id, stop.title, stop.routePoint, stop.removed, stop.pause])), startPlace, finishPlace, startPoint?.join(','), finishPoint?.join(','), JSON.stringify(lunches.map((item) => [item.id, item.afterStopID, item.cafe?.coordinates])), movement, apiKey]);
 
   useEffect(() => {
     walkingObjects.current.forEach((item) => item.destroy());
