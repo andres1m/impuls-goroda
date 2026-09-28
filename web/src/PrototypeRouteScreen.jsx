@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { demoCities, demoRebuiltVariant, demoVariants, prototypePushkinEligible, prototypeScenarios, selectedPrototypeScenario, shiftClock } from './prototype.js';
 import TwoGisRouteMap from './TwoGisRouteMap.jsx';
+import Brand from './Brand.jsx';
 
 const storageKey = 'impuls-route-preview';
 
@@ -327,7 +328,7 @@ export default function PrototypeRouteScreen({ mapApiKey = '' }) {
   return (
     <main className={`workspace${entryPoint === 'tabbar' ? ' is-tabbar' : ''}`} style={{ '--route-accent': variant.color }}>
       <header className="workspace-topbar">
-        <span className="workspace-wordmark">ИМПУЛЬС ГОРОДА</span>
+        <Brand className="workspace-wordmark" />
         <span className="workspace-demo-tag">Демо</span>
       </header>
       <div className="workspace-wrap">

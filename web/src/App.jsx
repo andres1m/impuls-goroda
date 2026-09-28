@@ -5,6 +5,7 @@ import { loadRuntimeConfig } from './config.js';
 import { loadSelectedRoute, RouteRequestError } from './route.js';
 import RouteScreen from './RouteScreen.jsx';
 import PrototypeRouteScreen from './PrototypeRouteScreen.jsx';
+import Brand from './Brand.jsx';
 
 export default function App() {
   const [config, setConfig] = useState({ state: 'loading' });
@@ -93,7 +94,7 @@ export default function App() {
 
   return (
     <main className="entry-page">
-      <header className="entry-brand">ИМПУЛЬС ГОРОДА</header>
+      <header><Brand className="entry-brand" /></header>
       <section className="entry-state" aria-live="polite">
         <span className="entry-rule" aria-hidden="true" />
         <h1>{title}</h1>
