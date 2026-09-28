@@ -178,6 +178,12 @@ func TestKudaGoPrice(t *testing.T) {
 			t.Errorf("%q: %+v", text, got)
 		}
 	}
+	if got := kudagoPrice(false, "800 рублей"); *got.AmountMin != 80000 {
+		t.Fatalf("kopecks: %+v", got)
+	}
+	if got := kudagoPrice(false, "99999999999999999 рублей"); got.Status != "unknown" || *got.TariffLabel != "99999999999999999 рублей" {
+		t.Fatalf("overflowing sum: %+v", got)
+	}
 	if got := kudagoPrice(true, "вход бесплатный, депозит на еду — 700 рублей"); got.Status != "free" {
 		t.Fatalf("free flag: %+v", got)
 	}

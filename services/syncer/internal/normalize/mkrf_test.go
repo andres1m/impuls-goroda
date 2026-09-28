@@ -77,7 +77,7 @@ func TestMkrfEvent(t *testing.T) {
 	}
 	window, show := e.Sessions[0], e.Sessions[1]
 	if window.SlotType != "CONTINUOUS_WINDOW" || !window.StartsAt.Equal(time.Date(2026, 9, 28, 7, 0, 0, 0, time.UTC)) ||
-		window.Price.Status != "range" || *window.Price.AmountMax != 100 || *window.BookingURL != "https://example.test/buy" {
+		window.Price.Status != "range" || *window.Price.AmountMax != 10000 || *window.BookingURL != "https://example.test/buy" {
 		t.Fatalf("window %+v", window)
 	}
 	if show.SlotType != "FIXED_SESSION" || show.MinDuration != 90*time.Minute {
@@ -192,8 +192,8 @@ func TestMkrfPrices(t *testing.T) {
 		"free flag":         {func(g map[string]any) { g["isFree"] = true; delete(g, "price"); delete(g, "maxPrice") }, "free", amount(0), amount(0), ""},
 		"free with zeros":   {func(g map[string]any) { g["isFree"] = true; g["price"] = 0; g["maxPrice"] = 0 }, "free", amount(0), amount(0), ""},
 		"zero price only":   {func(g map[string]any) { g["price"] = 0; delete(g, "maxPrice") }, "free", amount(0), amount(0), ""},
-		"range":             {nil, "range", amount(50), amount(100), ""},
-		"fixed":             {func(g map[string]any) { g["maxPrice"] = 50 }, "fixed", amount(50), amount(50), ""},
+		"range":             {nil, "range", amount(5000), amount(10000), ""},
+		"fixed":             {func(g map[string]any) { g["maxPrice"] = 50 }, "fixed", amount(5000), amount(5000), ""},
 		"lower bound only":  {func(g map[string]any) { g["price"] = 600; delete(g, "maxPrice") }, "unknown", nil, nil, "от 600 ₽"},
 		"min above max":     {func(g map[string]any) { g["price"] = 200 }, "unknown", nil, nil, ""},
 		"negative":          {func(g map[string]any) { g["price"] = -5 }, "unknown", nil, nil, ""},

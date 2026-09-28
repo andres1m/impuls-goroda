@@ -176,5 +176,9 @@ func kudagoPrice(isFree bool, text string) PriceDraft {
 
 func rubles(digits string) (int64, bool) {
 	v, err := strconv.ParseInt(strings.NewReplacer(" ", "", " ", "").Replace(digits), 10, 64)
-	return v, err == nil
+	if err != nil {
+		return 0, false
+	}
+	_, fits := kopecks(v)
+	return v, fits
 }

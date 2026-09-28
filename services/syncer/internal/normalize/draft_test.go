@@ -1,6 +1,7 @@
 package normalize
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -47,7 +48,7 @@ func TestAddSessionKeepsTheFirstOfOneStart(t *testing.T) {
 	first := newSession(now, now.Add(time.Hour), fixedPrice(1), nil)
 	second := newSession(now, now.Add(2*time.Hour), fixedPrice(2), nil)
 	got := addSession(addSession(nil, first), second)
-	if len(got) != 1 || *got[0].Price.AmountMin != 1 {
+	if len(got) != 1 || *got[0].Price.AmountMin != 100 {
 		t.Fatalf("sessions %+v", got)
 	}
 }
@@ -56,8 +57,17 @@ func TestPrices(t *testing.T) {
 	if p := freePrice(); p.Status != "free" || *p.AmountMin != 0 || *p.AmountMax != 0 {
 		t.Fatalf("free %+v", p)
 	}
-	if p := rangePrice(100, 300); p.Status != "range" || *p.AmountMin != 100 || *p.AmountMax != 300 {
-		t.Fatalf("range %+v", p)
+	if p := rangePrice(100, 300); p.Status != "range" || *p.AmountMin != 10000 || *p.AmountMax != 30000 {
+		t.Fatalf("range is kept in kopecks: %+v", p)
+	}
+	if p := fixedPrice(500); p.Status != "fixed" || *p.AmountMin != 50000 || *p.AmountMax != 50000 {
+		t.Fatalf("fixed is kept in kopecks: %+v", p)
+	}
+	if p := fixedPrice(math.MaxInt64 / 10); p.Status != "unknown" || p.AmountMin != nil {
+		t.Fatalf("a sum that overflows kopecks: %+v", p)
+	}
+	if p := rangePrice(1, math.MaxInt64/10); p.Status != "unknown" {
+		t.Fatalf("a range that overflows kopecks: %+v", p)
 	}
 	if p := unknownPrice(""); p.Status != "unknown" || p.AmountMin != nil || p.TariffLabel != nil {
 		t.Fatalf("unknown %+v", p)

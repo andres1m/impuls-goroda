@@ -1,6 +1,7 @@
 package normalize
 
 import (
+	"math"
 	"slices"
 	"time"
 
@@ -90,15 +91,34 @@ func addSession(sessions []SessionDraft, s SessionDraft) []SessionDraft {
 
 func amount(v int64) *int64 { return &v }
 
+const kopecksPerRuble = 100
+
+// kopecks converts a source's ruble sum to the catalog's minor units.
+func kopecks(rubles int64) (int64, bool) {
+	if rubles < 0 || rubles > math.MaxInt64/kopecksPerRuble {
+		return 0, false
+	}
+	return rubles * kopecksPerRuble, true
+}
+
 func freePrice() PriceDraft {
 	return PriceDraft{Status: "free", AmountMin: amount(0), AmountMax: amount(0)}
 }
 
-func fixedPrice(v int64) PriceDraft {
+func fixedPrice(rubles int64) PriceDraft {
+	v, ok := kopecks(rubles)
+	if !ok {
+		return unknownPrice("")
+	}
 	return PriceDraft{Status: "fixed", AmountMin: amount(v), AmountMax: amount(v)}
 }
 
-func rangePrice(lo, hi int64) PriceDraft {
+func rangePrice(loRubles, hiRubles int64) PriceDraft {
+	lo, okLo := kopecks(loRubles)
+	hi, okHi := kopecks(hiRubles)
+	if !okLo || !okHi {
+		return unknownPrice("")
+	}
 	return PriceDraft{Status: "range", AmountMin: amount(lo), AmountMax: amount(hi)}
 }
 
