@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/andres1m/impuls-goroda/pkg/catalogevent"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/seed"
 )
@@ -54,6 +55,7 @@ func TestApplySeedIntegration(t *testing.T) {
 	if first.CatalogRevision != revision+1 || first.Sessions != len(rows.Sessions) || first.Prices != len(rows.Prices) {
 		t.Fatalf("first apply = %+v, revision before %d", first, revision)
 	}
+	checkAnnounced(ctx, t, tx, first.CatalogRevision, now)
 	var synthetic int
 	err = tx.QueryRow(ctx, `
 		SELECT count(*) FROM catalog.session s
@@ -90,6 +92,26 @@ func TestApplySeedIntegration(t *testing.T) {
 	var active bool
 	if err := tx.QueryRow(ctx, `SELECT is_active FROM catalog.event WHERE city = 'perm' AND id = $1`, removed.ID.String()).Scan(&active); err != nil || active {
 		t.Fatalf("event removed from the dataset is active = %v, %v", active, err)
+	}
+}
+
+// checkAnnounced finds exactly one pending announcement of the revision for the caches.
+func checkAnnounced(ctx context.Context, t *testing.T, tx pgx.Tx, revision int64, at time.Time) {
+	t.Helper()
+	rows, err := tx.Query(ctx, `
+		SELECT payload FROM integration.change_delivery
+		WHERE city = 'perm' AND catalog_revision = $1 AND destination = 'redis' AND event_type = 'catalog.revision' AND state = 'pending'`,
+		revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payloads, err := pgx.CollectRows(rows, pgx.RowTo[[]byte])
+	if err != nil || len(payloads) != 1 {
+		t.Fatalf("announcements of revision %d: %d, %v", revision, len(payloads), err)
+	}
+	m, err := catalogevent.Decode(payloads[0])
+	if err != nil || m.Reason != catalogevent.ReasonSeed || !m.PublishedAt.Equal(at) {
+		t.Fatalf("announcement %s: %v", payloads[0], err)
 	}
 }
 

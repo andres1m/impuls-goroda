@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/andres1m/impuls-goroda/pkg/catalogevent"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/seed"
 )
 
@@ -104,6 +105,10 @@ func ApplySeed(ctx context.Context, tx pgx.Tx, rows seed.Rows, at time.Time) (Se
 		WHERE city = $1 AND id = ANY ($2::uuid[])`, rows.City, hidden, revision, at)
 	if err != nil {
 		return SeedResult{}, fmt.Errorf("hide removed places: %w", err)
+	}
+	announcement := catalogevent.Invalidation{City: rows.City, CatalogRevision: revision, Reason: catalogevent.ReasonSeed, PublishedAt: at}
+	if err := EnqueueRevision(ctx, tx, announcement); err != nil {
+		return SeedResult{}, err
 	}
 	return SeedResult{
 		Places:          len(rows.Places),

@@ -33,6 +33,14 @@ kafka:
   raw-partitions: 3
   consumer-group: syncer-raw
 
+# Sends catalog announcements recorded with each publication once it commits.
+delivery:
+  poll-interval: 500ms
+  batch: 100
+  lease: 30s
+  backoff-min: 1s
+  backoff-max: 1m
+
 ops-server:
   port: 9090
   read-timeout: 5s

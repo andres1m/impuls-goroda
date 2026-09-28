@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"time"
 
 	"github.com/andres1m/impuls-goroda/pkg/ai"
+	"github.com/andres1m/impuls-goroda/pkg/catalogevent"
 	"github.com/andres1m/impuls-goroda/pkg/config"
 	"github.com/andres1m/impuls-goroda/pkg/db"
 	"github.com/andres1m/impuls-goroda/pkg/logger"
@@ -15,9 +17,13 @@ import (
 	"github.com/andres1m/impuls-goroda/pkg/server"
 	"github.com/andres1m/impuls-goroda/pkg/svc"
 	"github.com/andres1m/impuls-goroda/pkg/temporal"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/delivery"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/kafka"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/repo/postgres"
 	rawtemporal "github.com/andres1m/impuls-goroda/services/syncer/internal/temporal"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/temporal/workflow"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 )
@@ -32,6 +38,7 @@ type appConfig struct {
 	OpsServer config.HTTPServer `yaml:"ops-server"`
 	AI        ai.Config         `yaml:"ai"`
 	Kafka     kafka.Config      `yaml:"kafka"`
+	Delivery  delivery.Config   `yaml:"delivery"`
 }
 
 type infrastructureComponents struct {
@@ -100,6 +107,18 @@ func run(ctx context.Context) error {
 	}
 	starter := rawtemporal.NewStarter(func() client.Client { return infra.temporal.TemporalClient }, infra.temporal.TaskQueue())
 	consumer := kafka.NewConsumer(infra.log.Log, infra.cfg.Kafka, starter)
+	relay, err := delivery.NewRelay(infra.cfg.Delivery, postgres.NewDeliveries(poolDB{client: infra.pool}),
+		map[string]delivery.Sender{
+			catalogevent.Destination: delivery.NewRedisSender(func() delivery.Publisher {
+				if infra.redis.Pool == nil {
+					return nil
+				}
+				return infra.redis.Pool
+			}),
+		}, infra.log.Log)
+	if err != nil {
+		return fmt.Errorf("create delivery relay error: %w", err)
+	}
 
 	if err := svc.Run(ctx, infra.log.Log, []svc.Service{
 		infra.log,
@@ -108,6 +127,7 @@ func run(ctx context.Context) error {
 		infra.temporal,
 		temporalWorker,
 		consumer,
+		relay,
 		opsServer,
 	}); err != nil {
 		return fmt.Errorf("run service error: %w", err)
@@ -115,6 +135,38 @@ func run(ctx context.Context) error {
 
 	return nil
 }
+
+var errDatabaseNotConnected = errors.New("database is not connected")
+
+// poolDB reaches the connection pool, which exists only once the database component has started.
+type poolDB struct {
+	client *db.PostgresClient
+}
+
+func (p poolDB) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if p.client.Pool == nil {
+		return nil, errDatabaseNotConnected
+	}
+	return p.client.Pool.Query(ctx, sql, args...)
+}
+
+func (p poolDB) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if p.client.Pool == nil {
+		return notConnectedRow{}
+	}
+	return p.client.Pool.QueryRow(ctx, sql, args...)
+}
+
+func (p poolDB) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	if p.client.Pool == nil {
+		return pgconn.CommandTag{}, errDatabaseNotConnected
+	}
+	return p.client.Pool.Exec(ctx, sql, args...)
+}
+
+type notConnectedRow struct{}
+
+func (notConnectedRow) Scan(...any) error { return errDatabaseNotConnected }
 
 func initInfrastructure() (*infrastructureComponents, error) {
 	var cfg appConfig
