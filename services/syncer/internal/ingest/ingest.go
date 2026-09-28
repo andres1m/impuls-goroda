@@ -25,8 +25,8 @@ type Adapter interface {
 	Fetch(ctx context.Context, city domain.City, cursor json.RawMessage) (Batch, error)
 }
 
-// Run is the outcome of one ingestion attempt. An empty ErrorCode means success,
-// and only then is Cursor stored.
+// Run is the outcome of one ingestion attempt. An empty ErrorCode means success.
+// Cursor is stored whenever it is set: a run can fail after a successful fetch.
 type Run struct {
 	SourceID  SourceID
 	City      domain.City

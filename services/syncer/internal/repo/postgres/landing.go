@@ -126,15 +126,58 @@ func (l *Landing) SaveRecord(ctx context.Context, source ingest.SourceID, city d
 	return inserted, err
 }
 
+func (l *Landing) Unpublished(ctx context.Context, source ingest.SourceID, city domain.City) ([]ingest.Envelope, error) {
+	rows, err := l.pool.Query(ctx, `
+		SELECT ri.id::text, s.source_key, sr.city, sr.external_id, encode(ri.content_hash, 'hex'),
+			ri.fetched_at, ri.data_mode, s.schema_version
+		FROM integration.raw_ingest ri
+		JOIN integration.source_record sr ON sr.id = ri.source_record_id
+		JOIN integration.source s ON s.id = sr.source_id
+		LEFT JOIN integration.sync_cursor c ON c.source_id = sr.source_id AND c.city = sr.city
+		WHERE sr.source_id = $1 AND sr.city = $2
+			AND (c.published_watermark IS NULL OR ri.fetched_at > (c.published_watermark->>'fetched_at')::timestamptz)
+		ORDER BY ri.fetched_at, ri.id`,
+		uuidParam(source), string(city),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query unpublished: %w", err)
+	}
+	envelopes, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (ingest.Envelope, error) {
+		var sourceKey, recordCity, mode string
+		e := ingest.Envelope{Version: ingest.EnvelopeVersion}
+		err := row.Scan(&e.RawIngestID, &sourceKey, &recordCity, &e.ExternalID, &e.ContentHash, &e.FetchedAt, &mode, &e.SchemaVersion)
+		e.Source, e.City, e.DataMode, e.FetchedAt = domain.SourceKey(sourceKey), domain.City(recordCity), domain.DataMode(mode), e.FetchedAt.UTC()
+		return e, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read unpublished: %w", err)
+	}
+	return envelopes, nil
+}
+
+func (l *Landing) AdvancePublished(ctx context.Context, source ingest.SourceID, city domain.City, at time.Time) error {
+	_, err := l.pool.Exec(ctx, `
+		INSERT INTO integration.sync_cursor (source_id, city, published_watermark)
+		VALUES ($1, $2, jsonb_build_object('fetched_at', $3::timestamptz))
+		ON CONFLICT (source_id, city) DO UPDATE SET published_watermark = EXCLUDED.published_watermark`,
+		uuidParam(source), string(city), at,
+	)
+	if err != nil {
+		return fmt.Errorf("advance published watermark: %w", err)
+	}
+	return nil
+}
+
 func (l *Landing) FinishRun(ctx context.Context, run ingest.Run) error {
 	if run.ErrorCode != "" {
 		_, err := l.pool.Exec(ctx, `
-			INSERT INTO integration.sync_cursor (source_id, city, last_attempt_at, last_error_code)
-			VALUES ($1, $2, $3, $4)
+			INSERT INTO integration.sync_cursor (source_id, city, fetch_cursor, last_attempt_at, last_error_code)
+			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (source_id, city) DO UPDATE SET
+				fetch_cursor = COALESCE(EXCLUDED.fetch_cursor, integration.sync_cursor.fetch_cursor),
 				last_attempt_at = EXCLUDED.last_attempt_at,
 				last_error_code = EXCLUDED.last_error_code`,
-			uuidParam(run.SourceID), string(run.City), run.AttemptAt, run.ErrorCode,
+			uuidParam(run.SourceID), string(run.City), cursorParam(run.Cursor), run.AttemptAt, run.ErrorCode,
 		)
 		return err
 	}
