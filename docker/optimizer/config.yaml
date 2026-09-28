@@ -45,6 +45,15 @@ planner:
 scenic:
   layer-dir: /routing/current/scenic
 
+# City catalog slices in memory and in Redis; memory is trusted without asking the database while
+# announcements of new revisions arrive.
+catalog-cache:
+  l1-max-bytes: 268435456
+  l2-ttl: 24h
+  session-horizon: 24h
+  health-interval: 5s
+  reconcile-interval: 60s
+
 ai:
   openrouter:
     base-url: https://openrouter.ai/api/v1

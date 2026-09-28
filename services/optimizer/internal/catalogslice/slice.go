@@ -46,22 +46,15 @@ func (s *Slice) Covers(req domain.OptimizeRequest) bool {
 
 // Missing lists the sessions the request's obligations name that the slice does not hold.
 func (s *Slice) Missing(req domain.OptimizeRequest) []domain.SessionID {
-	var missing []domain.SessionID
-	for id := range obligated(req) {
-		if s.session(id) < 0 {
-			missing = append(missing, id)
-		}
+	wanted := obligated(req)
+	for _, c := range s.Sessions {
+		delete(wanted, c.Session.ID)
+	}
+	missing := make([]domain.SessionID, 0, len(wanted))
+	for id := range wanted {
+		missing = append(missing, id)
 	}
 	return missing
-}
-
-func (s *Slice) session(id domain.SessionID) int {
-	for i, c := range s.Sessions {
-		if c.Session.ID == id {
-			return i
-		}
-	}
-	return -1
 }
 
 func obligated(req domain.OptimizeRequest) map[domain.SessionID]struct{} {

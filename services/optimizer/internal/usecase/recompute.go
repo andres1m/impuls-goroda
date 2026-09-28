@@ -32,15 +32,27 @@ func (p *Planner) Recompute(ctx context.Context, req domain.RecomputeRequest) (d
 	if err != nil {
 		return domain.RecomputeResult{}, err
 	}
-	catalog, data, err := p.source.Candidates(ctx, domain.OptimizeRequest{
+	catalogReq := domain.OptimizeRequest{
 		City: req.City, Timezone: req.Timezone, Start: req.Base.Start, End: req.Base.End,
 		Origin: req.Base.Origin, Destination: req.Base.Destination, Constraints: req.Constraints,
-	})
+	}
+	catalog, data, err := p.source.Candidates(ctx, catalogReq)
 	if err != nil {
 		return domain.RecomputeResult{}, err
 	}
 	if c, ok := req.Trigger.(domain.CancellationTrigger); ok && data.CatalogRevision < c.MinCatalogRevision {
-		return domain.RecomputeResult{}, ErrStaleCatalog
+		// The caller may have heard of the publication before the source did; one more read settles it.
+		hint, ok := p.source.(RevisionHint)
+		if !ok {
+			return domain.RecomputeResult{}, ErrStaleCatalog
+		}
+		hint.Observe(req.City, c.MinCatalogRevision)
+		if catalog, data, err = p.source.Candidates(ctx, catalogReq); err != nil {
+			return domain.RecomputeResult{}, err
+		}
+		if data.CatalogRevision < c.MinCatalogRevision {
+			return domain.RecomputeResult{}, ErrStaleCatalog
+		}
 	}
 	done := func(res domain.RecomputeResult) (domain.RecomputeResult, error) {
 		res.Data = data

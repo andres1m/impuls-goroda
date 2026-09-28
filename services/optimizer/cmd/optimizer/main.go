@@ -16,6 +16,7 @@ import (
 	"github.com/andres1m/impuls-goroda/pkg/rpc"
 	"github.com/andres1m/impuls-goroda/pkg/server"
 	"github.com/andres1m/impuls-goroda/pkg/svc"
+	"github.com/andres1m/impuls-goroda/services/optimizer/internal/catalogcache"
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
 	grpchandler "github.com/andres1m/impuls-goroda/services/optimizer/internal/grpc-handler"
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/repo/postgres"
@@ -27,22 +28,24 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	goredis "github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
 const configPath = "config.yaml"
 
 type appConfig struct {
-	Logger     config.Logger     `yaml:"logger"`
-	Database   config.Database   `yaml:"database"`
-	Redis      config.Redis      `yaml:"redis"`
-	GRPCServer config.GRPCServer `yaml:"grpc-server"`
-	OpsServer  config.HTTPServer `yaml:"ops-server"`
-	Planner    usecase.Config    `yaml:"planner"`
-	Routing    routing.Config    `yaml:"routing"`
-	Scenic     scenicConfig      `yaml:"scenic"`
-	AI         ai.Config         `yaml:"ai"`
-	Semantic   semanticConfig    `yaml:"semantic"`
+	Logger       config.Logger       `yaml:"logger"`
+	Database     config.Database     `yaml:"database"`
+	Redis        config.Redis        `yaml:"redis"`
+	GRPCServer   config.GRPCServer   `yaml:"grpc-server"`
+	OpsServer    config.HTTPServer   `yaml:"ops-server"`
+	Planner      usecase.Config      `yaml:"planner"`
+	Routing      routing.Config      `yaml:"routing"`
+	Scenic       scenicConfig        `yaml:"scenic"`
+	AI           ai.Config           `yaml:"ai"`
+	Semantic     semanticConfig      `yaml:"semantic"`
+	CatalogCache catalogcache.Config `yaml:"catalog-cache"`
 }
 
 type semanticConfig struct {
@@ -165,7 +168,19 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("init semantic retriever error: %w", err)
 	}
-	planner, err := usecase.NewPlanner(infra.cfg.Planner, catalog, router, infra.log.Log,
+	redisClient := func() goredis.UniversalClient {
+		if infra.redis.Pool == nil {
+			return nil
+		}
+		return infra.redis.Pool
+	}
+	cache, err := catalogcache.New(infra.cfg.CatalogCache, catalog,
+		catalogcache.NewRedisStore(redisClient, infra.cfg.CatalogCache.L2TTL), infra.log.Log)
+	if err != nil {
+		return fmt.Errorf("init catalog cache error: %w", err)
+	}
+	defer cache.Close()
+	planner, err := usecase.NewPlanner(infra.cfg.Planner, cache, router, infra.log.Log,
 		usecase.WithScenic(scenicProvider{source: scenicSource}),
 		usecase.WithSemantic(retriever, infra.cfg.Semantic.Timeout),
 	)
@@ -188,6 +203,7 @@ func run(ctx context.Context) error {
 		infra.redis,
 		infra.grpcServer,
 		opsServer,
+		catalogcache.NewSubscriber(cache, catalogcache.RedisPubSub(redisClient), infra.log.Log),
 	}
 	if infra.cfg.AI.Admin.Enabled {
 		services = append(services, ai.NewAdmin(models, infra.cfg.AI.Admin, infra.log.Log))

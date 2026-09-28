@@ -16,13 +16,13 @@ import (
 
 const defaultCurrency = "RUB"
 
-// Catalog reads places, entrances, events, sessions and price offers from the city catalog.
 // CatalogDB reads the catalog; slices are read in one transaction so they match one revision.
 type CatalogDB interface {
 	Querier
 	BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error)
 }
 
+// Catalog reads places, entrances, events, sessions and price offers from the city catalog.
 type Catalog struct {
 	db CatalogDB
 }
@@ -88,7 +88,8 @@ const sessionPriceOffersSQL = `
 	WHERE city = $1 AND is_active AND session_id = ANY($2::uuid[])
 	ORDER BY session_id, id`
 
-// Candidates reads the candidate pool of the request straight from the database, from one snapshot.
+// Candidates reads the candidate pool of the request straight from the database. The day comes from
+// one snapshot; commitments to sessions that ended before it are read afterwards.
 func (c *Catalog) Candidates(ctx context.Context, req domain.OptimizeRequest) ([]domain.Candidate, domain.DataFreshness, error) {
 	if err := req.Validate(); err != nil {
 		return nil, domain.DataFreshness{}, fmt.Errorf("%w: %v", usecase.ErrInvalidRequest, err)
@@ -288,6 +289,10 @@ func loadSessions(ctx context.Context, q Querier, slice *catalogslice.Slice, sql
 	}
 	defer rows.Close()
 
+	places := make(map[domain.PlaceID]catalogslice.Place, len(slice.Places))
+	for _, p := range slice.Places {
+		places[p.Place.ID] = p
+	}
 	var candidates []domain.Candidate
 	var sessionUUIDs []string
 	for rows.Next() {
@@ -333,7 +338,7 @@ func loadSessions(ctx context.Context, q Querier, slice *catalogslice.Slice, sql
 		if err != nil {
 			return nil, wrapDBError("scan session", err)
 		}
-		place, ok := slice.PlaceByID(placeID)
+		place, ok := places[placeID]
 		if !ok {
 			continue
 		}

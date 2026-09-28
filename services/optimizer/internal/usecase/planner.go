@@ -43,6 +43,12 @@ type CandidateSource interface {
 	Candidates(ctx context.Context, req domain.OptimizeRequest) ([]domain.Candidate, domain.DataFreshness, error)
 }
 
+// RevisionHint is a candidate source that keeps a copy of the catalog: told that a newer revision
+// exists, it stops trusting an older copy.
+type RevisionHint interface {
+	Observe(city string, revision domain.CatalogRevision)
+}
+
 // TransitProvider prepares travel between the points of one search; degraded reports a fallback
 // that cannot see obstacles.
 type TransitProvider interface {

@@ -274,3 +274,42 @@ func TestRecomputeNeedsAFreshCatalog(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// hintedSource answers with an old revision until it is told a newer one exists, like a cache that
+// has not heard of the publication yet.
+type hintedSource struct {
+	candidates []domain.Candidate
+	revision   domain.CatalogRevision
+	observed   []domain.CatalogRevision
+	fresh      bool
+}
+
+func (s *hintedSource) Candidates(context.Context, domain.OptimizeRequest) ([]domain.Candidate, domain.DataFreshness, error) {
+	data := freshness
+	data.CatalogRevision = s.revision
+	if s.fresh {
+		data.CatalogRevision = s.observed[len(s.observed)-1]
+	}
+	return s.candidates, data, nil
+}
+
+func (s *hintedSource) Observe(city string, revision domain.CatalogRevision) {
+	s.observed = append(s.observed, revision)
+	s.fresh = city == "perm"
+}
+
+func TestRecomputeTellsTheSourceAboutANewerRevision(t *testing.T) {
+	base := basePlan(t)
+	req := domain.RecomputeRequest{
+		City: "perm", Timezone: "Asia/Yekaterinburg", Base: base, Constraints: dayConstraints(),
+		Trigger: domain.CancellationTrigger{VisitIDs: []domain.VisitID{base.Steps[0].VisitID}, MinCatalogRevision: 8},
+	}
+	source := &hintedSource{candidates: dayCatalog(), revision: 5}
+	res, err := newPlanner(t, source, estimated()).Recompute(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(source.observed) != 1 || source.observed[0] != 8 || res.Data.CatalogRevision != 8 {
+		t.Fatalf("observed %v, data revision %d", source.observed, res.Data.CatalogRevision)
+	}
+}
