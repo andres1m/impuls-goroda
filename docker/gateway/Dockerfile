@@ -10,6 +10,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY pkg ./pkg
+COPY proto ./proto
 COPY services/gateway ./services/gateway
 
 RUN CGO_ENABLED=1 GOOS=linux go build -tags netgo,osusergo -trimpath \

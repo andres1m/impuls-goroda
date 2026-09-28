@@ -9,6 +9,11 @@ database:
   min-conns: 0
   max-conn-lifetime: 30m
 
+optimizer-client:
+  host: optimizer
+  port: 50051
+  use_tls: false
+
 api-server:
   port: 8080
   read-timeout: 10s

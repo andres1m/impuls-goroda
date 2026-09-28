@@ -18,6 +18,7 @@ import (
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/app"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/auth"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/httpapi"
+	"github.com/andres1m/impuls-goroda/services/gateway/internal/optimizerclient"
 )
 
 const configPath = "config.yaml"
@@ -25,6 +26,7 @@ const configPath = "config.yaml"
 type appConfig struct {
 	Logger    config.Logger     `yaml:"logger"`
 	Database  config.Database   `yaml:"database"`
+	Optimizer config.GRPCClient `yaml:"optimizer-client"`
 	APIServer config.HTTPServer `yaml:"api-server"`
 	OpsServer config.HTTPServer `yaml:"ops-server"`
 	Gateway   gatewayConfig     `yaml:"gateway"`
@@ -64,9 +66,10 @@ type bucketConfig struct {
 }
 
 type infrastructureComponents struct {
-	cfg  *appConfig
-	log  *logger.Log
-	pool *db.PostgresClient
+	cfg       *appConfig
+	log       *logger.Log
+	pool      *db.PostgresClient
+	optimizer *optimizerclient.Client
 }
 
 func main() {
@@ -124,6 +127,7 @@ func run(ctx context.Context) error {
 	if err := svc.Run(ctx, infra.log.Log, []svc.Service{
 		infra.log,
 		infra.pool,
+		infra.optimizer,
 		authRuntime,
 		apiServer,
 		opsServer,
@@ -217,9 +221,10 @@ func initInfrastructure() (*infrastructureComponents, error) {
 	}
 
 	return &infrastructureComponents{
-		cfg:  &cfg,
-		log:  zapLog,
-		pool: pool,
+		cfg:       &cfg,
+		log:       zapLog,
+		pool:      pool,
+		optimizer: optimizerclient.New(zapLog.Log, cfg.Optimizer),
 	}, nil
 }
 
