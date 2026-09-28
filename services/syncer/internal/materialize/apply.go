@@ -45,6 +45,7 @@ type Raw struct {
 type Normalized struct {
 	Raw   Raw
 	Place normalize.PlaceDraft
+	Event *normalize.EventDraft
 }
 
 type Rejected struct {
@@ -83,15 +84,20 @@ type Failure struct {
 	Code        string
 }
 
-var normalizers = map[domain.SourceKey]func(externalID string, payload []byte) (normalize.PlaceDraft, error){
-	domain.OSM: normalize.OSMPlace,
+type normalizer func(city domain.City, externalID string, payload []byte, now time.Time) (normalize.Draft, error)
+
+var normalizers = map[domain.SourceKey]normalizer{
+	domain.OSM: func(_ domain.City, externalID string, payload []byte, _ time.Time) (normalize.Draft, error) {
+		place, err := normalize.OSMPlace(externalID, payload)
+		return normalize.Draft{Place: place}, err
+	},
 }
 
 // Prepare sorts a batch without touching the database; records of sources without a normalizer
 // yet stay pending and are only counted.
-func Prepare(raws []Raw) (o Outcome, deferred []Raw) {
+func Prepare(city domain.City, raws []Raw, now time.Time) (o Outcome, deferred []Raw) {
 	for _, r := range raws {
-		normalizer, known := normalizers[r.Source]
+		normalizeRecord, known := normalizers[r.Source]
 		switch {
 		case !r.Latest:
 			o.Superseded = append(o.Superseded, r)
@@ -100,13 +106,13 @@ func Prepare(raws []Raw) (o Outcome, deferred []Raw) {
 		case !known:
 			deferred = append(deferred, r)
 		default:
-			place, err := normalizer(r.ExternalID, r.Payload)
+			draft, err := normalizeRecord(city, r.ExternalID, r.Payload, now)
 			var bad *normalize.DataError
 			if errors.As(err, &bad) {
 				o.Failed = append(o.Failed, Rejected{r, bad.Code})
 				continue
 			}
-			o.Apply = append(o.Apply, Normalized{r, place})
+			o.Apply = append(o.Apply, Normalized{Raw: r, Place: draft.Place, Event: draft.Event})
 		}
 	}
 	return o, deferred
@@ -119,13 +125,14 @@ func Apply(ctx context.Context, s Store, city domain.City, ids []string, now fun
 	if err != nil {
 		return Result{}, fmt.Errorf("read pending batch: %w", err)
 	}
-	o, deferred := Prepare(raws)
+	at := now().UTC()
+	o, deferred := Prepare(city, raws, at)
 	res := Result{Deferred: len(deferred)}
 	count(o, deferred)
 	if o.empty() {
 		return res, nil
 	}
-	revision, published, err := s.Publish(ctx, city, o, now().UTC())
+	revision, published, err := s.Publish(ctx, city, o, at)
 	if err != nil {
 		return Result{}, fmt.Errorf("publish batch: %w", err)
 	}
