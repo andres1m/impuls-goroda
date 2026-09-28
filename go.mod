@@ -13,6 +13,7 @@ require (
 	github.com/twmb/franz-go v1.22.1
 	github.com/twmb/franz-go/pkg/kadm v1.19.0
 	github.com/uber/h3-go/v4 v4.5.0
+	go.temporal.io/api v1.63.6
 	go.temporal.io/sdk v1.49.0
 	go.uber.org/zap v1.28.0
 	golang.org/x/sync v0.23.0
@@ -51,7 +52,6 @@ require (
 	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/stretchr/testify v1.12.1 // indirect
 	github.com/twmb/franz-go/pkg/kmsg v1.14.0 // indirect
-	go.temporal.io/api v1.63.6 // indirect
 	go.uber.org/atomic v1.12.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
