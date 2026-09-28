@@ -29,6 +29,8 @@ type Problem struct {
 	Scenic Scenic
 	// Pace of the day; the zero value sets no norm, limit or rest.
 	Load LoadProfile
+	// Visits made since the last rest before Start; they count towards the first rest of the run.
+	VisitsSinceRest int
 }
 
 func (p Problem) Validate() error {

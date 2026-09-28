@@ -142,6 +142,8 @@ func (p *Planner) assemble(req domain.OptimizeRequest, policy pricing.Policy, r 
 	return plan, in, nil
 }
 
+const restBreak = "REST_BREAK"
+
 // restStep is the free time a rest keeps; the caller places it in the plan.
 func restStep(id domain.VisitID, x domain.Rest) domain.Step {
 	return domain.Step{
@@ -149,10 +151,14 @@ func restStep(id domain.VisitID, x domain.Rest) domain.Step {
 		ArrivalAt: x.StartAt, VisitStartAt: x.StartAt, VisitEndAt: x.EndAt, DepartureAt: x.EndAt,
 		Participation: domain.Participation{Status: domain.ParticipationNotRequired, Evidence: domain.EvidenceNone},
 		AppliedConstraints: []domain.AppliedConstraint{{
-			Code: "REST_BREAK", Strength: domain.StrengthSoft, Outcome: domain.OutcomeSatisfied,
+			Code: restBreak, Strength: domain.StrengthSoft, Outcome: domain.OutcomeSatisfied,
 			Message: "A short rest keeps the day at the chosen pace",
 		}},
 	}
+}
+
+func isRestStep(s domain.Step) bool {
+	return s.Kind == domain.StepFreeTime && slices.ContainsFunc(s.AppliedConstraints, func(c domain.AppliedConstraint) bool { return c.Code == restBreak })
 }
 
 // leg joins two stops; a nil visit is the origin before the first stop or the destination after the last.

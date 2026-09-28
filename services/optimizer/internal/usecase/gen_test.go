@@ -185,7 +185,7 @@ func generate(seed uint64) genCase {
 	if r.IntN(5) == 0 {
 		provider = &fakeProvider{transit: baseline(), degraded: true}
 	}
-	// Drawn last, so every seed keeps the problem it had before paces were added.
+	// Drawn last, so the pace never changes the rest of the problem a seed generates.
 	req.Constraints.LoadProfile = []string{"relaxed", "moderate", "intense"}[r.IntN(3)]
 	return genCase{req: req, pool: pool, provider: provider}
 }

@@ -79,3 +79,94 @@ func TestNoRestsWithoutAProfile(t *testing.T) {
 		t.Fatalf("rests %+v", b.Rests)
 	}
 }
+
+// halfHour is a place whose visit always lasts half an hour, so the day's timeline is known in advance.
+func halfHour(id byte, category domain.Category, location domain.Coordinate) domain.Candidate {
+	c := place(id, category, 0, location)
+	c.Window.MinDuration, c.Window.RecommendedDuration = 30*time.Minute, 30*time.Minute
+	return c
+}
+
+// requireFreeSkip checks the rested search keeps three visits without the rest and scores as if no rest was asked for.
+func requireFreeSkip(t *testing.T, rested, unrested Problem, pool []domain.Candidate) {
+	t.Helper()
+	b := search(t, wide, rested, pool)[0]
+	if len(b.Visits) != 3 || len(b.Rests) != 0 {
+		t.Fatalf("visits %v rests %+v", placeIDs(b), b.Rests)
+	}
+	if skipped := search(t, wide, unrested, pool)[0].Score - b.Score; math.Abs(skipped) > 1e-9 {
+		t.Fatalf("skipping a rest that does not fit cost %v", skipped)
+	}
+}
+
+func TestRestYieldsToTheWayToTheDestination(t *testing.T) {
+	first := halfHour(1, domain.CategoryCulture, north(origin, 100))
+	second := halfHour(2, domain.CategoryWalk, north(origin, 200))
+	// The last stop is at the destination and far from the second one.
+	dest := north(origin, 2200)
+	pool := []domain.Candidate{first, second, halfHour(3, domain.CategorySport, dest)}
+	unrested := problem()
+	unrested.Destination = &dest
+	day := search(t, wide, unrested, pool)[0]
+	if len(day.Visits) != 3 {
+		t.Fatalf("visits %v", placeIDs(day))
+	}
+	// The day ends as soon as the three visits and the way to the destination are done.
+	unrested.End = day.Visits[2].EndAt.Add(day.Finish.Duration)
+	rested := unrested
+	rested.Load = LoadProfile{RestEvery: 2, Rest: 45 * time.Minute}
+	restEnd := day.Visits[1].EndAt.Add(rested.Load.Rest)
+	if restEnd.After(unrested.End) {
+		t.Fatal("the rest itself must fit into the day, or the destination check is never reached")
+	}
+	requireFreeSkip(t, rested, unrested, pool)
+}
+
+func TestRestYieldsToLunch(t *testing.T) {
+	pool := []domain.Candidate{
+		halfHour(1, domain.CategoryCulture, north(origin, 100)),
+		halfHour(2, domain.CategoryWalk, north(origin, 200)),
+		halfHour(3, domain.CategorySport, north(origin, 300)),
+	}
+	day := search(t, wide, problem(), pool)[0]
+	if len(day.Visits) != 3 {
+		t.Fatalf("visits %v", placeIDs(day))
+	}
+	// Lunch has to start right after the third visit, and the day ends with it.
+	lunchAt := day.Visits[2].EndAt
+	unrested := problem()
+	unrested.Lunch = &LunchSlot{Start: lunchAt, End: lunchAt.Add(45 * time.Minute), Duration: 45 * time.Minute}
+	unrested.End = unrested.Lunch.End
+	rested := unrested
+	rested.Load = LoadProfile{RestEvery: 2, Rest: 45 * time.Minute}
+	if !day.Visits[1].EndAt.Add(rested.Load.Rest).After(lunchAt) {
+		t.Fatal("the rest must push lunch past its latest start")
+	}
+	requireFreeSkip(t, rested, unrested, pool)
+}
+
+func TestVisitsBeforeTheRunCountTowardsTheFirstRest(t *testing.T) {
+	var pool []domain.Candidate
+	for i := byte(1); i <= 3; i++ {
+		pool = append(pool, halfHour(i, []domain.Category{domain.CategoryCulture, domain.CategoryWalk, domain.CategorySport}[i-1], north(origin, float64(i)*100)))
+	}
+	p := restProblem()
+	p.VisitsSinceRest = 1
+	b := search(t, wide, p, pool)[0]
+	if len(b.Visits) != 3 || len(b.Rests) != 1 || b.Rests[0].At != 1 {
+		t.Fatalf("visits %v rests %+v", placeIDs(b), b.Rests)
+	}
+}
+
+func TestRestDueBeforeTheFirstVisitOfTheRun(t *testing.T) {
+	var pool []domain.Candidate
+	for i := byte(1); i <= 3; i++ {
+		pool = append(pool, halfHour(i, []domain.Category{domain.CategoryCulture, domain.CategoryWalk, domain.CategorySport}[i-1], north(origin, float64(i)*100)))
+	}
+	p := restProblem()
+	p.VisitsSinceRest = 2
+	b := search(t, wide, p, pool)[0]
+	if len(b.Visits) != 3 || len(b.Rests) == 0 || b.Rests[0].At != 0 || !b.Rests[0].StartAt.Equal(p.Start) {
+		t.Fatalf("visits %v rests %+v", placeIDs(b), b.Rests)
+	}
+}

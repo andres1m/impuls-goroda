@@ -12,6 +12,18 @@ func isRest(s domain.Step) bool {
 	return s.Kind == domain.StepFreeTime && slices.ContainsFunc(s.AppliedConstraints, func(c domain.AppliedConstraint) bool { return c.Code == "REST_BREAK" })
 }
 
+func stepKinds(steps []domain.Step) []string {
+	var kinds []string
+	for _, s := range steps {
+		kind := string(s.Kind)
+		if isRest(s) {
+			kind = "rest"
+		}
+		kinds = append(kinds, kind)
+	}
+	return kinds
+}
+
 func TestRelaxedPlanShowsRestSteps(t *testing.T) {
 	var pool []domain.Candidate
 	for i := byte(1); i <= 6; i++ {
@@ -91,5 +103,63 @@ func TestRecomputeFillKeepsRests(t *testing.T) {
 	}
 	if steps[i].VisitEndAt.Sub(steps[i].VisitStartAt) != 15*time.Minute || steps[i].VisitStartAt.Before(steps[i-1].VisitEndAt) || steps[i+1].ArrivalAt.Before(steps[i].VisitEndAt) {
 		t.Fatalf("rest %d of %+v", i, steps)
+	}
+}
+
+// Replacements keep the rhythm of the day: a relaxed visit before the freed slot counts towards their first rest.
+func TestRecomputeFillCountsVisitsBeforeTheGapTowardsRest(t *testing.T) {
+	museum := place(1, domain.CategoryCulture, north(origin, 100))
+	park := place(2, domain.CategoryWalk, north(origin, 200))
+	relaxed := func(r *domain.OptimizeRequest) { r.Constraints.LoadProfile = "relaxed" }
+	base := optimize(t, []domain.Candidate{museum, park}, estimated(), relaxed).Routes[0]
+	if len(base.Steps) != 2 || slices.ContainsFunc(base.Steps, isRest) {
+		t.Fatalf("base steps %+v", base.Steps)
+	}
+	catalog := []domain.Candidate{museum, park}
+	for i := byte(3); i <= 7; i++ {
+		catalog = append(catalog, place(i, genCategories[int(i)%(len(genCategories)-1)], north(origin, float64(i)*90)))
+	}
+	req := request()
+	relaxed(&req)
+	res := recomputeRequest(t, catalog, domain.RecomputeRequest{
+		City: "perm", Timezone: "Asia/Yekaterinburg", Base: base, Constraints: req.Constraints,
+		Trigger: domain.RemovalTrigger{VisitID: base.Steps[1].VisitID, Mode: domain.RemovalRebuild},
+	})
+	if res.Candidate == nil {
+		t.Fatalf("status %s", res.Status)
+	}
+	kinds := stepKinds(res.Candidate.Steps)
+	// The kept visit and the first replacement make two, so the rest comes right after that replacement.
+	if want := []string{"visit", "visit", "rest", "visit"}; !slices.Equal(kinds, want) {
+		t.Fatalf("steps %v, want %v", kinds, want)
+	}
+}
+
+// Two visits before the freed slot already make a relaxed cycle, so its replacements start with a rest.
+func TestRecomputeFillStartsWithADueRest(t *testing.T) {
+	var kept []domain.Candidate
+	for i := byte(1); i <= 3; i++ {
+		kept = append(kept, place(i, genCategories[int(i)%(len(genCategories)-1)], north(origin, float64(i)*100)))
+	}
+	base := optimize(t, kept, estimated(), func(*domain.OptimizeRequest) {}).Routes[0]
+	if len(base.Steps) != 3 {
+		t.Fatalf("base has %d steps", len(base.Steps))
+	}
+	catalog := slices.Clone(kept)
+	for i := byte(4); i <= 8; i++ {
+		catalog = append(catalog, place(i, genCategories[int(i)%(len(genCategories)-1)], north(origin, float64(i)*90)))
+	}
+	req := request()
+	req.Constraints.LoadProfile = "relaxed"
+	res := recomputeRequest(t, catalog, domain.RecomputeRequest{
+		City: "perm", Timezone: "Asia/Yekaterinburg", Base: base, Constraints: req.Constraints,
+		Trigger: domain.RemovalTrigger{VisitID: base.Steps[2].VisitID, Mode: domain.RemovalRebuild},
+	})
+	if res.Candidate == nil {
+		t.Fatalf("status %s", res.Status)
+	}
+	steps := res.Candidate.Steps
+	if len(steps) < 4 || isRest(steps[1]) || !isRest(steps[2]) || steps[3].Kind != domain.StepVisit {
+		t.Fatalf("steps %v, want two kept visits, a rest and replacements", stepKinds(steps))
 	}
 }

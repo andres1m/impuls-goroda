@@ -228,9 +228,10 @@ func (r searchRun) visit(parent *domain.Branch, i int, departAt time.Time) (*dom
 // restFits tells whether the branch can pause for the rest and still keep its commitments, its lunch
 // and the way to the destination.
 func (r searchRun) restFits(parent *domain.Branch, rest domain.Rest) bool {
-	rested := parent.Clone()
+	// The checks only read the branch, so a shallow copy is enough.
+	rested := *parent
 	rested.Now = rest.EndAt
-	if !r.anchorsReachable(rested) || !r.lunchStillFits(rested) {
+	if !r.anchorsReachable(&rested) || !r.lunchStillFits(&rested) {
 		return false
 	}
 	if r.problem.Destination == nil {
@@ -244,7 +245,8 @@ func (r searchRun) restFits(parent *domain.Branch, rest domain.Rest) bool {
 func (r searchRun) restDue(b *domain.Branch) (domain.Rest, bool) {
 	l := r.problem.Load
 	n := len(b.Visits)
-	if l.RestEvery == 0 || l.Rest == 0 || n == 0 || n%l.RestEvery != 0 || slices.ContainsFunc(b.Rests, func(x domain.Rest) bool { return x.At == n }) {
+	since := r.problem.VisitsSinceRest + n
+	if l.RestEvery == 0 || l.Rest == 0 || since == 0 || since%l.RestEvery != 0 || slices.ContainsFunc(b.Rests, func(x domain.Rest) bool { return x.At == n }) {
 		return domain.Rest{}, false
 	}
 	return domain.Rest{At: n, StartAt: b.Now, EndAt: b.Now.Add(l.Rest)}, true
@@ -283,7 +285,8 @@ func (r searchRun) finish(c *domain.Candidate, departAt time.Time) (domain.Trans
 	return r.transit.Estimate(c.Place.Location, *r.problem.Destination, departAt, r.problem.Modes)
 }
 
-// extend adds the visit; an exempt visit, a commitment or a lunch, never counts against the pace's norm.
+// extend adds the visit. Every visit but a lunch venue counts towards the pace's norm; an exempt one, a
+// commitment or a lunch, is never charged for going over it.
 func (r searchRun) extend(parent *domain.Branch, visit domain.SearchVisit, finish *domain.TransitEstimate, utility float64, quote pricing.Quote, exempt bool) *domain.Branch {
 	child := parent.Clone()
 	c := visit.Candidate
@@ -296,11 +299,11 @@ func (r searchRun) extend(parent *domain.Branch, visit domain.SearchVisit, finis
 		child.WalkMinutes += visit.Transit.Duration.Minutes()
 	}
 	child.Score += r.walkPenalty(parent) - r.walkPenalty(child)
-	chosen := len(child.Visits)
+	counted := len(child.Visits)
 	if child.Lunch != nil && child.Lunch.Venue {
-		chosen--
+		counted--
 	}
-	if r.visitNorm > 0 && chosen >= r.visitNorm && !exempt {
+	if r.visitNorm > 0 && counted >= r.visitNorm && !exempt {
 		child.Score -= r.problem.Load.OverVisitWeight
 	}
 	if upper, known := quote.Price.UpperBound(); known {

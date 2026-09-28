@@ -79,6 +79,7 @@ func (w *rework) fill(ctx context.Context, s *solver.Solver, transit solver.Tran
 	}
 	gap := problem
 	gap.Anchors, gap.Start, gap.Origin = nil, w.start, w.position
+	gap.VisitsSinceRest = visitsSinceRest(w.history, entries[:next])
 	if next > 0 {
 		gap.Start, gap.Origin = entries[next-1].step.DepartureAt, entries[next-1].location
 	}
@@ -401,4 +402,22 @@ func (w *rework) removedPlaces() []domain.PlaceID {
 		}
 	}
 	return places
+}
+
+// visitsSinceRest counts the visits of the day after its last rest; a lunch pause is not a rest.
+func visitsSinceRest(history []domain.Step, entries []entry) int {
+	steps := slices.Clone(history)
+	for _, e := range entries {
+		steps = append(steps, e.step)
+	}
+	n := 0
+	for _, s := range slices.Backward(steps) {
+		if isRestStep(s) {
+			break
+		}
+		if s.Kind == domain.StepVisit {
+			n++
+		}
+	}
+	return n
 }

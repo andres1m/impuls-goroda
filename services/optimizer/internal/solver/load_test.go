@@ -190,3 +190,15 @@ func TestLunchVenueIsNotChargedAgainstTheNorm(t *testing.T) {
 		t.Fatalf("the lunch venue was charged as a visit over the norm: score %v", b.Score)
 	}
 }
+
+func TestLunchVenueDoesNotCountTowardsTheNormOfLaterVisits(t *testing.T) {
+	museum := place(1, domain.CategoryCulture, 0, north(origin, 100))
+	gallery := place(3, domain.CategoryTourism, 0, north(origin, 300))
+	p := lunchProblem(at(12, 0), at(16, 0))
+	// Two visits in four hours: the museum and the gallery; lunch at the cafe is not one of them.
+	p.Load = LoadProfile{VisitHours: 2, OverVisitWeight: 1000}
+	b := search(t, wide, p, []domain.Candidate{museum, cafe(2, north(origin, 200)), gallery})[0]
+	if b.Lunch == nil || !b.Lunch.Venue || len(b.Visits) != 3 || b.Score < 0 {
+		t.Fatalf("visits %v lunch %+v score %v", placeIDs(b), b.Lunch, b.Score)
+	}
+}
