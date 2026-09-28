@@ -41,6 +41,10 @@ type fakeLoader struct {
 	loads     []time.Time
 	byID      [][]domain.SessionID
 	loadDelay time.Duration
+	// A load of the held revision waits until hold is closed.
+	held    domain.CatalogRevision
+	hold    chan struct{}
+	holding bool
 }
 
 func (l *fakeLoader) Revision(context.Context, string) (domain.CatalogRevision, error) {
@@ -53,12 +57,40 @@ func (l *fakeLoader) Revision(context.Context, string) (domain.CatalogRevision, 
 func (l *fakeLoader) LoadSlice(_ context.Context, _ string, horizon time.Time) (*catalogslice.Slice, error) {
 	time.Sleep(l.loadDelay)
 	l.mu.Lock()
+	revision, held, hold := l.revision, l.held, l.hold
+	l.mu.Unlock()
+	if hold != nil && revision == held {
+		l.mu.Lock()
+		l.holding = true
+		l.mu.Unlock()
+		<-hold
+	}
+	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.loads = append(l.loads, horizon)
 	if l.loadErr != nil {
 		return nil, l.loadErr
 	}
-	return sliceAt(l.revision, horizon), nil
+	return sliceAt(revision, horizon), nil
+}
+
+// waitHeld returns once a load of the held revision is waiting.
+func (l *fakeLoader) waitHeld() {
+	for {
+		l.mu.Lock()
+		holding := l.holding
+		l.mu.Unlock()
+		if holding {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func (l *fakeLoader) setRevision(revision domain.CatalogRevision) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.revision = revision
 }
 
 func (l *fakeLoader) SessionsByID(_ context.Context, _ *catalogslice.Slice, ids []domain.SessionID) ([]domain.Candidate, error) {
@@ -308,5 +340,79 @@ func TestInvalidRequest(t *testing.T) {
 func TestNewRejectsInvalidConfig(t *testing.T) {
 	if _, err := New(Config{L1MaxBytes: -1}, &fakeLoader{}, &fakeStore{}, zap.NewNop()); err == nil {
 		t.Fatal("accepted")
+	}
+}
+
+func TestNewerRevisionDoesNotWaitForAnOlderBuild(t *testing.T) {
+	loader := &fakeLoader{revision: 3, held: 3, hold: make(chan struct{})}
+	c := newCache(t, loader, &fakeStore{})
+	older := make(chan error, 1)
+	go func() {
+		_, _, err := c.Candidates(context.Background(), request())
+		older <- err
+	}()
+	loader.waitHeld()
+	loader.setRevision(4)
+	newer := make(chan domain.DataFreshness, 1)
+	go func() { newer <- candidates(t, c) }()
+	select {
+	case data := <-newer:
+		if data.CatalogRevision != 4 {
+			t.Fatalf("revision %d", data.CatalogRevision)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the request for revision 4 waited for the build of revision 3")
+	}
+	close(loader.hold)
+	if err := <-older; err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := c.l1.Get("perm"); s.Revision != 4 {
+		t.Fatalf("memory holds revision %d after the older build finished", s.Revision)
+	}
+}
+
+func TestMemoryKeepsOnlyNewerSlices(t *testing.T) {
+	c := newCache(t, &fakeLoader{}, &fakeStore{})
+	c.keep(sliceAt(4, now))
+	c.keep(sliceAt(3, now))
+	if s, ok := c.l1.Get("perm"); !ok || s.Revision != 4 {
+		t.Fatalf("memory holds %+v", s)
+	}
+}
+
+func TestGoneCityIsForgotten(t *testing.T) {
+	loader := &fakeLoader{revision: 3}
+	c := newCache(t, loader, &fakeStore{})
+	candidates(t, c)
+	loader.mu.Lock()
+	loader.revErr = usecase.ErrCatalogNotReady
+	loader.mu.Unlock()
+	if err := c.Reconcile(context.Background()); err != nil {
+		t.Fatalf("a city gone from the catalog fails reconciling: %v", err)
+	}
+	if _, ok := c.l1.Get("perm"); ok {
+		t.Fatal("the gone city stays in memory")
+	}
+	c.SetHealthy(true)
+	if _, _, err := c.Candidates(context.Background(), request()); !errors.Is(err, usecase.ErrCatalogNotReady) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestBuildFinishingAfterCloseIsDropped(t *testing.T) {
+	loader := &fakeLoader{revision: 3, held: 3, hold: make(chan struct{})}
+	c := newCache(t, loader, &fakeStore{})
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := c.Candidates(context.Background(), request())
+		done <- err
+	}()
+	loader.waitHeld()
+	c.Close()
+	close(loader.hold)
+	<-done
+	if _, ok := c.l1.Get("perm"); ok {
+		t.Fatal("a closed cache keeps a slice")
 	}
 }

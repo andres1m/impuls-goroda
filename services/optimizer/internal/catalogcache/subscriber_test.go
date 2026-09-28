@@ -10,6 +10,8 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 type timeoutError struct{}
@@ -72,6 +74,12 @@ func message(payload string) reply {
 // run plays the scripts, one per connection, and reports whether the cache was healthy after each reply.
 func run(t *testing.T, c *Cache, scripts ...*scriptedPubSub) []bool {
 	t.Helper()
+	return runLogged(t, c, zap.NewNop(), nil, scripts...)
+}
+
+// runLogged also calls tick after every reply.
+func runLogged(t *testing.T, c *Cache, log *zap.Logger, tick func(), scripts ...*scriptedPubSub) []bool {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var health []bool
@@ -86,8 +94,13 @@ func run(t *testing.T, c *Cache, scripts ...*scriptedPubSub) []bool {
 		}
 		return p
 	}
-	s := NewSubscriber(c, open, zap.NewNop())
-	s.afterReply = func() { health = append(health, c.healthy.Load()) }
+	s := NewSubscriber(c, open, log)
+	s.afterReply = func() {
+		health = append(health, c.healthy.Load())
+		if tick != nil {
+			tick()
+		}
+	}
 	s.pause = func(context.Context, time.Duration) {}
 	if err := s.Run(ctx); err != nil {
 		t.Fatal(err)
@@ -187,5 +200,71 @@ func TestHealthySubscriptionReconcilesPeriodically(t *testing.T) {
 	// One read to build the slice, one on subscribing, one when the minute since then has passed.
 	if revisions, _ := loader.calls(); revisions != 3 {
 		t.Fatalf("%d revision reads", revisions)
+	}
+}
+
+func newClockedCache(t *testing.T, loader Loader, clock *time.Time) *Cache {
+	t.Helper()
+	c, err := New(Config{}, loader, &fakeStore{}, zap.NewNop(), WithClock(func() time.Time { return *clock }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(c.Close)
+	return c
+}
+
+func TestReadErrorOpensANewConnection(t *testing.T) {
+	c := newCache(t, &fakeLoader{revision: 3}, &fakeStore{})
+	first := &scriptedPubSub{replies: []reply{subscribed(), {err: errors.New("connection reset")}}}
+	second := &scriptedPubSub{replies: []reply{subscribed()}}
+	health := run(t, c, first, second)
+	if !first.closed || len(health) != 3 || !health[0] || health[1] || !health[2] {
+		t.Fatalf("closed %v, health %v", first.closed, health)
+	}
+}
+
+func TestSilentConnectionIsDropped(t *testing.T) {
+	clock := now
+	c := newClockedCache(t, &fakeLoader{revision: 3}, &clock)
+	first := &scriptedPubSub{replies: []reply{subscribed(), {err: timeoutError{}}, {err: timeoutError{}}, {err: timeoutError{}}}}
+	second := &scriptedPubSub{replies: []reply{subscribed()}}
+	health := runLogged(t, c, zap.NewNop(), func() { clock = clock.Add(6 * time.Second) }, first, second)
+	// Pinged at 6 and 12 seconds without a reply; at 18 the connection has been silent too long.
+	if first.pings != 2 || !first.closed || len(health) != 5 || !health[2] || health[3] || !health[4] {
+		t.Fatalf("pings %d, closed %v, health %v", first.pings, first.closed, health)
+	}
+}
+
+func TestFailedReconcileIsRetriedBeforeTheNextPeriod(t *testing.T) {
+	clock := now
+	loader := &fakeLoader{revision: 3}
+	c := newClockedCache(t, loader, &clock)
+	candidates(t, c)
+	loader.revErr = errors.New("db down")
+	ps := &scriptedPubSub{replies: []reply{subscribed(), {msg: &goredis.Pong{}}, {msg: &goredis.Pong{}}}}
+	health := runLogged(t, c, zap.NewNop(), func() {
+		clock = clock.Add(6 * time.Second)
+		loader.mu.Lock()
+		loader.revErr = nil
+		loader.mu.Unlock()
+	}, ps)
+	if len(health) != 3 || health[0] || !health[1] || !health[2] {
+		t.Fatalf("health %v", health)
+	}
+}
+
+func TestRepeatedFailuresWarnOnce(t *testing.T) {
+	core, logs := observer.New(zapcore.InfoLevel)
+	c := newCache(t, &fakeLoader{revision: 3}, &fakeStore{})
+	down := errors.New("connection refused")
+	script := &scriptedPubSub{replies: []reply{{err: down}, {err: down}, {err: down}, subscribed(), {err: down}}}
+	runLogged(t, c, zap.New(core), nil, script)
+	var levels []zapcore.Level
+	for _, e := range logs.All() {
+		levels = append(levels, e.Level)
+	}
+	want := []zapcore.Level{zapcore.WarnLevel, zapcore.InfoLevel, zapcore.WarnLevel}
+	if len(levels) != len(want) || levels[0] != want[0] || levels[1] != want[1] || levels[2] != want[2] {
+		t.Fatalf("log levels %v", levels)
 	}
 }
