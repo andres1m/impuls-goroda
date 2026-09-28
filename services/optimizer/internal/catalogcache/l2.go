@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/gob"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,7 +18,7 @@ import (
 )
 
 // keyPrefix names the slice format; a change that old instances cannot read needs a new version.
-const keyPrefix = "optimizer:slice:v1:"
+const keyPrefix = "optimizer:slice:v2:"
 
 func key(city string, revision domain.CatalogRevision) string {
 	return keyPrefix + city + ":" + strconv.FormatInt(int64(revision), 10)
@@ -68,10 +68,11 @@ func (r *RedisStore) Put(ctx context.Context, s *catalogslice.Slice) error {
 	return client.Set(ctx, key(s.City, s.Revision), data, r.ttl).Err()
 }
 
+// JSON keeps what gob loses: a pointer to zero and an empty list stay as they were, not nil.
 func encode(s *catalogslice.Slice) ([]byte, error) {
 	var buf bytes.Buffer
 	zw := gzip.NewWriter(&buf)
-	if err := gob.NewEncoder(zw).Encode(s); err != nil {
+	if err := json.NewEncoder(zw).Encode(s); err != nil {
 		return nil, fmt.Errorf("encode catalog slice: %w", err)
 	}
 	if err := zw.Close(); err != nil {
@@ -86,24 +87,11 @@ func decode(data []byte) (*catalogslice.Slice, error) {
 		return nil, fmt.Errorf("decompress catalog slice: %w", err)
 	}
 	var s catalogslice.Slice
-	if err := gob.NewDecoder(zr).Decode(&s); err != nil {
+	if err := json.NewDecoder(zr).Decode(&s); err != nil {
 		return nil, fmt.Errorf("decode catalog slice: %w", err)
 	}
 	if _, err := io.Copy(io.Discard, zr); err != nil {
 		return nil, fmt.Errorf("decompress catalog slice: %w", err)
 	}
-	for i := range s.Places {
-		restoreClosedDays(s.Places[i].Rules.Weekly)
-	}
 	return &s, nil
-}
-
-// restoreClosedDays undoes gob turning a day without hours into nil, which the rules read as a
-// missing day.
-func restoreClosedDays(weekly map[string][]domain.OpeningHours) {
-	for day, hours := range weekly {
-		if hours == nil {
-			weekly[day] = []domain.OpeningHours{}
-		}
-	}
 }
