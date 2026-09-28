@@ -35,6 +35,7 @@ go.work.sum
 .env.*
 !.env.example
 config.local.yaml
+docker/caddy/config.json
 *.log
 coverage.out
 /bin/

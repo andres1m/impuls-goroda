@@ -224,6 +224,8 @@ services:
       <<: *service-env
       MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:?set MAX_BOT_TOKEN in .env}
       MAX_WEBHOOK_SECRET: ${MAX_WEBHOOK_SECRET:?set MAX_WEBHOOK_SECRET in .env}
+      MAX_BOT_USERNAME: ${MAX_BOT_USERNAME:-}
+      TWO_GIS_API_KEY: ${TWO_GIS_API_KEY:-}
     volumes:
       - ./docker/gateway/config.yaml:/app/config.yaml:ro
     healthcheck: &service-healthcheck
@@ -377,6 +379,24 @@ services:
     networks: [edge]
     restart: unless-stopped
 
+  public-web:
+    profiles: [public]
+    image: caddy:2.11.4-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./docker/caddy/config.json:/srv/config/config.json:ro
+      - ${WEB_DIST_DIR:-./web/dist}:/srv/web:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      edge:
+        condition: service_healthy
+    networks: [edge]
+    restart: unless-stopped
+
   prometheus:
     image: prom/prometheus:v3.15.0
     ports:
@@ -416,6 +436,8 @@ networks:
     internal: true
 
 volumes:
+  caddy-data:
+  caddy-config:
   postgres-data:
   redis-1-data:
   redis-2-data:

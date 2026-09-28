@@ -38,7 +38,7 @@ gateway:
     cleanup-interval: 10m
     cleanup-batch-size: 1000
   cors:
-    allowed-origin: https://impuls-goroda.github.io
+    allowed-origin: https://impulsgoroda.duckdns.org
   rate-limit:
     anonymous:
       requests-per-minute: 30
