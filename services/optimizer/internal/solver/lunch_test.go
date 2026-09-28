@@ -208,3 +208,66 @@ func TestSearchVisitsLunchVenuesOnlyForLunch(t *testing.T) {
 		}
 	}
 }
+
+func cafeWithoutHours(id byte, location domain.Coordinate) domain.Candidate {
+	c := cafe(id, location)
+	c.Window.HoursUnknown = true
+	return c
+}
+
+// lunchPlaces lists the places every route has lunch at; a pause shows as zero.
+func lunchPlaces(routes []*domain.Branch) map[byte]bool {
+	out := make(map[byte]bool)
+	for _, r := range routes {
+		if r.Lunch == nil || !r.Lunch.Venue {
+			out[0] = true
+			continue
+		}
+		out[r.Visits[r.Lunch.At].Candidate.Place.ID[0]] = true
+	}
+	return out
+}
+
+func TestSearchLunchAtVenueWithUnknownHoursWhenAloneInRing(t *testing.T) {
+	p := lunchProblem(at(13, 0), at(14, 0))
+	routes := search(t, wide, p, []domain.Candidate{cafeWithoutHours(1, north(origin, 200))})
+	requireLunch(t, p, routes)
+	if got := lunchPlaces(routes); len(got) != 1 || !got[1] {
+		t.Fatalf("lunch places %v", got)
+	}
+}
+
+func TestSearchPrefersKnownHoursInTheSameRing(t *testing.T) {
+	unknown := cafeWithoutHours(1, north(origin, 200))
+	unknown.BaseScore = 100
+	p := lunchProblem(at(13, 0), at(14, 0))
+	routes := search(t, wide, p, []domain.Candidate{unknown, cafe(2, north(origin, 250))})
+	requireLunch(t, p, routes)
+	if got := lunchPlaces(routes); len(got) != 1 || !got[2] {
+		t.Fatalf("lunch places %v", got)
+	}
+}
+
+func TestSearchKeepsNearestRingOverKnownHours(t *testing.T) {
+	p := lunchProblem(at(13, 0), at(14, 0))
+	routes := search(t, wide, p, []domain.Candidate{cafeWithoutHours(1, north(origin, 200)), cafe(2, north(origin, 700))})
+	requireLunch(t, p, routes)
+	if got := lunchPlaces(routes); len(got) != 1 || !got[1] {
+		t.Fatalf("lunch places %v", got)
+	}
+}
+
+func TestSearchNeverVisitsVenueWithUnknownHoursWithoutLunch(t *testing.T) {
+	p := problem()
+	routes := search(t, wide, p, []domain.Candidate{cafeWithoutHours(1, north(origin, 200)), place(9, domain.CategoryCulture, 0, north(origin, 400))})
+	for _, r := range routes {
+		for _, v := range r.Visits {
+			if v.Candidate.Place.ID[0] == 1 {
+				t.Fatalf("route %v visits a place with unknown hours", placeIDs(r))
+			}
+		}
+	}
+	if len(routes) == 0 {
+		t.Fatal("no routes")
+	}
+}

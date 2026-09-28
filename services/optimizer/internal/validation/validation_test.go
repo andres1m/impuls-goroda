@@ -37,6 +37,13 @@ func TestAllowedVariationsPass(t *testing.T) {
 			c.Window.MinDuration = 80 * time.Minute
 			in.Candidates[concertVisit] = c
 		},
+		"lunch at a place with unknown hours": func(p *domain.Plan, in *Input) {
+			c := in.Candidates[museumVisit]
+			c.Window.HoursUnknown = true
+			in.Candidates[museumVisit] = c
+			p.Steps[0].AppliedConstraints = append(p.Steps[0].AppliedConstraints, domain.AppliedConstraint{
+				Code: "LUNCH_WINDOW", Strength: domain.StrengthSoft, Outcome: domain.OutcomeSatisfied, Message: "Lunch"})
+		},
 		"accepted unknown price under a strict budget": func(p *domain.Plan, in *Input) {
 			in.Constraints.Budget = domain.Budget{Mode: domain.BudgetStrict, Limit: ptr(rub(60000))}
 			in.Constraints.AcceptedUnknowns = []string{domain.AcceptUnknownPrice}
@@ -158,6 +165,11 @@ func TestEveryRuleCatchesItsViolation(t *testing.T) {
 	}{
 		{"missing visit obligation", "OBLIGATION_MISSING", func(_ *domain.Plan, in *Input) {
 			in.Constraints.Obligations = []domain.Obligation{{VisitID: &domain.VisitID{8}, Participation: domain.ParticipationActionRequired}}
+		}},
+		{"place with unknown hours visited outside lunch", "OPENING_HOURS_UNKNOWN_VISIT", func(_ *domain.Plan, in *Input) {
+			c := in.Candidates[museumVisit]
+			c.Window.HoursUnknown = true
+			in.Candidates[museumVisit] = c
 		}},
 		{"malformed plan", "PLAN_MALFORMED", func(p *domain.Plan, _ *Input) { p.Steps[0].Position = 5 }},
 		{"step without a candidate", "STEP_WITHOUT_CANDIDATE", func(_ *domain.Plan, in *Input) { delete(in.Candidates, museumVisit) }},

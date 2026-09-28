@@ -112,6 +112,12 @@ func (p *Planner) assemble(req domain.OptimizeRequest, policy pricing.Policy, r 
 				Code: "LUNCH_WINDOW", Strength: domain.StrengthSoft, Outcome: domain.OutcomeSatisfied,
 				Message: "Lunch at a place to eat near the route",
 			})
+			if c.Window.HoursUnknown {
+				plan.Warnings = append(plan.Warnings, domain.Warning{
+					Code: "OPENING_HOURS_UNKNOWN", Scope: domain.ScopeVisit, VisitID: &id,
+					Message: "Opening hours of this place are unknown; check them before the visit",
+				})
+			}
 		}
 		plan.Steps = append(plan.Steps, step)
 		if costs[i].Price.Status == domain.PriceUnknown {

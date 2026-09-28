@@ -100,6 +100,10 @@ func (s *Solver) newRun(p Problem, pool []domain.Candidate) (searchRun, error) {
 			run.lunchVenues = append(run.lunchVenues, i)
 			run.lunchOnly[i] = true
 		}
+		// Assumed opening hours are good enough to suggest lunch, never to plan a visit on.
+		if pool[i].Window.HoursUnknown {
+			run.lunchOnly[i] = true
+		}
 	}
 	return run, nil
 }

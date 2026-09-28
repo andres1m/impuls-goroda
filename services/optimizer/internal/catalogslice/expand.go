@@ -27,7 +27,13 @@ func (s *Slice) Candidates(req domain.OptimizeRequest, extra []domain.Candidate)
 
 	var candidates []domain.Candidate
 	for _, p := range s.Places {
-		if p.Place.Category == nil || p.Rules.IsEmpty() {
+		if p.Place.Category == nil {
+			continue
+		}
+		if p.Rules.IsEmpty() {
+			if c, ok := unknownHours(p, start, end); ok {
+				candidates = append(candidates, c)
+			}
 			continue
 		}
 		windows, err := p.Rules.Windows(start, end, loc, domain.DefaultPlaceMinDuration, domain.DefaultPlaceRecommendedDuration)
@@ -52,6 +58,18 @@ func (s *Slice) Candidates(req domain.OptimizeRequest, extra []domain.Candidate)
 	})
 	candidates = append(candidates, sessions...)
 	return candidates, s.freshness(candidates), nil
+}
+
+// unknownHours offers a place to eat that gave no opening hours as open all day; other places
+// without hours are never visited on their own.
+func unknownHours(p Place, start, end time.Time) (domain.Candidate, bool) {
+	if *p.Place.Category != domain.CategoryGastro || end.Sub(start) < domain.DefaultPlaceMinDuration {
+		return domain.Candidate{}, false
+	}
+	return domain.Candidate{Place: p.Place, Entrances: p.Entrances, BaseScore: p.BaseScore, Window: domain.VisitWindow{
+		Kind: domain.WindowContinuous, Start: start, End: end, MinDuration: domain.DefaultPlaceMinDuration,
+		RecommendedDuration: domain.DefaultPlaceRecommendedDuration, HoursUnknown: true,
+	}}, true
 }
 
 // freshness reports the weakest data mode the candidates rely on; with none, the places'.

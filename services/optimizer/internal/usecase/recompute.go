@@ -328,6 +328,9 @@ func (w *rework) resolve(catalog []domain.Candidate) {
 		case j < 0:
 			a.gap = true
 			w.remove(a.step.VisitID, "The visit is no longer in the catalog")
+		case catalog[j].Window.HoursUnknown && !isLunch(a.step):
+			a.gap = true
+			w.remove(a.step.VisitID, "The place no longer states its opening hours")
 		case catalog[j].Session != nil && catalog[j].Session.Availability == domain.AvailabilityCancelled:
 			w.cancel(i)
 		case !a.step.Obligation && !w.committed(&a.step) && len(admissible(catalog[j:j+1], w.req.Constraints)) == 0:
@@ -338,6 +341,11 @@ func (w *rework) resolve(catalog []domain.Candidate) {
 			a.candidate = &c
 		}
 	}
+}
+
+// isLunch is true for the step that holds the route's lunch; only lunch may rest on assumed hours.
+func isLunch(s domain.Step) bool {
+	return slices.ContainsFunc(s.AppliedConstraints, func(c domain.AppliedConstraint) bool { return c.Code == "LUNCH_WINDOW" })
 }
 
 func sameVisitAs(c domain.Candidate, s *domain.CatalogSnapshot) bool {

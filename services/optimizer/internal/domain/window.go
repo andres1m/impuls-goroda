@@ -23,6 +23,8 @@ type VisitWindow struct {
 	ArrivalBuffer       time.Duration
 	// Nil means the source never confirmed late entry, so it is not allowed.
 	LateEntryAllowed *bool
+	// The place gave no opening hours, so the window is assumed and the user has to check it.
+	HoursUnknown bool
 }
 
 func (w VisitWindow) Validate() error {

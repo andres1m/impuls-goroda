@@ -116,6 +116,9 @@ func (c *checker) visits() {
 		}
 		// The step's arrival is what the user sees; it is never earlier than the leg's.
 		c.timing(id, step, cand.Window, step.ArrivalAt, buffer)
+		if cand.Window.HoursUnknown && !slices.ContainsFunc(step.AppliedConstraints, func(a domain.AppliedConstraint) bool { return a.Code == "LUNCH_WINDOW" }) {
+			c.add("OPENING_HOURS_UNKNOWN_VISIT", id, "A place with unknown opening hours is visited other than for lunch")
+		}
 	}
 }
 

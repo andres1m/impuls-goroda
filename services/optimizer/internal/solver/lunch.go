@@ -57,8 +57,9 @@ func (r searchRun) lunches(parent *domain.Branch) []*domain.Branch {
 		return nil
 	}
 	type venue struct {
-		branch   *domain.Branch
-		distance float64
+		branch       *domain.Branch
+		distance     float64
+		hoursUnknown bool
 	}
 	var venues []venue
 	widest := lunchRadii[len(lunchRadii)-1]
@@ -68,18 +69,26 @@ func (r searchRun) lunches(parent *domain.Branch) []*domain.Branch {
 			continue
 		}
 		if child, ok := r.lunchAt(parent, i); ok {
-			venues = append(venues, venue{child, d})
+			venues = append(venues, venue{child, d, r.pool[i].Window.HoursUnknown})
 		}
 	}
 	for _, radius := range lunchRadii {
-		var ring []*domain.Branch
+		// Within the ring a place with known hours beats one whose hours are only assumed.
+		var known, unknown []*domain.Branch
 		for _, v := range venues {
-			if v.distance <= radius {
-				ring = append(ring, v.branch)
+			switch {
+			case v.distance > radius:
+			case v.hoursUnknown:
+				unknown = append(unknown, v.branch)
+			default:
+				known = append(known, v.branch)
 			}
 		}
-		if len(ring) > 0 {
-			return ring
+		if len(known) > 0 {
+			return known
+		}
+		if len(unknown) > 0 {
+			return unknown
 		}
 	}
 	if child, ok := r.lunchPause(parent); ok {

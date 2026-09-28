@@ -168,3 +168,23 @@ func TestOptimizeWithoutLunchRequest(t *testing.T) {
 		}
 	}
 }
+
+func TestOptimizeLunchAtVenueWithUnknownHoursWarns(t *testing.T) {
+	cafe := place(8, domain.CategoryGastro, north(origin, 150))
+	cafe.Window.HoursUnknown = true
+	res := optimize(t, append(city(), cafe), estimated(), withLunch)
+	if res.Status != domain.ResultReady || len(res.Routes) == 0 {
+		t.Fatalf("status %s", res.Status)
+	}
+	for _, route := range res.Routes {
+		_, step := lunchStep(t, route)
+		if step.Catalog == nil || step.Catalog.PlaceID != cafe.Place.ID {
+			t.Fatalf("lunch step %+v is not at the cafe", step)
+		}
+		if !slices.ContainsFunc(route.Warnings, func(w domain.Warning) bool {
+			return w.Code == "OPENING_HOURS_UNKNOWN" && w.Scope == domain.ScopeVisit && w.VisitID != nil && *w.VisitID == step.VisitID
+		}) {
+			t.Fatalf("warnings %v miss OPENING_HOURS_UNKNOWN for the lunch", warningCodes(route.Warnings))
+		}
+	}
+}

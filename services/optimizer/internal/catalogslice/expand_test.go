@@ -110,6 +110,42 @@ func TestCandidatesExpandPlacesAndSessionsOfTheDay(t *testing.T) {
 	}
 }
 
+func gastro(p Place) Place {
+	category := domain.CategoryGastro
+	p.Place.Category = &category
+	return p
+}
+
+func TestCandidatesOfferPlacesToEatWithUnknownHoursForTheWholeDay(t *testing.T) {
+	s := &Slice{City: "perm", Timezone: "Asia/Yekaterinburg", Revision: 7, UpdatedAt: updatedAt,
+		Places: []Place{gastro(place(t, 1, domain.DataLive, "")), place(t, 2, domain.DataLive, ""), gastro(place(t, 3, domain.DataLive, everyDay))}}
+	cs, _, err := s.Candidates(request(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(cs); !slices.Equal(got, []byte{1, 3}) {
+		t.Fatalf("candidates %v", got)
+	}
+	want := domain.VisitWindow{Kind: domain.WindowContinuous, Start: local(10, 0), End: local(18, 0),
+		MinDuration: domain.DefaultPlaceMinDuration, RecommendedDuration: domain.DefaultPlaceRecommendedDuration, HoursUnknown: true}
+	if cs[0].Window != want {
+		t.Fatalf("window of the place without hours %+v", cs[0].Window)
+	}
+	if cs[1].Window.HoursUnknown {
+		t.Fatal("a place with known hours is marked as unknown")
+	}
+}
+
+func TestCandidatesSkipPlacesToEatWithUnknownHoursInADayTooShort(t *testing.T) {
+	s := &Slice{City: "perm", Timezone: "Asia/Yekaterinburg", Places: []Place{gastro(place(t, 1, domain.DataLive, ""))}}
+	req := request()
+	req.End = req.Start.Add(domain.DefaultPlaceMinDuration - time.Minute)
+	cs, _, err := s.Candidates(req, nil)
+	if err != nil || len(cs) != 0 {
+		t.Fatalf("candidates %v, err %v", ids(cs), err)
+	}
+}
+
 func TestCandidatesKeepObligationsOutsideTheDay(t *testing.T) {
 	req := request()
 	late := domain.SessionID{12}

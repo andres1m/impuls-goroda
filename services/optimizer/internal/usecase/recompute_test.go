@@ -313,3 +313,49 @@ func TestRecomputeTellsTheSourceAboutANewerRevision(t *testing.T) {
 		t.Fatalf("observed %v, data revision %d", source.observed, res.Data.CatalogRevision)
 	}
 }
+
+func TestRecomputeFreesAVisitWhoseHoursBecameUnknown(t *testing.T) {
+	cat := dayCatalog()
+	gastro := domain.CategoryGastro
+	cat[0].Place.Category = &gastro
+	res := optimize(t, cat, estimated(), func(r *domain.OptimizeRequest) { r.Constraints = dayConstraints(); r.Destination = nil })
+	i := slices.IndexFunc(res.Routes, func(p domain.Plan) bool {
+		return slices.ContainsFunc(p.Steps, func(s domain.Step) bool { return s.Catalog != nil && s.Catalog.PlaceID == cat[0].Place.ID })
+	})
+	if i < 0 {
+		t.Fatal("no route visits the place to eat")
+	}
+	base := res.Routes[i]
+	now := slices.Clone(cat)
+	now[0].Window = domain.VisitWindow{Kind: domain.WindowContinuous, Start: base.Start, End: base.End,
+		MinDuration: domain.DefaultPlaceMinDuration, RecommendedDuration: domain.DefaultPlaceRecommendedDuration, HoursUnknown: true}
+	out, err := newPlanner(t, fakeSource{candidates: now}, estimated()).Recompute(context.Background(), domain.RecomputeRequest{
+		City: "perm", Timezone: "Asia/Yekaterinburg", Base: base, Constraints: dayConstraints(),
+		Trigger: delay(domain.DelayAlreadyDelayed, base.Start)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Candidate != nil && slices.ContainsFunc(out.Candidate.Steps, func(s domain.Step) bool {
+		return s.Catalog != nil && s.Catalog.PlaceID == cat[0].Place.ID
+	}) {
+		t.Fatal("the proposal keeps a visit to a place whose hours are no longer known")
+	}
+}
+
+func TestRecomputeKeepsLunchAtAPlaceWithUnknownHours(t *testing.T) {
+	cafe := place(8, domain.CategoryGastro, north(origin, 150))
+	cafe.Window.HoursUnknown = true
+	cat := append(city(), cafe)
+	base := optimize(t, cat, estimated(), withLunch).Routes[0]
+	req := domain.OptimizeRequest{Constraints: request().Constraints}
+	withLunch(&req)
+	out, err := newPlanner(t, fakeSource{candidates: cat}, estimated()).Recompute(context.Background(), domain.RecomputeRequest{
+		City: "perm", Timezone: "Asia/Yekaterinburg", Base: base, Constraints: req.Constraints,
+		Trigger: delay(domain.DelayAlreadyDelayed, base.Start.Add(20*time.Minute))})
+	if err != nil || out.Candidate == nil {
+		t.Fatalf("status %s err %v", out.Status, err)
+	}
+	if !slices.ContainsFunc(out.Candidate.Steps, func(s domain.Step) bool { return s.Catalog != nil && s.Catalog.PlaceID == cafe.Place.ID }) {
+		t.Fatal("the lunch at the place was dropped")
+	}
+}
