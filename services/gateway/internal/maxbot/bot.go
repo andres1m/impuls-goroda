@@ -196,7 +196,7 @@ func (c *Client) send(ctx context.Context, userID int64, body message) error {
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("send MAX message: %w", err)
+		return errors.New("MAX message transport unavailable")
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))

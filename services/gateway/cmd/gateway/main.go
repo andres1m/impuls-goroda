@@ -21,6 +21,7 @@ import (
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/httpapi"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/maxbot"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/optimizerclient"
+	"github.com/labstack/echo/v5"
 )
 
 const configPath = "config.yaml"
@@ -126,6 +127,7 @@ func run(ctx context.Context) error {
 		routers = append(routers, httpapi.NewBotRouter(authRuntime, bot))
 	}
 	apiServer := server.New("api-server", infra.cfg.APIServer,
+		server.WithIPExtractor(echo.ExtractIPFromXFFHeader(echo.TrustLinkLocal(false))),
 		server.WithLogger(infra.log.Log),
 		server.WithDependsOn("logger", "db", "gateway-auth"),
 		server.WithHTTPErrorHandler(httpapi.ErrorHandler),
