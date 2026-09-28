@@ -15,11 +15,12 @@ import (
 )
 
 type fakeGroup struct {
-	polls     []kgo.Fetches
-	cancel    context.CancelFunc
-	committed [][]*kgo.Record
-	commitErr error
-	allowed   int
+	polls       []kgo.Fetches
+	cancel      context.CancelFunc
+	committed   [][]*kgo.Record
+	commitErr   error
+	allowed     int
+	closeBlocks chan struct{}
 }
 
 func (g *fakeGroup) Ping(context.Context) error { return nil }
@@ -39,8 +40,12 @@ func (g *fakeGroup) CommitRecords(_ context.Context, records ...*kgo.Record) err
 	return g.commitErr
 }
 
-func (g *fakeGroup) AllowRebalance()         { g.allowed++ }
-func (g *fakeGroup) CloseAllowingRebalance() {}
+func (g *fakeGroup) AllowRebalance() { g.allowed++ }
+func (g *fakeGroup) CloseAllowingRebalance() {
+	if g.closeBlocks != nil {
+		<-g.closeBlocks
+	}
+}
 
 type fakeStarter struct {
 	calls int
@@ -93,7 +98,8 @@ func TestConsumerCommitsAfterStart(t *testing.T) {
 	starter := &fakeStarter{start: func(int) (bool, error) { return false, nil }}
 
 	runConsumer(t, group, starter)
-	if starter.calls != 1 || len(group.committed) != 1 || len(group.committed[0]) != 1 || group.allowed != 1 {
+	// Two polls: the one with the record and the final one that ends on cancellation.
+	if starter.calls != 1 || len(group.committed) != 1 || len(group.committed[0]) != 1 || group.allowed != 2 {
 		t.Fatalf("calls = %d, committed = %d, allowed = %d", starter.calls, len(group.committed), group.allowed)
 	}
 	if counter("started") != before+1 {
@@ -163,5 +169,35 @@ func TestConsumerContinuesAfterCommitFailure(t *testing.T) {
 	runConsumer(t, group, starter)
 	if starter.calls != 2 || len(group.committed) != 2 {
 		t.Fatalf("calls = %d, committed = %d", starter.calls, len(group.committed))
+	}
+}
+
+// kgo counts a poll that returns on a cancelled context as an active poller, and leaving
+// the group on close waits for it, so Run must release it on the way out.
+func TestConsumerReleasesRebalanceOnExit(t *testing.T) {
+	group := &fakeGroup{}
+	runConsumer(t, group, &fakeStarter{})
+	if group.allowed != 1 {
+		t.Fatalf("allowed = %d after the final poll", group.allowed)
+	}
+}
+
+func TestConsumerStopHonorsDeadline(t *testing.T) {
+	group := &fakeGroup{closeBlocks: make(chan struct{})}
+	defer close(group.closeBlocks)
+	consumer := NewConsumer(zap.NewNop(), testConfig("unused:9092"), &fakeStarter{})
+	consumer.client = group
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	stopped := make(chan error, 1)
+	go func() { stopped <- consumer.Stop(ctx) }()
+	select {
+	case err := <-stopped:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("stop = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("stop ignored its deadline")
 	}
 }

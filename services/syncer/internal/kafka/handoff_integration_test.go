@@ -70,11 +70,14 @@ func TestHandoffIntegration(t *testing.T) {
 			}
 			time.Sleep(200 * time.Millisecond)
 		}
+		// Same order as the service runner: cancel, then stop without waiting for Run.
 		stop()
-		if err := <-finished; err != nil {
+		stopCtx, cancelStop := context.WithTimeout(ctx, 10*time.Second)
+		defer cancelStop()
+		if err := consumer.Stop(stopCtx); err != nil {
 			t.Fatal(err)
 		}
-		if err := consumer.Stop(ctx); err != nil {
+		if err := <-finished; err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -88,35 +88,52 @@ func (c *Consumer) HealthCheck(ctx context.Context) error {
 // Run commits a poll only after every record in it has a workflow, so a crash in between
 // redelivers the records and the workflow ID absorbs the repeat.
 func (c *Consumer) Run(ctx context.Context) error {
-	for {
-		fetches := c.client.PollFetches(ctx)
-		if ctx.Err() != nil || fetches.IsClientClosed() {
-			return nil
-		}
-		for _, fetchErr := range fetches.Errors() {
-			c.log.Warn("kafka fetch", zap.String("topic", fetchErr.Topic), zap.Int32("partition", fetchErr.Partition), zap.Error(fetchErr.Err))
-		}
-		records := fetches.Records()
-		for _, record := range records {
-			if err := c.handle(ctx, record); err != nil {
-				return nil
-			}
-		}
-		if len(records) > 0 {
-			if err := c.client.CommitRecords(ctx, records...); err != nil {
-				c.log.Warn("commit raw offsets", zap.Error(err))
-			}
-		}
-		c.client.AllowRebalance()
-	}
-}
-
-func (c *Consumer) Stop(context.Context) error {
-	// A plain Close would wait forever to leave the group: polling blocks rebalances until allowed.
-	if c.client != nil {
-		c.client.CloseAllowingRebalance()
+	for c.pollOnce(ctx) {
 	}
 	return nil
+}
+
+// pollOnce reports whether to keep polling. Every poll, even one ended by cancellation,
+// blocks rebalances until released, and leaving the group on close waits for that.
+func (c *Consumer) pollOnce(ctx context.Context) bool {
+	fetches := c.client.PollFetches(ctx)
+	defer c.client.AllowRebalance()
+	if ctx.Err() != nil || fetches.IsClientClosed() {
+		return false
+	}
+	for _, fetchErr := range fetches.Errors() {
+		c.log.Warn("kafka fetch", zap.String("topic", fetchErr.Topic), zap.Int32("partition", fetchErr.Partition), zap.Error(fetchErr.Err))
+	}
+	records := fetches.Records()
+	for _, record := range records {
+		if err := c.handle(ctx, record); err != nil {
+			return false
+		}
+	}
+	if len(records) > 0 {
+		if err := c.client.CommitRecords(ctx, records...); err != nil {
+			c.log.Warn("commit raw offsets", zap.Error(err))
+		}
+	}
+	return true
+}
+
+func (c *Consumer) Stop(ctx context.Context) error {
+	if c.client == nil {
+		return nil
+	}
+	// A plain Close would wait forever to leave the group: polling blocks rebalances until allowed.
+	closed := make(chan struct{})
+	go func() {
+		c.client.CloseAllowingRebalance()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (c *Consumer) handle(ctx context.Context, record *kgo.Record) error {
