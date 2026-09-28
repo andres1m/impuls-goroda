@@ -47,12 +47,12 @@ func runRematerialize(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer database.Stop(context.Background())
+	defer func() { _ = database.Stop(context.Background()) }()
 	workflows := temporal.NewClient(nil, nil, &cfg.Temporal)
 	if err := workflows.Init(ctx); err != nil {
 		return fmt.Errorf("connect temporal: %w", err)
 	}
-	defer workflows.Stop(context.Background())
+	defer func() { _ = workflows.Stop(context.Background()) }()
 
 	ids, err := postgres.NewMaterializeStore(func() *pgxpool.Pool { return database.Pool }).Reopen(ctx, source, city)
 	if err != nil {
