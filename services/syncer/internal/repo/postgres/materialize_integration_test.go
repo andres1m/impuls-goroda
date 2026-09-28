@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -284,53 +283,6 @@ func (f *materializeFixture) poiCategories(t *testing.T, placeID uuid.UUID) []st
 	return categories
 }
 
-// reference saves a route that visits the session, the way the gateway does.
-func (f *materializeFixture) reference(t *testing.T, placeID, eventID, sessionID, priceID uuid.UUID) {
-	t.Helper()
-	user, route := uuid.New(), uuid.New()
-	// A route and its current revision reference each other, so they go in together.
-	tx, err := f.pool.Begin(f.ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback(f.ctx) //nolint:errcheck // a no-op after commit
-	for _, q := range []struct {
-		sql  string
-		args []any
-	}{
-		{`INSERT INTO identity.user_account (id, max_user_id, created_at, last_seen_at, account_state, account_kind)
-			VALUES ($1, $2, now(), now(), 'active', 'test')`, []any{user, "test:" + user.String()}},
-		{`INSERT INTO planning.route (id, owner_id, city, lifecycle_state, current_revision, created_at, updated_at)
-			VALUES ($1, $2, 'perm', 'saved', 1, now(), now())`, []any{route, user}},
-		{`INSERT INTO planning.route_revision (route_id, revision, lifecycle_state, archetype_id, timezone, start_at, end_at,
-				origin, input_schema_version, constraints, catalog_revision, result_status, warnings, cost_summary,
-				mutation_kind, created_at)
-			VALUES ($1, 1, 'saved', 'history_heritage', 'Asia/Yekaterinburg', now(), now() + interval '8 hours',
-				ST_SetSRID(ST_MakePoint(56.25, 58.01), 4326), 1, '{}', 0, 'ok', '[]', '{}', 'create', now())`, []any{route}},
-		{`INSERT INTO planning.route_visit (route_id, visit_id, visit_kind, city, place_id, event_id, session_id,
-				price_offer_id, created_in_revision, created_at)
-			VALUES ($1, $2, 'visit', 'perm', $3, $4, $5, $6, 1, now())`, []any{route, uuid.New(), placeID, eventID, sessionID, priceID}},
-	} {
-		if _, err := tx.Exec(f.ctx, q.sql, q.args...); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := tx.Commit(f.ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		for _, q := range []string{`DELETE FROM planning.route WHERE id = $1`, `DELETE FROM identity.user_account WHERE id = $1`} {
-			id := route
-			if strings.Contains(q, "user_account") {
-				id = user
-			}
-			if _, err := f.pool.Exec(context.Background(), q, id); err != nil {
-				t.Errorf("cleanup: %v", err)
-			}
-		}
-	})
-}
-
 func TestMaterializeEventsIntegration(t *testing.T) {
 	f := newMaterializeFixture(t)
 	now := time.Now().UTC().Truncate(time.Second)
@@ -355,7 +307,6 @@ func TestMaterializeEventsIntegration(t *testing.T) {
 	if s := f.session(t, day2A); s.status != "unknown" || s.version != 1 || !s.priceActive {
 		t.Fatalf("new session %+v", s)
 	}
-	f.reference(t, placeA, eventA, day2A, normalize.PriceID(day2A))
 
 	revision := f.revision(t)
 	if f.publishEvent(t, 2, now, "a", past, day1, day2) || f.revision(t) != revision {
@@ -380,9 +331,17 @@ func TestMaterializeEventsIntegration(t *testing.T) {
 		t.Fatalf("returned session %+v", s)
 	}
 
-	// The event moves while a saved route still points at it and its session.
+	// Saved routes reference an event with its place and a session with its event, so a move must leave
+	// those keys of the existing rows as they were.
 	if !f.publishEvent(t, 5, now, "b", day1) {
 		t.Fatal("a moved event did not publish")
+	}
+	var oldPlace, sessionEvent uuid.UUID
+	if err := f.pool.QueryRow(f.ctx, `SELECT e.place_id, s.event_id FROM catalog.event e
+		JOIN catalog.session s ON s.event_id = e.id AND s.city = e.city
+		WHERE e.city = 'perm' AND e.id = $1 AND s.id = $2`, eventA, day2A).Scan(&oldPlace, &sessionEvent); err != nil ||
+		oldPlace != placeA || sessionEvent != eventA {
+		t.Fatalf("keys of the moved event rewritten: place %s, session event %s, %v", oldPlace, sessionEvent, err)
 	}
 	if f.eventActive(t, eventA) || !f.eventActive(t, eventB) {
 		t.Fatal("the move did not replace the event")
