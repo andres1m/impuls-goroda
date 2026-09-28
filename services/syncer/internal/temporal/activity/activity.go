@@ -31,16 +31,20 @@ type Activities struct {
 	Now    func() time.Time
 }
 
-// Enqueue hands a raw record to its city's workflow, starting it when none runs. A repeated signal
-// is harmless: the batch skips records that are no longer pending.
-func (a *Activities) Enqueue(ctx context.Context, city domain.City, rawIngestID string) error {
+// SignalMaterialize hands a raw record to its city's workflow, starting it when none runs. A repeated
+// signal is harmless: the batch skips records that are no longer pending.
+func SignalMaterialize(ctx context.Context, c client.Client, queue string, city domain.City, rawIngestID string) error {
 	id := MaterializeWorkflowID(city)
-	_, err := a.Client().SignalWithStartWorkflow(ctx, id, MaterializeSignal, rawIngestID,
-		client.StartWorkflowOptions{ID: id, TaskQueue: a.Queue}, MaterializeWorkflowName, city, []string(nil))
+	_, err := c.SignalWithStartWorkflow(ctx, id, MaterializeSignal, rawIngestID,
+		client.StartWorkflowOptions{ID: id, TaskQueue: queue}, MaterializeWorkflowName, city, []string(nil))
 	if err != nil {
 		return fmt.Errorf("signal %s: %w", id, err)
 	}
 	return nil
+}
+
+func (a *Activities) Enqueue(ctx context.Context, city domain.City, rawIngestID string) error {
+	return SignalMaterialize(ctx, a.Client(), a.Queue, city, rawIngestID)
 }
 
 func (a *Activities) ApplyBatch(ctx context.Context, city domain.City, ids []string) (materialize.Result, error) {

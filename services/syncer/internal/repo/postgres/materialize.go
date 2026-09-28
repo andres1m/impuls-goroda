@@ -282,3 +282,34 @@ func settle(ctx context.Context, tx pgx.Tx, city domain.City, o materialize.Outc
 	}
 	return nil
 }
+
+// Reopen makes the latest raw record of every source record of the source and city pending again and
+// forgets its accepted content, so the next batch materializes it against the current clock. Records
+// already pending are returned too: a run that stopped before signalling them resumes.
+func (s *MaterializeStore) Reopen(ctx context.Context, source domain.SourceKey, city domain.City) ([]string, error) {
+	pool, err := s.connected()
+	if err != nil {
+		return nil, err
+	}
+	ids, err := returnedIDs(pool.Query(ctx, `
+		WITH latest AS (
+			SELECT DISTINCT ON (ri.source_record_id) ri.id, ri.source_record_id, ri.processing_state
+			FROM integration.raw_ingest ri
+			JOIN integration.source_record sr ON sr.id = ri.source_record_id
+			JOIN integration.source src ON src.id = sr.source_id
+			WHERE src.source_key = $1 AND sr.city = $2
+			ORDER BY ri.source_record_id, ri.fetched_at DESC, ri.id DESC
+		), reopened AS (
+			UPDATE integration.raw_ingest ri SET processing_state = 'pending'
+			FROM latest l WHERE ri.id = l.id AND l.processing_state = 'applied'
+			RETURNING ri.source_record_id
+		), forgotten AS (
+			UPDATE integration.source_record sr SET accepted_hash = NULL
+			FROM reopened r WHERE sr.id = r.source_record_id
+		)
+		SELECT id::text FROM latest WHERE processing_state IN ('applied', 'pending') ORDER BY id::text`, source, city))
+	if err != nil {
+		return nil, fmt.Errorf("reopen %s %s: %w", source, city, err)
+	}
+	return ids, nil
+}

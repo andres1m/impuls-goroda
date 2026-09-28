@@ -403,3 +403,69 @@ func TestMaterializeEventsIntegration(t *testing.T) {
 		t.Fatalf("new place shows %v", got)
 	}
 }
+
+func TestReopenIntegration(t *testing.T) {
+	f := newMaterializeFixture(t)
+	base := time.Now().UTC().Truncate(time.Second)
+	older := f.save(t, "node/1", `{"v":1}`, base)
+	latest := f.save(t, "node/1", `{"v":2}`, base.Add(time.Second))
+	broken := f.save(t, "node/2", `{"v":3}`, base.Add(2*time.Second))
+	waiting := f.save(t, "node/3", `{"v":4}`, base.Add(3*time.Second))
+	raws := f.pending(t, older.ID, latest.ID, broken.ID)
+	place := materialize.Normalized{Raw: raws[1], Place: draft("node/1", "gastro", "Кофейня", "gastro_coffee")}
+	if _, _, err := f.store.Publish(f.ctx, domain.Perm, materialize.Outcome{
+		Superseded: raws[:1], Apply: []materialize.Normalized{place},
+		Failed: []materialize.Rejected{{Raw: raws[2], Code: "missing_name"}},
+	}, base); err != nil {
+		t.Fatal(err)
+	}
+
+	ids, err := f.store.Reopen(f.ctx, f.source, domain.Perm)
+	want := []string{latest.ID, waiting.ID}
+	slices.Sort(want)
+	if err != nil || !slices.Equal(ids, want) {
+		t.Fatalf("reopened %v, want %v, err %v", ids, want, err)
+	}
+	if f.state(t, latest.ID) != "pending" || f.state(t, older.ID) != "applied" || f.state(t, broken.ID) != "failed" {
+		t.Fatalf("states %s %s %s", f.state(t, latest.ID), f.state(t, older.ID), f.state(t, broken.ID))
+	}
+	again, err := f.store.Reopen(f.ctx, f.source, domain.Perm)
+	if err != nil || !slices.Equal(again, want) {
+		t.Fatalf("second reopen %v, %v", again, err)
+	}
+
+	// The reopened record is no longer taken as unchanged, yet publishing the same content changes nothing.
+	reopened := f.pending(t, latest.ID)
+	if len(reopened) != 1 || reopened[0].AcceptedHash != nil {
+		t.Fatalf("reopened record %+v", reopened)
+	}
+	revision := f.revision(t)
+	place.Raw = reopened[0]
+	if _, published, err := f.store.Publish(f.ctx, domain.Perm, materialize.Outcome{Apply: []materialize.Normalized{place}}, base); err != nil || published || f.revision(t) != revision {
+		t.Fatalf("republish published %v, err %v", published, err)
+	}
+	if f.state(t, latest.ID) != "applied" {
+		t.Fatal("republished record stays pending")
+	}
+}
+
+func TestReopenKeepsSessionVersionsIntegration(t *testing.T) {
+	f := newMaterializeFixture(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	day1 := now.Add(24 * time.Hour)
+	f.publishEvent(t, 1, now, "a", day1)
+	ids, err := f.store.Reopen(f.ctx, f.source, domain.Perm)
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("reopened %v, %v", ids, err)
+	}
+	raws := f.pending(t, ids...)
+	revision := f.revision(t)
+	if _, published, err := f.store.Publish(f.ctx, domain.Perm,
+		materialize.Outcome{Apply: []materialize.Normalized{eventNormalized(raws[0], "a", day1)}}, now); err != nil || published {
+		t.Fatalf("republish published %v, err %v", published, err)
+	}
+	session := normalize.SessionID(normalize.EntityID(string(f.source)+":event:1@place:a"), day1)
+	if s := f.session(t, session); s.version != 1 || f.revision(t) != revision {
+		t.Fatalf("session %+v, revision %d → %d", s, revision, f.revision(t))
+	}
+}

@@ -70,3 +70,13 @@ func TestApplyBatchMaterializesTheIDs(t *testing.T) {
 		t.Fatalf("asked %v", s.asked)
 	}
 }
+
+func TestSignalMaterializeUsesTheQueue(t *testing.T) {
+	c := &fakeClient{}
+	if err := SignalMaterialize(context.Background(), c, "q", domain.Moscow, "raw-2"); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.calls) != 1 || c.calls[0].workflowID != "materialize:moscow" || c.calls[0].options.TaskQueue != "q" || c.calls[0].arg != "raw-2" {
+		t.Fatalf("calls %+v", c.calls)
+	}
+}
