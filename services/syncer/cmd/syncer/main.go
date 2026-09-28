@@ -15,6 +15,11 @@ import (
 	"github.com/andres1m/impuls-goroda/pkg/server"
 	"github.com/andres1m/impuls-goroda/pkg/svc"
 	"github.com/andres1m/impuls-goroda/pkg/temporal"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/kafka"
+	rawtemporal "github.com/andres1m/impuls-goroda/services/syncer/internal/temporal"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/temporal/workflow"
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/worker"
 )
 
 const configPath = "config.yaml"
@@ -26,6 +31,7 @@ type appConfig struct {
 	Temporal  config.Temporal   `yaml:"temporal"`
 	OpsServer config.HTTPServer `yaml:"ops-server"`
 	AI        ai.Config         `yaml:"ai"`
+	Kafka     kafka.Config      `yaml:"kafka"`
 }
 
 type infrastructureComponents struct {
@@ -86,11 +92,22 @@ func run(ctx context.Context) error {
 		server.WithMetrics(),
 	)
 
+	temporalWorker, err := temporal.NewWorker(infra.log.Log, infra.temporal, &infra.cfg.Temporal, func(r worker.Registry) {
+		r.RegisterWorkflow(workflow.ProcessRawIngest)
+	})
+	if err != nil {
+		return fmt.Errorf("create temporal worker error: %w", err)
+	}
+	starter := rawtemporal.NewStarter(func() client.Client { return infra.temporal.TemporalClient }, infra.temporal.TaskQueue())
+	consumer := kafka.NewConsumer(infra.log.Log, infra.cfg.Kafka, starter)
+
 	if err := svc.Run(ctx, infra.log.Log, []svc.Service{
 		infra.log,
 		infra.pool,
 		infra.redis,
 		infra.temporal,
+		temporalWorker,
+		consumer,
 		opsServer,
 	}); err != nil {
 		return fmt.Errorf("run service error: %w", err)
