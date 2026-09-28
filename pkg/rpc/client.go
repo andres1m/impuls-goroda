@@ -13,6 +13,7 @@ import (
 
 	"github.com/andres1m/impuls-goroda/pkg/config"
 	"github.com/andres1m/impuls-goroda/pkg/svc"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
@@ -70,7 +71,10 @@ func (c *Client) Init(ctx context.Context) error {
 	if c.cfg.Host == "" || c.cfg.Port <= 0 || c.cfg.Port > 65535 {
 		return errors.New("invalid grpc client address")
 	}
-	opts := []grpc.DialOption{}
+	opts := []grpc.DialOption{
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+		grpc.WithChainUnaryInterceptor(clientTelemetry),
+	}
 
 	if c.cfg.MaxRecvMsgSize > 0 {
 		opts = append(opts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(c.cfg.MaxRecvMsgSize)))

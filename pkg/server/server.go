@@ -116,6 +116,7 @@ func (s *Server) Addr() net.Addr {
 func New(name string, cfg config.HTTPServer, opts ...Option) *Server {
 	e := echo.New()
 	e.Validator = validator.NewValidator()
+	e.Use(instrument(name))
 	e.Use(middleware.Recover())
 
 	s := &Server{

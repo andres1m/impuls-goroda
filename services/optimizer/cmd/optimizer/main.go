@@ -17,6 +17,7 @@ import (
 	"github.com/andres1m/impuls-goroda/pkg/rpc"
 	"github.com/andres1m/impuls-goroda/pkg/server"
 	"github.com/andres1m/impuls-goroda/pkg/svc"
+	"github.com/andres1m/impuls-goroda/pkg/telemetry"
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/catalogcache"
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
 	grpchandler "github.com/andres1m/impuls-goroda/services/optimizer/internal/grpc-handler"
@@ -37,6 +38,7 @@ const configPath = "config.yaml"
 
 type appConfig struct {
 	Logger       config.Logger       `yaml:"logger"`
+	Telemetry    config.Telemetry    `yaml:"telemetry"`
 	Database     config.Database     `yaml:"database"`
 	Redis        config.Redis        `yaml:"redis"`
 	GRPCServer   config.GRPCServer   `yaml:"grpc-server"`
@@ -224,6 +226,7 @@ func run(ctx context.Context) error {
 
 	services := []svc.Service{
 		infra.log,
+		telemetry.New("optimizer", infra.cfg.Telemetry, infra.log.Log),
 		infra.pool,
 		infra.redis,
 		redisClient,

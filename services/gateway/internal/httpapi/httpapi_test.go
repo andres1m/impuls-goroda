@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andres1m/impuls-goroda/pkg/telemetry"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/auth"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/domain"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/repo/postgres"
@@ -206,6 +207,20 @@ func TestCORSAndSafePanicResponse(t *testing.T) {
 	e.ServeHTTP(rec, denied)
 	if rec.Header().Get(echo.HeaderAccessControlAllowOrigin) != "" {
 		t.Fatal("unapproved origin allowed")
+	}
+}
+
+func TestRequestIDReachesTheRequestContext(t *testing.T) {
+	e := testEcho()
+	e.GET("/", func(c *echo.Context) error {
+		return c.String(http.StatusOK, telemetry.RequestID(c.Request().Context()))
+	})
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set(echo.HeaderXRequestID, "req-42")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Body.String() != "req-42" || rec.Header().Get(echo.HeaderXRequestID) != "req-42" {
+		t.Fatalf("context id %q, header %q", rec.Body.String(), rec.Header().Get(echo.HeaderXRequestID))
 	}
 }
 

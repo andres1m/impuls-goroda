@@ -16,6 +16,7 @@ import (
 	"github.com/andres1m/impuls-goroda/pkg/router"
 	"github.com/andres1m/impuls-goroda/pkg/server"
 	"github.com/andres1m/impuls-goroda/pkg/svc"
+	"github.com/andres1m/impuls-goroda/pkg/telemetry"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/app"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/auth"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/httpapi"
@@ -28,6 +29,7 @@ const configPath = "config.yaml"
 
 type appConfig struct {
 	Logger    config.Logger     `yaml:"logger"`
+	Telemetry config.Telemetry  `yaml:"telemetry"`
 	Database  config.Database   `yaml:"database"`
 	Optimizer config.GRPCClient `yaml:"optimizer-client"`
 	APIServer config.HTTPServer `yaml:"api-server"`
@@ -142,6 +144,7 @@ func run(ctx context.Context) error {
 
 	if err := svc.Run(ctx, infra.log.Log, []svc.Service{
 		infra.log,
+		telemetry.New("gateway", infra.cfg.Telemetry, infra.log.Log),
 		infra.pool,
 		infra.optimizer,
 		authRuntime,

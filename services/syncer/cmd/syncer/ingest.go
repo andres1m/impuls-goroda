@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/andres1m/impuls-goroda/pkg/config"
+	"github.com/andres1m/impuls-goroda/pkg/telemetry"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/adapter/kudago"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/adapter/mkrf"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/adapter/osm"
@@ -61,6 +62,12 @@ func runIngest(ctx context.Context, args []string) error {
 	if err := config.Load(configPath, &cfg); err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	// A one-shot run exports its spans too: the records it publishes carry its trace.
+	tracing := telemetry.New("syncer", cfg.Telemetry, nil)
+	if err := tracing.Init(ctx); err != nil {
+		return err
+	}
+	defer func() { _ = tracing.Stop(context.Background()) }()
 	producer, err := kafka.NewProducer(cfg.Kafka)
 	if err != nil {
 		return err

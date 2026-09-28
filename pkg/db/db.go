@@ -8,8 +8,10 @@ import (
 
 	"github.com/andres1m/impuls-goroda/pkg/config"
 	"github.com/andres1m/impuls-goroda/pkg/svc"
+	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 )
 
@@ -19,6 +21,7 @@ type PostgresClient struct {
 	Pool *pgxpool.Pool
 
 	afterRunFuncs []AfterRun
+	metrics       *poolCollector
 	stopOnce      sync.Once
 	stopped       chan struct{}
 }
@@ -62,6 +65,12 @@ func (c *PostgresClient) Init(ctx context.Context) error {
 
 	c.afterRunFuncs = nil
 
+	c.metrics = newPoolCollector(c.cfg.ConnConfig.User, pool.Stat)
+	if err := prometheus.Register(c.metrics); err != nil {
+		c.log.Warn("database pool metrics are not registered", zap.Error(err))
+		c.metrics = nil
+	}
+
 	c.log.Debug("database initialized")
 
 	return nil
@@ -76,6 +85,9 @@ func (c *PostgresClient) Run(ctx context.Context) error {
 
 func (c *PostgresClient) Stop(ctx context.Context) error {
 	c.stopOnce.Do(func() {
+		if c.metrics != nil {
+			prometheus.Unregister(c.metrics)
+		}
 		c.stopped = make(chan struct{})
 		pool := c.Pool
 		c.Pool = nil
@@ -108,6 +120,8 @@ func NewDb(log *zap.Logger, conf config.Database) (*PostgresClient, error) {
 	if conf.MaxConns < 0 || conf.MinConns < 0 || conf.ConnectionTimeout < 0 || conf.MaxConnLifetime < 0 {
 		return nil, errors.New("invalid database pool limits")
 	}
+	// Query text is parameterized; argument values stay out of spans.
+	cfg.ConnConfig.Tracer = otelpgx.NewTracer()
 	if conf.ConnectionTimeout > 0 {
 		cfg.ConnConfig.ConnectTimeout = conf.ConnectionTimeout
 	}

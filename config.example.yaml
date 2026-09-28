@@ -2,6 +2,11 @@ logger:
   stdout: true
   level: info
 
+# Empty endpoint keeps trace export off; on the stand it is jaeger:4317.
+telemetry:
+  otlp-endpoint: ""
+  sample-ratio: 1
+
 database:
   host: ${DATABASE_URL}
   connection-timeout: 5s

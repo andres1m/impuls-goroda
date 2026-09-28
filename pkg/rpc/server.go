@@ -12,6 +12,7 @@ import (
 
 	"github.com/andres1m/impuls-goroda/pkg/config"
 	"github.com/andres1m/impuls-goroda/pkg/svc"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -95,9 +96,10 @@ func (s *Server) Init(ctx context.Context) error {
 		opts = append(opts, grpc.Creds(credentials.NewTLS(tlsConfig)))
 	}
 
-	if len(s.unary) > 0 {
-		opts = append(opts, grpc.ChainUnaryInterceptor(s.unary...))
-	}
+	opts = append(opts,
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
+		grpc.ChainUnaryInterceptor(append([]grpc.UnaryServerInterceptor{serverTelemetry}, s.unary...)...),
+	)
 
 	server := grpc.NewServer(opts...)
 
@@ -117,6 +119,14 @@ func (s *Server) Init(ctx context.Context) error {
 	s.log.Info("grpc server started", zap.Int("port", s.cfg.Port))
 
 	return nil
+}
+
+// Addr is the bound address; it is known only after Init.
+func (s *Server) Addr() net.Addr {
+	if s.lis == nil {
+		return nil
+	}
+	return s.lis.Addr()
 }
 
 func (s *Server) Name() string {

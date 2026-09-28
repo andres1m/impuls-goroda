@@ -16,6 +16,7 @@ import (
 	"github.com/andres1m/impuls-goroda/pkg/redis"
 	"github.com/andres1m/impuls-goroda/pkg/server"
 	"github.com/andres1m/impuls-goroda/pkg/svc"
+	"github.com/andres1m/impuls-goroda/pkg/telemetry"
 	"github.com/andres1m/impuls-goroda/pkg/temporal"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/delivery"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/kafka"
@@ -35,6 +36,7 @@ const configPath = "config.yaml"
 
 type appConfig struct {
 	Logger    config.Logger     `yaml:"logger"`
+	Telemetry config.Telemetry  `yaml:"telemetry"`
 	Database  config.Database   `yaml:"database"`
 	Redis     config.Redis      `yaml:"redis"`
 	Temporal  config.Temporal   `yaml:"temporal"`
@@ -132,6 +134,7 @@ func run(ctx context.Context) error {
 
 	if err := svc.Run(ctx, infra.log.Log, []svc.Service{
 		infra.log,
+		telemetry.New("syncer", infra.cfg.Telemetry, infra.log.Log),
 		infra.pool,
 		infra.redis,
 		infra.temporal,

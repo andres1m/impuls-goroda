@@ -41,12 +41,13 @@ func TestRepositoryExample(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://user:password@localhost/test")
 	t.Setenv("REDIS_PASSWORD", "example")
 	var cfg struct {
-		Logger   Logger     `yaml:"logger"`
-		Database Database   `yaml:"database"`
-		Redis    Redis      `yaml:"redis"`
-		Temporal Temporal   `yaml:"temporal"`
-		Server   GRPCServer `yaml:"grpc-server"`
-		Client   GRPCClient `yaml:"grpc-client"`
+		Logger    Logger     `yaml:"logger"`
+		Telemetry Telemetry  `yaml:"telemetry"`
+		Database  Database   `yaml:"database"`
+		Redis     Redis      `yaml:"redis"`
+		Temporal  Temporal   `yaml:"temporal"`
+		Server    GRPCServer `yaml:"grpc-server"`
+		Client    GRPCClient `yaml:"grpc-client"`
 	}
 	if err := Load("../../config.example.yaml", &cfg); err != nil {
 		t.Fatal(err)

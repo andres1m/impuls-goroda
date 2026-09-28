@@ -3,11 +3,12 @@ package grpchandler
 import (
 	"context"
 	"errors"
-	"net"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/andres1m/impuls-goroda/pkg/config"
+	"github.com/andres1m/impuls-goroda/pkg/rpc"
 	pb "github.com/andres1m/impuls-goroda/proto/optimizer/v1"
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/solver"
@@ -21,7 +22,6 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -48,14 +48,14 @@ func startServer(t *testing.T, planner Planner) testServer {
 	t.Helper()
 	core, logs := observer.New(zap.DebugLevel)
 	log := zap.New(core)
-	lis := bufconn.Listen(1 << 20)
-	s := grpc.NewServer(grpc.ChainUnaryInterceptor(RequestLogging(log), Recovery(log)))
-	NewHandler(log, planner).Register(s)
-	go func() { _ = s.Serve(lis) }()
-	t.Cleanup(s.Stop)
-	conn, err := grpc.NewClient("passthrough:///bufnet",
-		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return lis.DialContext(ctx) }),
-		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	server := rpc.NewServer("optimizer", log, &config.GRPCServer{}, rpc.WithUnaryInterceptors(RequestLogging(log), Recovery(log)))
+	server.OnInit(func(s *rpc.Server) { NewHandler(log, planner).Register(s.GetServer()) })
+	if err := server.Init(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = server.Run(context.Background()) }()
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
+	conn, err := grpc.NewClient(server.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,10 +308,10 @@ func TestServerLogsRequests(t *testing.T) {
 	if _, ok := first["duration"]; !ok {
 		t.Fatalf("first log has no duration: %v", first)
 	}
-	if got := entries[1].ContextMap()["request_id"]; got != strings.Repeat("a", maxRequestIDRunes) {
+	if got := entries[1].ContextMap()["request_id"]; got != strings.Repeat("a", 128) {
 		t.Fatalf("long request id logged as %q", got)
 	}
-	if got := entries[2].ContextMap()["request_id"]; got != "" {
+	if got, ok := entries[2].ContextMap()["request_id"]; ok {
 		t.Fatalf("missing request id logged as %q", got)
 	}
 	for _, e := range srv.logs.All() {

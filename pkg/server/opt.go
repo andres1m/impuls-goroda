@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/andres1m/impuls-goroda/pkg/router"
+	"github.com/andres1m/impuls-goroda/pkg/telemetry"
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -60,22 +61,23 @@ func WithLogger(log *zap.Logger) Option {
 		s.api.Use(middleware.RequestLoggerWithConfig(
 			middleware.RequestLoggerConfig{
 				HandleError:  true,
-				LogURI:       true,
+				LogRoutePath: true,
 				LogStatus:    true,
 				LogLatency:   true,
 				LogRemoteIP:  true,
 				LogMethod:    true,
 				LogRequestID: true,
 
-				LogValuesFunc: func(_ *echo.Context, v middleware.RequestLoggerValues) error {
+				LogValuesFunc: func(c *echo.Context, v middleware.RequestLoggerValues) error {
 					fields := []zap.Field{
 						zap.String("method", v.Method),
-						zap.String("uri", v.URI),
+						zap.String("route", v.RoutePath),
 						zap.Int("status", v.Status),
 						zap.Duration("latency", v.Latency),
 						zap.String("remote_ip", v.RemoteIP),
 						zap.String("request_id", v.RequestID),
 					}
+					fields = append(fields, telemetry.TraceFields(c.Request().Context())...)
 
 					if v.Error == nil {
 						log.Info("request", fields...)

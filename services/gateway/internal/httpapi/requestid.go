@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"strings"
 
+	"github.com/andres1m/impuls-goroda/pkg/telemetry"
 	"github.com/labstack/echo/v5"
 )
 
@@ -17,6 +18,7 @@ func RequestIDMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 			requestID = generateRequestID()
 		}
 		c.Set(requestIDKey, requestID)
+		c.SetRequest(c.Request().WithContext(telemetry.WithRequestID(c.Request().Context(), requestID)))
 		c.Response().Header().Set(echo.HeaderXRequestID, requestID)
 		return next(c)
 	}

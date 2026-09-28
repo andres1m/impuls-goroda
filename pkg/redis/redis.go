@@ -8,6 +8,7 @@ import (
 
 	"github.com/andres1m/impuls-goroda/pkg/config"
 	"github.com/andres1m/impuls-goroda/pkg/svc"
+	"github.com/redis/go-redis/extra/redisotel/v9"
 	r "github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
@@ -65,6 +66,12 @@ func (c *RedisClient) Init(context.Context) error {
 		cfg := o.Simple()
 		cfg.ContextTimeoutEnabled = true
 		c.Pool = r.NewClient(cfg)
+	}
+	// Command arguments hold keys and cached catalog slices; spans keep only the command name.
+	if err := redisotel.InstrumentTracing(c.Pool, redisotel.WithDBStatement(false)); err != nil {
+		_ = c.Pool.Close()
+		c.Pool = nil
+		return fmt.Errorf("redis tracing: %w", err)
 	}
 	return nil
 }

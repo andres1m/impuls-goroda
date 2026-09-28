@@ -10,9 +10,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/plugin/kotel"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/andres1m/impuls-goroda/pkg/svc"
+	"github.com/andres1m/impuls-goroda/pkg/telemetry"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/ingest"
 )
@@ -45,11 +48,12 @@ type Consumer struct {
 	cfg        Config
 	starter    Starter
 	client     groupClient
+	tracer     *kotel.Tracer
 	retryDelay func(attempt int) time.Duration
 }
 
 func NewConsumer(log *zap.Logger, cfg Config, starter Starter) *Consumer {
-	return &Consumer{log: log, cfg: cfg, starter: starter, retryDelay: startRetryDelay}
+	return &Consumer{log: log, cfg: cfg, starter: starter, tracer: kotel.NewTracer(kotel.ConsumerGroup(cfg.ConsumerGroup)), retryDelay: startRetryDelay}
 }
 
 func startRetryDelay(attempt int) time.Duration {
@@ -70,6 +74,7 @@ func (c *Consumer) Init(ctx context.Context) error {
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
 		kgo.DisableAutoCommit(),
 		kgo.BlockRebalanceOnPoll(),
+		kgo.WithHooks(kotel.NewKotel(kotel.WithTracer(c.tracer)).Hooks()...),
 	)
 	if err != nil {
 		return fmt.Errorf("kafka consumer: %w", err)
@@ -136,12 +141,17 @@ func (c *Consumer) Stop(ctx context.Context) error {
 	}
 }
 
+// handle continues the trace the producer put into the record's headers, so the workflow it
+// starts joins the ingest run that published the record.
 func (c *Consumer) handle(ctx context.Context, record *kgo.Record) error {
+	recordCtx, span := c.tracer.WithProcessSpan(record)
+	defer span.End()
+	ctx = trace.ContextWithSpan(ctx, trace.SpanFromContext(recordCtx))
 	envelope, err := ingest.DecodeEnvelope(record.Value)
 	if err != nil {
 		// ponytail: an invalid envelope is counted and dropped; it goes to the dead letter topic once that exists.
 		schemaMismatch.WithLabelValues(sourceLabel(record.Value)).Inc()
-		c.log.Error("invalid raw envelope", zap.Int32("partition", record.Partition), zap.Int64("offset", record.Offset), zap.Error(err))
+		c.log.Error("invalid raw envelope", append([]zap.Field{zap.Int32("partition", record.Partition), zap.Int64("offset", record.Offset), zap.Error(err)}, telemetry.TraceFields(ctx)...)...)
 		return nil
 	}
 	for attempt := 0; ; attempt++ {
@@ -150,7 +160,7 @@ func (c *Consumer) handle(ctx context.Context, record *kgo.Record) error {
 			rawWorkflows.WithLabelValues(startResult(existed)).Inc()
 			return nil
 		}
-		c.log.Warn("start raw ingest workflow", zap.String("raw_ingest_id", envelope.RawIngestID), zap.Int("attempt", attempt), zap.Error(err))
+		c.log.Warn("start raw ingest workflow", append([]zap.Field{zap.String("raw_ingest_id", envelope.RawIngestID), zap.Int("attempt", attempt), zap.Error(err)}, telemetry.TraceFields(ctx)...)...)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

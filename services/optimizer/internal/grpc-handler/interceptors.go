@@ -4,14 +4,12 @@ import (
 	"context"
 	"time"
 
+	"github.com/andres1m/impuls-goroda/pkg/telemetry"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
-
-const maxRequestIDRunes = 128
 
 // Recovery keeps a panicking call from taking the whole process down.
 func Recovery(log *zap.Logger) grpc.UnaryServerInterceptor {
@@ -32,28 +30,11 @@ func RequestLogging(log *zap.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		start := time.Now()
 		resp, err := handler(ctx, req)
-		log.Info("grpc request",
+		log.Info("grpc request", append([]zap.Field{
 			zap.String("method", info.FullMethod),
-			zap.String("request_id", requestID(ctx)),
 			zap.String("code", status.Code(err).String()),
 			zap.Duration("duration", time.Since(start)),
-		)
+		}, telemetry.LogFields(ctx)...)...)
 		return resp, err
 	}
-}
-
-func requestID(ctx context.Context) string {
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return ""
-	}
-	values := md.Get("x-request-id")
-	if len(values) == 0 {
-		return ""
-	}
-	id := []rune(values[0])
-	if len(id) > maxRequestIDRunes {
-		id = id[:maxRequestIDRunes]
-	}
-	return string(id)
 }

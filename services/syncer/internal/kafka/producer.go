@@ -10,6 +10,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/plugin/kotel"
 
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/ingest"
 )
@@ -32,6 +33,7 @@ func NewProducer(cfg Config) (*Producer, error) {
 		kgo.SeedBrokers(cfg.Brokers...),
 		kgo.DefaultProduceTopic(cfg.RawTopic),
 		kgo.RequiredAcks(kgo.AllISRAcks()),
+		kgo.WithHooks(kotel.NewKotel(kotel.WithTracer(kotel.NewTracer())).Hooks()...),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("kafka producer: %w", err)

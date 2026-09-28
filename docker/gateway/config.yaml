@@ -2,6 +2,10 @@ logger:
   stdout: true
   level: info
 
+telemetry:
+  otlp-endpoint: jaeger:4317
+  sample-ratio: 1
+
 database:
   host: postgres://gateway_svc:${GATEWAY_DB_PASSWORD}@postgres:5432/impuls?sslmode=disable
   connection-timeout: 5s

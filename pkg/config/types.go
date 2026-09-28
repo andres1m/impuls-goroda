@@ -68,3 +68,9 @@ type Redis struct {
 	ReadTimeout       time.Duration `yaml:"read-timeout"`
 	WriteTimeout      time.Duration `yaml:"write-timeout"`
 }
+
+type Telemetry struct {
+	// Empty turns trace export off; trace context still passes through the service.
+	OTLPEndpoint string  `yaml:"otlp-endpoint"`
+	SampleRatio  float64 `yaml:"sample-ratio"`
+}

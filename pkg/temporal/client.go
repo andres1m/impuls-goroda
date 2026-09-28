@@ -41,7 +41,11 @@ func (c *Client) Init(ctx context.Context) error {
 	if c.TemporalClient != nil {
 		return errors.New("temporal client already initialized")
 	}
-	cl, err := client.DialContext(ctx, *c.temporalConf)
+	opts, err := withTracing(*c.temporalConf)
+	if err != nil {
+		return err
+	}
+	cl, err := client.DialContext(ctx, opts)
 	if err != nil {
 		return err
 	}
