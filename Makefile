@@ -1,4 +1,4 @@
-.PHONY: fmt gen test race vet build verify up down reset logs ps migrate routing-data
+.PHONY: fmt gen test race vet build verify cover-optimizer bench-optimizer up down reset logs ps migrate routing-data
 
 gen:
 	buf lint
@@ -19,8 +19,34 @@ vet:
 build:
 	go build ./...
 
-verify: test race vet build
+verify: test race vet build cover-optimizer
 	go mod verify
+
+# The threshold covers the computational core; transport and storage adapters are left out.
+OPTIMIZER_CORE := $(addprefix ./services/optimizer/internal/,domain solver pricing validation usecase routing scenic semantic)
+OPTIMIZER_MIN_COVERAGE := 85.0
+
+cover-optimizer:
+	@mkdir -p bin
+	go test -coverprofile=bin/optimizer-core.cov $(OPTIMIZER_CORE) > /dev/null
+	@go tool cover -func=bin/optimizer-core.cov | awk -v min=$(OPTIMIZER_MIN_COVERAGE) '/^total:/ { sub("%", "", $$3); printf "optimizer core coverage %s%% (minimum %s%%)\n", $$3, min; exit ($$3 + 0 < min + 0) }'
+
+PROFILES := bin/profiles
+OPTIMIZER_BENCH := '^Benchmark(Optimize|Recompute|Search|Repair)$$'
+
+bench-optimizer:
+	@mkdir -p $(PROFILES)
+	go test -run '^$$' -bench $(OPTIMIZER_BENCH) -benchmem -count 10 ./services/optimizer/internal/usecase/ ./services/optimizer/internal/solver/ | tee $(PROFILES)/bench.txt
+	go test -run '^$$' -bench '^BenchmarkOptimize$$/^pool=200$$' -benchtime 200x -cpuprofile $(PROFILES)/cpu.pprof -memprofile $(PROFILES)/mem.pprof -o $(PROFILES)/usecase.test ./services/optimizer/internal/usecase/ > /dev/null
+	go tool pprof -top -nodecount 10 $(PROFILES)/usecase.test $(PROFILES)/cpu.pprof > $(PROFILES)/cpu.txt
+	go tool pprof -top -nodecount 10 -sample_index alloc_space $(PROFILES)/usecase.test $(PROFILES)/mem.pprof > $(PROFILES)/mem.txt
+	go run ./services/optimizer/cmd/benchreport -bench $(PROFILES)/bench.txt -cpu-top $(PROFILES)/cpu.txt -mem-top $(PROFILES)/mem.txt \
+		-env "Source=the commit that last changed this file" -env "Go=$$(go env GOVERSION)" \
+		-env "CPU=$$(lscpu | sed -n 's/^Model name: *//p')" -env "Cores=$$(nproc)" \
+		-env "Search config=beam width 16, parallelism 4" \
+		-env "Pools=60, 200 and 500 synthetic candidates; planner pools within about 1.5 km" \
+		-env "Caches=none in the measured path" -env "Repeats=10 per benchmark, median shown" \
+		> services/optimizer/BENCHMARKS.md
 
 INIT_JOBS := migrate db-users redis-init temporal-schema temporal-namespace
 
