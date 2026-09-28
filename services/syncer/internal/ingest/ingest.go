@@ -40,6 +40,8 @@ type Landing interface {
 	Cursor(ctx context.Context, source SourceID, city domain.City) (json.RawMessage, error)
 	SaveRecord(ctx context.Context, source SourceID, city domain.City, mode domain.DataMode, record domain.RawRecord, fetchedAt time.Time) (inserted bool, err error)
 	FinishRun(ctx context.Context, run Run) error
+	Unpublished(ctx context.Context, source SourceID, city domain.City) ([]Envelope, error)
+	AdvancePublished(ctx context.Context, source SourceID, city domain.City, at time.Time) error
 }
 
 // FetchError carries a code that is safe to persist: it never contains URLs,
@@ -52,19 +54,25 @@ type FetchError struct {
 func (e *FetchError) Error() string { return e.Code + ": " + e.Err.Error() }
 func (e *FetchError) Unwrap() error { return e.Err }
 
+type Publisher interface {
+	Publish(ctx context.Context, envelopes []Envelope) error
+}
+
 type Result struct {
-	Received int
-	Inserted int
-	Skipped  int
+	Received  int
+	Inserted  int
+	Skipped   int
+	Published int
 }
 
 type Service struct {
-	landing Landing
-	now     func() time.Time
+	landing   Landing
+	publisher Publisher
+	now       func() time.Time
 }
 
-func NewService(landing Landing, now func() time.Time) *Service {
-	return &Service{landing: landing, now: now}
+func NewService(landing Landing, publisher Publisher, now func() time.Time) *Service {
+	return &Service{landing: landing, publisher: publisher, now: now}
 }
 
 func (s *Service) Ingest(ctx context.Context, adapter Adapter, city domain.City) (Result, error) {
@@ -95,11 +103,38 @@ func (s *Service) Ingest(ctx context.Context, adapter Adapter, city domain.City)
 		}
 	}
 
+	published, err := s.publish(ctx, sourceID, city, attemptAt)
+	if err != nil {
+		run := Run{SourceID: sourceID, City: city, AttemptAt: attemptAt, Cursor: batch.Cursor, ErrorCode: "publish"}
+		if finishErr := s.landing.FinishRun(ctx, run); finishErr != nil {
+			err = errors.Join(err, fmt.Errorf("record failed run: %w", finishErr))
+		}
+		return result, fmt.Errorf("publish %s: %w", source.Key, err)
+	}
+	result.Published = published
+
 	run := Run{SourceID: sourceID, City: city, AttemptAt: attemptAt, Cursor: batch.Cursor}
 	if err := s.landing.FinishRun(ctx, run); err != nil {
 		return result, fmt.Errorf("finish run: %w", err)
 	}
 	return result, nil
+}
+
+// ponytail: the watermark assumes one ingest per source and city at a time; parallel collection needs per-row publish marks.
+func (s *Service) publish(ctx context.Context, sourceID SourceID, city domain.City, attemptAt time.Time) (int, error) {
+	pending, err := s.landing.Unpublished(ctx, sourceID, city)
+	if err != nil {
+		return 0, fmt.Errorf("read unpublished: %w", err)
+	}
+	if len(pending) > 0 {
+		if err := s.publisher.Publish(ctx, pending); err != nil {
+			return 0, err
+		}
+	}
+	if err := s.landing.AdvancePublished(ctx, sourceID, city, attemptAt); err != nil {
+		return 0, err
+	}
+	return len(pending), nil
 }
 
 func (s *Service) fail(ctx context.Context, sourceID SourceID, city domain.City, attemptAt time.Time, cause error) error {

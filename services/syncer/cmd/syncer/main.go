@@ -15,6 +15,7 @@ import (
 	"github.com/andres1m/impuls-goroda/pkg/server"
 	"github.com/andres1m/impuls-goroda/pkg/svc"
 	"github.com/andres1m/impuls-goroda/pkg/temporal"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/kafka"
 )
 
 const configPath = "config.yaml"
@@ -26,6 +27,7 @@ type appConfig struct {
 	Temporal  config.Temporal   `yaml:"temporal"`
 	OpsServer config.HTTPServer `yaml:"ops-server"`
 	AI        ai.Config         `yaml:"ai"`
+	Kafka     kafka.Config      `yaml:"kafka"`
 }
 
 type infrastructureComponents struct {

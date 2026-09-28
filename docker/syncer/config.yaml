@@ -26,6 +26,13 @@ temporal:
   queue-name: catalog-sync
   worker-count: 4
 
+kafka:
+  brokers:
+    - kafka:9092
+  raw-topic: integration.raw
+  raw-partitions: 3
+  consumer-group: syncer-raw
+
 ops-server:
   port: 9090
   read-timeout: 5s

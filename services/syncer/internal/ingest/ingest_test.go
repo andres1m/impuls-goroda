@@ -34,13 +34,16 @@ type savedRecord struct {
 }
 
 type fakeLanding struct {
-	sourceID  SourceID
-	cursor    json.RawMessage
-	unchanged map[string]bool
-	saveErr   error
-	ensured   []domain.Source
-	saved     []savedRecord
-	runs      []Run
+	sourceID       SourceID
+	cursor         json.RawMessage
+	unchanged      map[string]bool
+	saveErr        error
+	ensured        []domain.Source
+	saved          []savedRecord
+	runs           []Run
+	unpublished    []Envelope
+	unpublishedErr error
+	advanced       []time.Time
 }
 
 func (l *fakeLanding) EnsureSource(_ context.Context, s domain.Source) (SourceID, error) {
@@ -65,10 +68,29 @@ func (l *fakeLanding) FinishRun(_ context.Context, run Run) error {
 	return nil
 }
 
+func (l *fakeLanding) Unpublished(context.Context, SourceID, domain.City) ([]Envelope, error) {
+	return l.unpublished, l.unpublishedErr
+}
+
+func (l *fakeLanding) AdvancePublished(_ context.Context, _ SourceID, _ domain.City, at time.Time) error {
+	l.advanced = append(l.advanced, at)
+	return nil
+}
+
+type fakePublisher struct {
+	err       error
+	published [][]Envelope
+}
+
+func (p *fakePublisher) Publish(_ context.Context, envelopes []Envelope) error {
+	p.published = append(p.published, envelopes)
+	return p.err
+}
+
 var fixedNow = time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC)
 
-func newTestService(l *fakeLanding) *Service {
-	return NewService(l, func() time.Time { return fixedNow })
+func newTestService(l *fakeLanding, p *fakePublisher) *Service {
+	return NewService(l, p, func() time.Time { return fixedNow })
 }
 
 func TestIngestSavesRecordsAndCursor(t *testing.T) {
@@ -79,7 +101,7 @@ func TestIngestSavesRecordsAndCursor(t *testing.T) {
 		Cursor:  json.RawMessage(`{"snapshot_at":"2026-09-27T10:00:00Z"}`),
 	}}
 
-	result, err := newTestService(landing).Ingest(context.Background(), adapter, domain.Perm)
+	result, err := newTestService(landing, &fakePublisher{}).Ingest(context.Background(), adapter, domain.Perm)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +126,7 @@ func TestIngestPassesStoredCursorToAdapter(t *testing.T) {
 	landing := &fakeLanding{cursor: json.RawMessage(`{"dataset_version":12}`)}
 	adapter := &fakeAdapter{}
 
-	if _, err := newTestService(landing).Ingest(context.Background(), adapter, domain.Moscow); err != nil {
+	if _, err := newTestService(landing, &fakePublisher{}).Ingest(context.Background(), adapter, domain.Moscow); err != nil {
 		t.Fatal(err)
 	}
 	if string(adapter.gotCursor) != `{"dataset_version":12}` {
@@ -116,7 +138,7 @@ func TestIngestRecordsFetchErrorCode(t *testing.T) {
 	landing := &fakeLanding{}
 	adapter := &fakeAdapter{err: &FetchError{Code: "http_status_503", Err: errors.New("503 Service Unavailable")}}
 
-	_, err := newTestService(landing).Ingest(context.Background(), adapter, domain.Moscow)
+	_, err := newTestService(landing, &fakePublisher{}).Ingest(context.Background(), adapter, domain.Moscow)
 	var fetchErr *FetchError
 	if !errors.As(err, &fetchErr) || fetchErr.Code != "http_status_503" {
 		t.Fatalf("err = %v", err)
@@ -134,7 +156,7 @@ func TestIngestRecordsStoreFailure(t *testing.T) {
 	landing := &fakeLanding{saveErr: errors.New("connection reset")}
 	adapter := &fakeAdapter{batch: Batch{Records: []domain.RawRecord{{ExternalID: "node/1"}}}}
 
-	if _, err := newTestService(landing).Ingest(context.Background(), adapter, domain.Perm); err == nil {
+	if _, err := newTestService(landing, &fakePublisher{}).Ingest(context.Background(), adapter, domain.Perm); err == nil {
 		t.Fatal("expected an error")
 	}
 	if len(landing.runs) != 1 || landing.runs[0].ErrorCode != "internal" || landing.runs[0].Cursor != nil {
@@ -145,4 +167,58 @@ func TestIngestRecordsStoreFailure(t *testing.T) {
 func sameRun(got, want Run) bool {
 	return got.SourceID == want.SourceID && got.City == want.City && got.AttemptAt.Equal(want.AttemptAt) &&
 		string(got.Cursor) == string(want.Cursor) && got.ErrorCode == want.ErrorCode
+}
+
+func TestIngestPublishesUnpublishedTail(t *testing.T) {
+	older := validEnvelope()
+	older.FetchedAt = fixedNow.Add(-time.Hour)
+	fresh := validEnvelope()
+	fresh.RawIngestID = "1c6d4f7e-3e2b-4d9f-8a4c-8b7e6f5d4c3b"
+	landing := &fakeLanding{sourceID: SourceID{1}, unpublished: []Envelope{older, fresh}}
+	publisher := &fakePublisher{}
+	adapter := &fakeAdapter{batch: Batch{Records: []domain.RawRecord{{ExternalID: "event:1"}}, Cursor: json.RawMessage(`{}`)}}
+
+	result, err := newTestService(landing, publisher).Ingest(context.Background(), adapter, domain.Moscow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Published != 2 || len(publisher.published) != 1 || len(publisher.published[0]) != 2 {
+		t.Fatalf("result = %+v, published = %+v", result, publisher.published)
+	}
+	if len(landing.advanced) != 1 || !landing.advanced[0].Equal(fixedNow) {
+		t.Fatalf("advanced = %v", landing.advanced)
+	}
+	if len(landing.runs) != 1 || landing.runs[0].ErrorCode != "" {
+		t.Fatalf("runs = %+v", landing.runs)
+	}
+}
+
+func TestIngestEmptyTailAdvancesWithoutPublishing(t *testing.T) {
+	landing := &fakeLanding{}
+	publisher := &fakePublisher{}
+
+	if _, err := newTestService(landing, publisher).Ingest(context.Background(), &fakeAdapter{}, domain.Perm); err != nil {
+		t.Fatal(err)
+	}
+	if len(publisher.published) != 0 || len(landing.advanced) != 1 {
+		t.Fatalf("published = %+v, advanced = %v", publisher.published, landing.advanced)
+	}
+}
+
+func TestIngestPublishFailureKeepsWatermarkAndCursor(t *testing.T) {
+	landing := &fakeLanding{unpublished: []Envelope{validEnvelope()}}
+	publisher := &fakePublisher{err: errors.New("kafka: context deadline exceeded")}
+	adapter := &fakeAdapter{batch: Batch{Cursor: json.RawMessage(`{"snapshot_at":"2026-09-27T10:00:00Z"}`)}}
+
+	_, err := newTestService(landing, publisher).Ingest(context.Background(), adapter, domain.Moscow)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if len(landing.advanced) != 0 {
+		t.Fatalf("watermark advanced after failed publish: %v", landing.advanced)
+	}
+	want := Run{City: domain.Moscow, AttemptAt: fixedNow, Cursor: adapter.batch.Cursor, ErrorCode: "publish"}
+	if len(landing.runs) != 1 || !sameRun(landing.runs[0], want) {
+		t.Fatalf("runs = %+v", landing.runs)
+	}
 }
