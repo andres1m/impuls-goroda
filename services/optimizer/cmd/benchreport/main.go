@@ -59,6 +59,9 @@ func parse(r io.Reader) (report, error) {
 			pending = fields[0]
 			continue
 		case strings.HasPrefix(fields[0], "Benchmark"):
+			if pending != "" {
+				return report{}, fmt.Errorf("%s: no result", pending)
+			}
 			name, fields = fields[0], fields[1:]
 		case len(fields) >= 3 && isNumber(fields[0]) && strings.HasSuffix(fields[2], "/op"):
 			if pending == "" {

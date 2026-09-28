@@ -195,11 +195,28 @@ func generate(seed uint64) genCase {
 			req.Constraints.Obligations = append(req.Constraints.Obligations, domain.Obligation{SessionID: &c.Session.ID, Participation: domain.ParticipationUserReported})
 		}
 	}
+	// Some sources let people in after the start: half the session is enough, sometimes only until a
+	// last entry. Drawn last for the same reason.
+	for i := range pool {
+		if pool[i].Session == nil || r.IntN(4) != 0 {
+			continue
+		}
+		late := true
+		w := pool[i].Window
+		w.LateEntryAllowed, w.MinDuration = &late, w.End.Sub(w.Start)/2
+		if r.IntN(2) == 0 {
+			lastEntry := w.Start.Add(w.MinDuration / 2)
+			w.LastEntryAt = &lastEntry
+		}
+		session := *pool[i].Session
+		session.Window = w
+		pool[i].Session, pool[i].Window = &session, w
+	}
 	return genCase{req: req, pool: pool, provider: provider}
 }
 
 func TestGeneratedCasesAreValidAndVaried(t *testing.T) {
-	var strict, unknownPrice, obligations, soldOutObligations, degraded int
+	var strict, unknownPrice, obligations, soldOutObligations, degraded, lateEntry int
 	for seed := range uint64(200) {
 		c := generate(seed)
 		if err := c.req.Validate(); err != nil {
@@ -231,12 +248,17 @@ func TestGeneratedCasesAreValidAndVaried(t *testing.T) {
 		if c.provider.degraded {
 			degraded++
 		}
+		if slices.ContainsFunc(c.pool, func(cand domain.Candidate) bool {
+			return cand.Window.LateEntryAllowed != nil && cand.Window.LastEntryAt != nil
+		}) {
+			lateEntry++
+		}
 	}
 	paces := map[string]int{}
 	for seed := range uint64(200) {
 		paces[generate(seed).req.Constraints.LoadProfile]++
 	}
-	for name, n := range map[string]int{"strict": strict, "unknown price": unknownPrice, "obligations": obligations, "degraded": degraded,
+	for name, n := range map[string]int{"strict": strict, "unknown price": unknownPrice, "obligations": obligations, "degraded": degraded, "late entry until a last entry": lateEntry,
 		"relaxed pace": paces["relaxed"], "moderate pace": paces["moderate"], "intense pace": paces["intense"]} {
 		if n < 20 {
 			t.Errorf("only %d of 200 seeds have %s", n, name)
