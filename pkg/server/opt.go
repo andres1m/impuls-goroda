@@ -106,6 +106,14 @@ func WithHTTPErrorHandler(handler echo.HTTPErrorHandler) Option {
 	}
 }
 
+func WithIPExtractor(extractor echo.IPExtractor) Option {
+	return func(s *Server) {
+		if extractor != nil {
+			s.api.IPExtractor = extractor
+		}
+	}
+}
+
 func WithMiddleware(middlewares ...echo.MiddlewareFunc) Option {
 	return func(s *Server) {
 		s.api.Use(middlewares...)
