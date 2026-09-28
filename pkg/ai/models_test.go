@@ -13,16 +13,17 @@ import (
 	"testing"
 )
 
-// fakeOpenRouter answers embeddings with vectors whose length depends on the model:
-// models named "wide/*" return 1536 values, all others the requested dimensions.
-type fakeOpenRouter struct {
+// fakeProvider serves both catalogs, OpenRouter's and Polza's, and answers embeddings with
+// vectors whose length depends on the model: "wide/*" return 1536 values, all others the
+// requested dimensions.
+type fakeProvider struct {
 	*httptest.Server
 	embedCalls atomic.Int32
 }
 
-func newFakeOpenRouter(t *testing.T) *fakeOpenRouter {
+func newFakeProvider(t *testing.T) *fakeProvider {
 	t.Helper()
-	f := &fakeOpenRouter{}
+	f := &fakeProvider{}
 	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/embeddings":
@@ -52,7 +53,14 @@ func newFakeOpenRouter(t *testing.T) *fakeOpenRouter {
 		case "/embeddings/models":
 			_, _ = io.WriteString(w, `{"data":[{"id":"e/one","name":"One","context_length":512}]}`)
 		case "/models":
-			_, _ = io.WriteString(w, `{"data":[{"id":"t/one","name":"Text","context_length":8000}]}`)
+			switch r.URL.Query().Get("type") {
+			case "embedding":
+				_, _ = io.WriteString(w, `{"data":[{"id":"p/emb","name":"Polza","top_provider":{"context_length":8192}}]}`)
+			case "chat":
+				_, _ = io.WriteString(w, `{"data":[{"id":"p/chat","name":"Chat","top_provider":{"context_length":128000}}]}`)
+			default:
+				_, _ = io.WriteString(w, `{"data":[{"id":"t/one","name":"Text","context_length":8000}]}`)
+			}
 		default:
 			http.NotFound(w, r)
 		}
@@ -71,9 +79,17 @@ func vector(size int) string {
 
 func openRouterConfig(baseURL, key string) Config {
 	return Config{
-		OpenRouter: OpenRouterConfig{BaseURL: baseURL, APIKey: key},
+		OpenRouter: ProviderConfig{BaseURL: baseURL, APIKey: key},
 		Embedding:  EmbeddingConfig{Provider: ProviderOpenRouter, Model: "openai/text-embedding-3-small", Dimensions: 384},
 		Text:       TextConfig{Provider: ProviderOpenRouter, Model: "openai/gpt-4o-mini"},
+	}
+}
+
+func polzaConfig(baseURL, key string) Config {
+	return Config{
+		Polza:     ProviderConfig{BaseURL: baseURL, APIKey: key},
+		Embedding: EmbeddingConfig{Provider: ProviderPolza, Model: "openai/text-embedding-3-small", Dimensions: 384},
+		Text:      TextConfig{Provider: ProviderPolza, Model: "openai/gpt-4o-mini"},
 	}
 }
 
@@ -98,6 +114,7 @@ func TestConfigValidate(t *testing.T) {
 		"empty text model":           func(c *Config) { c.Text.Model = "" },
 		"zero dimensions":            func(c *Config) { c.Embedding.Dimensions = 0 },
 		"negative timeout":           func(c *Config) { c.OpenRouter.Timeout = -1 },
+		"negative polza timeout":     func(c *Config) { c.Polza.Timeout = -1 },
 		"admin port":                 func(c *Config) { c.Admin = AdminConfig{Enabled: true, Port: 70000} },
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -114,7 +131,7 @@ func TestConfigValidate(t *testing.T) {
 }
 
 func TestEmbedReturnsVectorsWithTheirSpace(t *testing.T) {
-	f := newFakeOpenRouter(t)
+	f := newFakeProvider(t)
 	m := mustNew(t, openRouterConfig(f.URL, "k"))
 	got, err := m.Embedder().Embed(context.Background(), []string{"a", "b"})
 	if err != nil {
@@ -130,7 +147,7 @@ func TestEmbedReturnsVectorsWithTheirSpace(t *testing.T) {
 }
 
 func TestEmbedWithoutKeyIsNotConfigured(t *testing.T) {
-	f := newFakeOpenRouter(t)
+	f := newFakeProvider(t)
 	m := mustNew(t, openRouterConfig(f.URL, ""))
 	if _, err := m.Embedder().Embed(context.Background(), []string{"a"}); !errors.Is(err, ErrNotConfigured) {
 		t.Fatalf("error %v", err)
@@ -144,7 +161,7 @@ func TestEmbedWithoutKeyIsNotConfigured(t *testing.T) {
 }
 
 func TestEmbedRejectsUnexpectedDimensions(t *testing.T) {
-	f := newFakeOpenRouter(t)
+	f := newFakeProvider(t)
 	cfg := openRouterConfig(f.URL, "k")
 	cfg.Embedding.Model = "wide/model"
 	m := mustNew(t, cfg)
@@ -176,7 +193,7 @@ func TestLocalProviderIsNotImplemented(t *testing.T) {
 }
 
 func TestCompleteUsesSelectedModel(t *testing.T) {
-	f := newFakeOpenRouter(t)
+	f := newFakeProvider(t)
 	m := mustNew(t, openRouterConfig(f.URL, "k"))
 	got, err := m.Text().Complete(context.Background(), Prompt{System: "s", User: "u"})
 	if err != nil || got != "answer" {
@@ -191,7 +208,7 @@ func TestCompleteUsesSelectedModel(t *testing.T) {
 }
 
 func TestSelectEmbeddingProbesDimensions(t *testing.T) {
-	f := newFakeOpenRouter(t)
+	f := newFakeProvider(t)
 	m := mustNew(t, openRouterConfig(f.URL, "k"))
 	before := m.Embedder().Space()
 
@@ -215,7 +232,7 @@ func TestSelectEmbeddingProbesDimensions(t *testing.T) {
 }
 
 func TestSelectWithoutKeyIsRefused(t *testing.T) {
-	f := newFakeOpenRouter(t)
+	f := newFakeProvider(t)
 	m := mustNew(t, openRouterConfig(f.URL, ""))
 	if err := m.Select(context.Background(), KindEmbedding, "e/one"); !errors.Is(err, ErrNotConfigured) {
 		t.Fatalf("error %v", err)
@@ -233,7 +250,7 @@ func TestSelectUnknownKind(t *testing.T) {
 }
 
 func TestAvailableListsProviderModels(t *testing.T) {
-	f := newFakeOpenRouter(t)
+	f := newFakeProvider(t)
 	m := mustNew(t, openRouterConfig(f.URL, ""))
 	embedding, err := m.Available(context.Background(), KindEmbedding)
 	if err != nil || len(embedding) != 1 || embedding[0] != (ModelInfo{ID: "e/one", Name: "One", ContextLength: 512}) {
@@ -242,5 +259,57 @@ func TestAvailableListsProviderModels(t *testing.T) {
 	text, err := m.Available(context.Background(), KindText)
 	if err != nil || len(text) != 1 || text[0].ID != "t/one" {
 		t.Fatalf("text models %v, %v", text, err)
+	}
+}
+
+func TestPolzaProvider(t *testing.T) {
+	f := newFakeProvider(t)
+	m := mustNew(t, polzaConfig(f.URL, "k"))
+	if err := m.cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := m.Embedder().Embed(context.Background(), []string{"a"})
+	if err != nil || len(got.Vectors) != 1 || got.Space != (Space{Key: "polza/openai/text-embedding-3-small", Version: "d384"}) {
+		t.Fatalf("embedding %v, %v", got.Space, err)
+	}
+	if answer, err := m.Text().Complete(context.Background(), Prompt{User: "hi"}); err != nil || answer != "answer" {
+		t.Fatalf("complete %q, %v", answer, err)
+	}
+	embedding, err := m.Available(context.Background(), KindEmbedding)
+	if err != nil || len(embedding) != 1 || embedding[0] != (ModelInfo{ID: "p/emb", Name: "Polza", ContextLength: 8192}) {
+		t.Fatalf("embedding models %v, %v", embedding, err)
+	}
+	text, err := m.Available(context.Background(), KindText)
+	if err != nil || len(text) != 1 || text[0].ID != "p/chat" {
+		t.Fatalf("text models %v, %v", text, err)
+	}
+	if err := m.Select(context.Background(), KindEmbedding, "p/emb"); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Embedder().Space(); got != (Space{Key: "polza/p/emb", Version: "d384"}) {
+		t.Fatalf("space %v", got)
+	}
+	if err := m.Select(context.Background(), KindEmbedding, "wide/model"); !errors.Is(err, ErrDimensions) {
+		t.Fatalf("error %v", err)
+	}
+}
+
+func TestKeyBelongsToTheKindsProvider(t *testing.T) {
+	f := newFakeProvider(t)
+	cfg := polzaConfig(f.URL, "")
+	cfg.OpenRouter = ProviderConfig{BaseURL: f.URL, APIKey: "openrouter-key"}
+	cfg.Text.Provider = ProviderOpenRouter
+	m := mustNew(t, cfg)
+	if _, err := m.Embedder().Embed(context.Background(), []string{"a"}); !errors.Is(err, ErrNotConfigured) {
+		t.Fatalf("error %v", err)
+	}
+	if f.embedCalls.Load() != 0 {
+		t.Fatal("request sent without the polza key")
+	}
+	if _, err := m.Text().Complete(context.Background(), Prompt{User: "hi"}); err != nil {
+		t.Fatalf("openrouter text model: %v", err)
+	}
+	if m.keyMissing(KindEmbedding) != true || m.keyMissing(KindText) != false {
+		t.Fatalf("key missing: embedding %v, text %v", m.keyMissing(KindEmbedding), m.keyMissing(KindText))
 	}
 }

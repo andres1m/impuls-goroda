@@ -14,7 +14,7 @@ import (
 
 func newAdmin(t *testing.T, key string) (*Admin, *Models) {
 	t.Helper()
-	f := newFakeOpenRouter(t)
+	f := newFakeProvider(t)
 	m := mustNew(t, openRouterConfig(f.URL, key))
 	return NewAdmin(m, AdminConfig{Enabled: true}, zap.NewNop()), m
 }
@@ -42,8 +42,21 @@ func TestAdminState(t *testing.T) {
 		text["provider"] != "openrouter" || text["model"] != "openai/gpt-4o-mini" {
 		t.Fatalf("state %v", payload)
 	}
-	if payload["api_key_set"] != true {
-		t.Fatalf("api_key_set %v", payload["api_key_set"])
+	if embedding["api_key_set"] != true || text["api_key_set"] != true {
+		t.Fatalf("api_key_set %v", payload)
+	}
+}
+
+func TestAdminStateReportsMissingKeyPerKind(t *testing.T) {
+	cfg := polzaConfig("", "")
+	cfg.OpenRouter.APIKey = "k"
+	cfg.Text.Provider = ProviderOpenRouter
+	a := NewAdmin(mustNew(t, cfg), AdminConfig{}, zap.NewNop())
+	_, payload, _ := call(t, a.Handler(), http.MethodGet, "/api/state", "")
+	embedding, _ := payload["embedding"].(map[string]any)
+	text, _ := payload["text"].(map[string]any)
+	if embedding["provider"] != "polza" || embedding["api_key_set"] != false || text["api_key_set"] != true {
+		t.Fatalf("state %v", payload)
 	}
 }
 

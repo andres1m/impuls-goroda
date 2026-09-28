@@ -113,15 +113,15 @@ type spaceView struct {
 }
 
 type kindView struct {
-	Provider string     `json:"provider"`
-	Model    string     `json:"model"`
-	Space    *spaceView `json:"space,omitempty"`
+	Provider  string     `json:"provider"`
+	Model     string     `json:"model"`
+	Space     *spaceView `json:"space,omitempty"`
+	APIKeySet bool       `json:"api_key_set"`
 }
 
 type stateView struct {
 	Embedding kindView `json:"embedding"`
 	Text      kindView `json:"text"`
-	APIKeySet bool     `json:"api_key_set"`
 }
 
 func (a *Admin) page(w http.ResponseWriter, _ *http.Request) {
@@ -138,10 +138,13 @@ func (a *Admin) view() stateView {
 	return stateView{
 		Embedding: kindView{
 			Provider: a.models.Provider(KindEmbedding), Model: a.models.Selected(KindEmbedding),
-			Space: &spaceView{Key: space.Key, Version: space.Version},
+			Space:     &spaceView{Key: space.Key, Version: space.Version},
+			APIKeySet: a.models.backendOf(KindEmbedding).keySet,
 		},
-		Text:      kindView{Provider: a.models.Provider(KindText), Model: a.models.Selected(KindText)},
-		APIKeySet: a.models.cfg.OpenRouter.APIKey != "",
+		Text: kindView{
+			Provider: a.models.Provider(KindText), Model: a.models.Selected(KindText),
+			APIKeySet: a.models.backendOf(KindText).keySet,
+		},
 	}
 }
 

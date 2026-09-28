@@ -17,7 +17,7 @@
 </head>
 <body>
 <h1>Модели векторизации и текста</h1>
-<section id="key" class="warn" hidden>API-ключ не задан в конфиге: API-модели недоступны, выбрать модель эмбеддингов нельзя.</section>
+<section id="key" class="warn" hidden></section>
 <section data-kind="embedding">
   <h2>Эмбеддинги</h2>
   <dl><dt>Провайдер</dt><dd data-field="provider"></dd><dt>Модель</dt><dd data-field="model"></dd><dt>Пространство</dt><dd data-field="space"></dd></dl>
@@ -40,7 +40,13 @@ function status(section, text, cls) {
 }
 
 function render(state) {
-  document.getElementById("key").hidden = state.api_key_set;
+  const missing = [...new Set([...sections].map(s => state[s.dataset.kind])
+    .filter(view => view.provider !== "local" && !view.api_key_set)
+    .map(view => view.provider))];
+  const warning = document.getElementById("key");
+  warning.hidden = missing.length === 0;
+  warning.textContent = "API-ключ не задан в конфиге для " + missing.join(", ") +
+    ": вызовы моделей этого провайдера недоступны.";
   for (const section of sections) {
     const view = state[section.dataset.kind];
     section.querySelector('[data-field="provider"]').textContent = view.provider;

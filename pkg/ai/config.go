@@ -9,17 +9,21 @@ import (
 
 const (
 	ProviderOpenRouter = "openrouter"
+	ProviderPolza      = "polza"
 	ProviderLocal      = "local"
 )
 
 type Config struct {
-	OpenRouter OpenRouterConfig `yaml:"openrouter"`
-	Embedding  EmbeddingConfig  `yaml:"embedding"`
-	Text       TextConfig       `yaml:"text"`
-	Admin      AdminConfig      `yaml:"admin"`
+	OpenRouter ProviderConfig  `yaml:"openrouter"`
+	Polza      ProviderConfig  `yaml:"polza"`
+	Embedding  EmbeddingConfig `yaml:"embedding"`
+	Text       TextConfig      `yaml:"text"`
+	Admin      AdminConfig     `yaml:"admin"`
 }
 
-type OpenRouterConfig struct {
+// ProviderConfig connects a hosted API provider.
+type ProviderConfig struct {
+	// Empty means the provider's public endpoint.
 	BaseURL string `yaml:"base-url"`
 	// An empty key keeps the service running; hosted models then answer ErrNotConfigured.
 	APIKey  string        `yaml:"api-key"`
@@ -58,6 +62,9 @@ func (c Config) Validate() error {
 	if c.OpenRouter.Timeout < 0 {
 		return errors.New("openrouter: timeout must not be negative")
 	}
+	if c.Polza.Timeout < 0 {
+		return errors.New("polza: timeout must not be negative")
+	}
 	if c.Admin.Enabled && (c.Admin.Port < 0 || c.Admin.Port > 65535) {
 		return fmt.Errorf("admin: invalid port %d", c.Admin.Port)
 	}
@@ -65,7 +72,7 @@ func (c Config) Validate() error {
 }
 
 func validProvider(provider, model string) error {
-	if provider != ProviderOpenRouter && provider != ProviderLocal {
+	if provider != ProviderOpenRouter && provider != ProviderPolza && provider != ProviderLocal {
 		return fmt.Errorf("unknown provider %q", provider)
 	}
 	if strings.TrimSpace(model) == "" {

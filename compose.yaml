@@ -247,6 +247,7 @@ services:
       <<: *service-env
       # Optional: without a key free-text wishes fall back to the selected interests.
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      POLZA_API_KEY: ${POLZA_API_KEY:-}
     volumes:
       - ./docker/optimizer/config.yaml:/app/config.yaml:ro
       - routing-data:/routing:ro
@@ -341,6 +342,7 @@ services:
       <<: *service-env
       # Optional: only `syncer embed` uses it.
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      POLZA_API_KEY: ${POLZA_API_KEY:-}
     volumes:
       - ./docker/syncer/config.yaml:/app/config.yaml:ro
     healthcheck:

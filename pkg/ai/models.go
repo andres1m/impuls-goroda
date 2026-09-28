@@ -9,25 +9,53 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/andres1m/impuls-goroda/pkg/ai/internal/openaiapi"
 	"github.com/andres1m/impuls-goroda/pkg/ai/openrouter"
+	"github.com/andres1m/impuls-goroda/pkg/ai/polza"
 )
 
 const probeText = "проверка"
 
+type hostedClient interface {
+	Embeddings(ctx context.Context, model string, input []string, dimensions int) ([][]float32, error)
+	Complete(ctx context.Context, model, system, user string) (string, error)
+	EmbeddingModels(ctx context.Context) ([]openaiapi.Model, error)
+	TextModels(ctx context.Context) ([]openaiapi.Model, error)
+}
+
+// backend serves one model kind; a local provider has no hosted client.
+type backend struct {
+	client hostedClient
+	keySet bool
+}
+
+func newBackend(cfg Config, provider string) backend {
+	switch provider {
+	case ProviderOpenRouter:
+		c := cfg.OpenRouter
+		return backend{client: openrouter.New(c.BaseURL, c.APIKey, &http.Client{Timeout: c.Timeout}), keySet: c.APIKey != ""}
+	case ProviderPolza:
+		c := cfg.Polza
+		return backend{client: polza.New(c.BaseURL, c.APIKey, &http.Client{Timeout: c.Timeout}), keySet: c.APIKey != ""}
+	default:
+		return backend{}
+	}
+}
+
 // Models holds the configured providers and the model currently selected for each kind.
 type Models struct {
-	cfg       Config
-	client    *openrouter.Client
-	embedding atomic.Pointer[string]
-	text      atomic.Pointer[string]
+	cfg              Config
+	embeddingBackend backend
+	textBackend      backend
+	embedding        atomic.Pointer[string]
+	text             atomic.Pointer[string]
 }
 
 func New(cfg Config) (*Models, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	httpClient := &http.Client{Timeout: cfg.OpenRouter.Timeout}
-	m := &Models{cfg: cfg, client: openrouter.New(cfg.OpenRouter.BaseURL, cfg.OpenRouter.APIKey, httpClient)}
+	m := &Models{cfg: cfg, embeddingBackend: newBackend(cfg, cfg.Embedding.Provider), textBackend: newBackend(cfg, cfg.Text.Provider)}
 	embedding, text := strings.TrimSpace(cfg.Embedding.Model), strings.TrimSpace(cfg.Text.Model)
 	m.embedding.Store(&embedding)
 	m.text.Store(&text)
@@ -45,6 +73,18 @@ func (m *Models) Provider(kind Kind) string {
 	return m.cfg.Embedding.Provider
 }
 
+func (m *Models) backendOf(kind Kind) backend {
+	if kind == KindText {
+		return m.textBackend
+	}
+	return m.embeddingBackend
+}
+
+func (m *Models) keyMissing(kind Kind) bool {
+	b := m.backendOf(kind)
+	return b.client != nil && !b.keySet
+}
+
 func (m *Models) Selected(kind Kind) string {
 	if kind == KindText {
 		return *m.text.Load()
@@ -54,17 +94,16 @@ func (m *Models) Selected(kind Kind) string {
 
 // Available lists the models the kind's provider offers; a local provider offers none to choose.
 func (m *Models) Available(ctx context.Context, kind Kind) ([]ModelInfo, error) {
-	var list func(context.Context) ([]openrouter.Model, error)
-	switch kind {
-	case KindEmbedding:
-		list = m.client.EmbeddingModels
-	case KindText:
-		list = m.client.TextModels
-	default:
+	if kind != KindEmbedding && kind != KindText {
 		return nil, ErrUnknownKind
 	}
-	if m.Provider(kind) != ProviderOpenRouter {
+	client := m.backendOf(kind).client
+	if client == nil {
 		return nil, nil
+	}
+	list := client.EmbeddingModels
+	if kind == KindText {
+		list = client.TextModels
 	}
 	models, err := list(ctx)
 	if err != nil {
@@ -93,11 +132,11 @@ func (m *Models) Select(ctx context.Context, kind Kind, model string) error {
 	if model == "" {
 		return errors.New("model is required")
 	}
-	if m.Provider(kind) != ProviderOpenRouter {
+	if m.backendOf(kind).client == nil {
 		return fmt.Errorf("provider %s has no selectable models: %w", m.Provider(kind), ErrNotImplemented)
 	}
 	if kind == KindEmbedding {
-		if _, err := m.embedOpenRouter(ctx, model, []string{probeText}); err != nil {
+		if _, err := m.embedHosted(ctx, model, []string{probeText}); err != nil {
 			return err
 		}
 	}
@@ -109,11 +148,11 @@ func (m *Models) space(model string) Space {
 	return Space{Key: m.cfg.Embedding.Provider + "/" + model, Version: "d" + strconv.Itoa(m.cfg.Embedding.Dimensions)}
 }
 
-func (m *Models) embedOpenRouter(ctx context.Context, model string, texts []string) ([][]float32, error) {
-	if m.cfg.OpenRouter.APIKey == "" {
+func (m *Models) embedHosted(ctx context.Context, model string, texts []string) ([][]float32, error) {
+	if !m.embeddingBackend.keySet {
 		return nil, ErrNotConfigured
 	}
-	vectors, err := m.client.Embeddings(ctx, model, texts, m.cfg.Embedding.Dimensions)
+	vectors, err := m.embeddingBackend.client.Embeddings(ctx, model, texts, m.cfg.Embedding.Dimensions)
 	if err != nil {
 		return nil, err
 	}
@@ -132,13 +171,13 @@ func (e embedder) Space() Space { return e.m.space(e.m.Selected(KindEmbedding)) 
 func (e embedder) Embed(ctx context.Context, texts []string) (Embedding, error) {
 	model := e.m.Selected(KindEmbedding)
 	out := Embedding{Space: e.m.space(model)}
-	if e.m.cfg.Embedding.Provider == ProviderLocal {
+	if e.m.embeddingBackend.client == nil {
 		return out, fmt.Errorf("local embedding model %s: %w", model, ErrNotImplemented)
 	}
 	if len(texts) == 0 {
 		return out, nil
 	}
-	vectors, err := e.m.embedOpenRouter(ctx, model, texts)
+	vectors, err := e.m.embedHosted(ctx, model, texts)
 	if err != nil {
 		return out, err
 	}
@@ -152,11 +191,11 @@ func (t textModel) Model() string { return t.m.Selected(KindText) }
 
 func (t textModel) Complete(ctx context.Context, p Prompt) (string, error) {
 	model := t.Model()
-	if t.m.cfg.Text.Provider == ProviderLocal {
+	if t.m.textBackend.client == nil {
 		return "", fmt.Errorf("local text model %s: %w", model, ErrNotImplemented)
 	}
-	if t.m.cfg.OpenRouter.APIKey == "" {
+	if !t.m.textBackend.keySet {
 		return "", ErrNotConfigured
 	}
-	return t.m.client.Complete(ctx, model, p.System, p.User)
+	return t.m.textBackend.client.Complete(ctx, model, p.System, p.User)
 }

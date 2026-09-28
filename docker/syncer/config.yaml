@@ -45,12 +45,16 @@ ai:
     # `syncer embed` needs a key; the other commands run without one.
     api-key: ${OPENROUTER_API_KEY}
     timeout: 30s
+  polza:
+    base-url: https://polza.ai/api/v1
+    api-key: ${POLZA_API_KEY}
+    timeout: 30s
   embedding:
-    # openrouter | local (local is not implemented yet)
-    provider: openrouter
+    # openrouter | polza | local (local is not implemented yet)
+    provider: polza
     # Must match the optimizer's model, or its free-text search finds no vectors.
     model: openai/text-embedding-3-small
     dimensions: 384
   text:
-    provider: openrouter
+    provider: polza
     model: openai/gpt-4o-mini
