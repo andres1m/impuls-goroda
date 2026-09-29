@@ -21,10 +21,6 @@ import (
 )
 
 var (
-	schemaMismatch = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "ingestion_schema_mismatch_total",
-		Help: "Raw envelopes that could not be decoded or validated.",
-	}, []string{"source"})
 	rawWorkflows = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "syncer_raw_workflows_total",
 		Help: "Raw ingest workflow starts by outcome.",
@@ -166,7 +162,7 @@ func (c *Consumer) handle(ctx context.Context, record *kgo.Record) error {
 	envelope, err := ingest.DecodeEnvelope(record.Value)
 	if err != nil {
 		// ponytail: an invalid envelope is counted and dropped; it goes to the dead letter topic once that exists.
-		schemaMismatch.WithLabelValues(sourceLabel(record.Value)).Inc()
+		ingest.SchemaMismatch.WithLabelValues(sourceLabel(record.Value)).Inc()
 		c.log.Error(
 			"invalid raw envelope",
 			append(

@@ -91,7 +91,7 @@ func runConsumer(t *testing.T, group *fakeGroup, starter *fakeStarter) {
 
 func counter(result string) float64 { return testutil.ToFloat64(rawWorkflows.WithLabelValues(result)) }
 func mismatches(source string) float64 {
-	return testutil.ToFloat64(schemaMismatch.WithLabelValues(source))
+	return testutil.ToFloat64(ingest.SchemaMismatch.WithLabelValues(source))
 }
 
 func TestConsumerCommitsAfterStart(t *testing.T) {
