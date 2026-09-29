@@ -1,4 +1,5 @@
 import { archetypeTitles } from './routeProjection.js';
+import { userMessage } from './messages.js';
 
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 function invalid() { throw new Error('Сохранённый вариант содержит неполные данные.'); }
@@ -52,7 +53,7 @@ export function summarizeVariant(route) {
     title: archetypeTitles[plan.archetype_id] || 'Маршрут', window: `${date.format(start)} — ${date.format(end)}`,
     visits, pauses, modes: [...modes], travelMinutes: Math.ceil(travelSeconds / 60), walkMinutes: Math.ceil(walkSeconds / 60), uncertainLegs,
     personalCost: money(plan.cost.known_personal), transportCost: money(plan.cost.known_transport), unknownCostCount: plan.cost.unknown_components.length,
-    warnings: plan.warnings.map((item) => { if (!object(item) || typeof item.message !== 'string' || !item.message.trim()) invalid(); return item.message; }),
+    warnings: plan.warnings.map((item) => { if (!object(item) || typeof item.message !== 'string' || !item.message.trim()) invalid(); return userMessage(item); }),
     issueCount: issues.length, partial: plan.result === 'PARTIAL', dataModes: [...new Set(visits.map((visit) => visit.dataMode))],
   };
 }

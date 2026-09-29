@@ -14,6 +14,7 @@ export function scenarioForm(input) {
   const mask = BigInt(constraints.interest_mask || '0x0');
   const minor = constraints.budget?.limit?.amount_minor;
   return {
+    day: localDateTime(input.start_at || input.end_at, input.timezone).slice(0, 10),
     start: localDateTime(input.start_at, input.timezone), end: localDateTime(input.end_at, input.timezone),
     interests: interests.filter((_, index) => (mask & (1n << BigInt(index))) !== 0n).map(([code]) => code),
     modes: constraints.movement_modes || [], profile: constraints.load_profile || '',
@@ -22,8 +23,8 @@ export function scenarioForm(input) {
     budget: minor && constraints.budget.limit.currency === 'RUB' ? `${BigInt(minor) / 100n}.${String(BigInt(minor) % 100n).padStart(2, '0')}` : '',
     pushkin: constraints.pushkin_card_only === true, wishes: constraints.semantic_query || '',
     lunchEnabled: Boolean(constraints.lunch_window),
-    lunchStart: localDateTime(constraints.lunch_window?.start_at, input.timezone),
-    lunchEnd: localDateTime(constraints.lunch_window?.end_at, input.timezone),
+    lunchStart: localDateTime(constraints.lunch_window?.start_at, input.timezone).slice(11),
+    lunchEnd: localDateTime(constraints.lunch_window?.end_at, input.timezone).slice(11),
     lunchDuration: String(constraints.lunch_window?.min_duration_seconds ?? 2700),
   };
 }
@@ -34,6 +35,8 @@ export function confirmedScenarioInput(base, form, city, origin, destination) {
   const timezone = cities[city].timezone;
   const start = zonedDateTime(form.start, timezone);
   const end = zonedDateTime(form.end, timezone);
+  if (!form.day || form.start.slice(0, 10) !== form.day || form.end.slice(0, 10) !== form.day) throw new Error('Выберите один день для прогулки. Начало и конец должны быть в эту дату.');
+  if (form.day < localDateTime(new Date().toISOString(), timezone).slice(0, 10) || start.timestamp < Date.now()) throw new Error('Время начала прогулки не может быть в прошлом.');
   if (end.timestamp <= start.timestamp) throw new Error('Завершение должно быть позже начала.');
   if (!form.modes.length) throw new Error('Выберите способ передвижения.');
   if (!form.profile || !form.budgetMode) throw new Error('Укажите темп и условия бюджета.');
@@ -111,19 +114,24 @@ export function draftScenarioInput(base, form, city, origin, destination) {
   return input;
 }
 
-function scenarioLunchWindow(base, form, timezone) {
+export function scenarioLunchWindow(base, form, timezone) {
   if (!form.lunchEnabled) return null;
   if (!timezone) throw new Error('Выберите старт перед сохранением времени обеда.');
   if (!form.lunchStart || !form.lunchEnd) throw new Error('Укажите начало и конец обеденного окна.');
   if (!/^[1-9][0-9]*$/.test(form.lunchDuration)) throw new Error('Выберите длительность обеда.');
   const duration = Number(form.lunchDuration);
   if (!Number.isSafeInteger(duration) || duration > 2147483647) throw new Error('Проверьте длительность обеда.');
-  const original = base.constraints?.lunch_window;
-  const instant = (field, value) => base.timezone === timezone && value === localDateTime(original?.[field], timezone)
-    ? original[field] : zonedDateTime(value, timezone).value;
-  const start = instant('start_at', form.lunchStart), end = instant('end_at', form.lunchEnd);
+  const day = form.start.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error('Сначала укажите дату маршрута.');
+  const clock = (value) => value.includes('T') ? value.slice(11) : value;
+  const from = clock(form.lunchStart), to = clock(form.lunchEnd);
+  const shiftDay = (value) => new Date(Date.parse(`${value}T12:00:00Z`) + 86400000).toISOString().slice(0, 10);
+  const lunchDay = from < form.start.slice(11) && form.end.slice(0, 10) > day ? shiftDay(day) : day;
+  const start = zonedDateTime(`${lunchDay}T${from}`, timezone).value;
+  const end = zonedDateTime(`${to <= from ? shiftDay(lunchDay) : lunchDay}T${to}`, timezone).value;
   if (Date.parse(end) <= Date.parse(start)) throw new Error('Конец обеденного окна должен быть позже начала.');
   if (Date.parse(end) - Date.parse(start) < duration * 1000) throw new Error('Обеденное окно короче выбранной длительности.');
+  if (form.start && form.end && (Date.parse(start) < Date.parse(zonedDateTime(form.start, timezone).value) || Date.parse(end) > Date.parse(zonedDateTime(form.end, timezone).value))) throw new Error('Время обеда должно быть внутри маршрута.');
   return { start_at: start, end_at: end, min_duration_seconds: duration };
 }
 

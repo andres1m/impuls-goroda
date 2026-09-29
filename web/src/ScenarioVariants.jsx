@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { loadOwnerRoute } from './route.js';
 import { summarizeVariant, variantDifference } from './variantSummary.js';
 import { travelTitles } from './routeProjection.js';
+import { userMessage } from './messages.js';
 
 const dataNames = { live: 'Актуальные данные', prepared: 'Подготовленные данные', synthetic: 'Демонстрационные данные' };
 
@@ -33,7 +34,7 @@ function VariantCard({ id, index, apiBaseUrl, accessToken, disabled, selecting, 
 function VariantDetails({ id, summary: s, difference, disabled, selecting, retrySelection, onSelect }) {
   return <article className="variant-card">
     <h3>{s.title}</h3><p className="variant-window">{s.window} · местное время</p>
-    <div className="variant-labels">{s.dataModes.map((mode) => <span key={mode}>{dataNames[mode]}</span>)}{s.partial && <span>Есть ограничения</span>}</div>
+    <div className="variant-labels">{s.dataModes.map((mode) => <span key={mode}>{dataNames[mode]}</span>)}</div>
     {difference && <p className="variant-difference">{difference}</p>}
     <dl>
       <div><dt>Посещения</dt><dd>{s.visits.length}{s.pauses ? ` · пауз: ${s.pauses}` : ''}</dd></div>
@@ -45,7 +46,7 @@ function VariantDetails({ id, summary: s, difference, disabled, selecting, retry
     {s.uncertainLegs > 0 && <p className="variant-warning">Есть приблизительные или непроверенные переходы.</p>}
     {s.issueCount > 0 && <p className="variant-warning">В маршруте есть изменения или проблемы. Проверьте их перед выходом.</p>}
     <ol className="variant-visits">{s.visits.map((visit, index) => <li key={index}><span>{index + 1}</span>{visit.title}</li>)}</ol>
-    {s.warnings.length > 0 && <details className="variant-notices"><summary>Предупреждения ({s.warnings.length})</summary>{s.warnings.map((message, index) => <p key={index}>{message}</p>)}</details>}
+    {s.warnings.length > 0 && <details className="variant-notices"><summary>Условия посещений</summary>{s.warnings.map((message, index) => <p key={index}>{userMessage(message)}</p>)}</details>}
     <button type="button" className="scenario-option scenario-primary" disabled={disabled} onClick={() => onSelect(id)}>{selecting ? 'Открываем…' : retrySelection ? 'Повторить выбор' : 'Выбрать этот вариант'}</button>
   </article>;
 }

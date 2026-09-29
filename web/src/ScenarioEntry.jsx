@@ -8,8 +8,9 @@ import { loadOwnerRoute, loadSelectedRoute, RouteRequestError } from './route.js
 import { createRouteAttempt, sendRouteCommand, terminalRouteError } from './routeCommands.js';
 import TwoGisRouteMap from './TwoGisRouteMap.jsx';
 import { completeScenario, createCompletionAttempt, createDraftAttempt, loadScenario, saveScenarioDraft } from './scenario.js';
-import { confirmedScenarioInput, draftScenarioInput, resolveStartCity, scenarioForm } from './scenarioForm.js';
+import { confirmedScenarioInput, draftScenarioInput, localDateTime, resolveStartCity, scenarioForm } from './scenarioForm.js';
 import { cities } from './input.js';
+import { userMessage } from './messages.js';
 import { categories, interests, movementModes } from './taxonomy.js';
 
 const presetNames = { vibe: 'Вайб', mood: 'Настроение', culture: 'История и культура', energy: 'Энергия', balance: 'Баланс', benefit: 'Движение и польза' };
@@ -103,12 +104,18 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
     }
   }
   function change(field, value) { setForm((old) => ({ ...old, [field]: value })); setReview(null); setError(''); }
+  function changeDay(day) {
+    setForm((old) => ({ ...old, day,
+      start: day && old.start?.includes('T') ? `${day}T${old.start.slice(11)}` : '',
+      end: day && old.end?.includes('T') ? `${day}T${old.end.slice(11)}` : '',
+    }));
+    setReview(null); setError('');
+  }
   function toggleLunch(enabled) {
     setForm((old) => {
-      const day = /^\d{4}-\d{2}-\d{2}T/.test(old.start) ? old.start.slice(0, 10) : '';
       return { ...old, lunchEnabled: enabled,
-        lunchStart: old.lunchStart || (enabled && day ? `${day}T13:00` : ''),
-        lunchEnd: old.lunchEnd || (enabled && day ? `${day}T14:30` : ''),
+        lunchStart: old.lunchStart || (enabled ? '13:00' : ''),
+        lunchEnd: old.lunchEnd || (enabled ? '14:30' : ''),
       };
     });
     setReview(null); setError('');
@@ -137,10 +144,10 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
     const value = await loadScenario(apiBaseUrl, accessToken, current.scenario_id, fetch, controller.signal);
     if (!controller.signal.aborted) { setCurrent(value); setAttempt(null); setReview(null); }
   }
-  async function calculate() {
+  async function calculate(confirmed) {
     request.current?.abort();
     const controller = new AbortController(); request.current = controller;
-    const command = attempt || createCompletionAttempt(current, review);
+    const command = attempt || createCompletionAttempt(current, confirmed || review);
     setAttempt(command); setBusy(true); setError('');
     try {
       await completeScenario(apiBaseUrl, accessToken, command, fetch, controller.signal);
@@ -204,14 +211,16 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
     event.preventDefault();
     if (locked || locating) return;
     if (current.pending_extraction && !extractionChoice) { setError('Перенесите предложенные условия или выберите «Заполнить самостоятельно».'); return; }
-    try { setReview(confirmedScenarioInput(current.input, form, city, origin, destination)); setError(''); }
+    try { const input = confirmedScenarioInput(current.input, form, city, origin, destination); setReview(input); setError(''); calculate(input); }
     catch (failure) { setError(failure.message); }
   }
-  if (route) return <OwnerRouteScreen key={route.route_id} route={route} apiBaseUrl={apiBaseUrl} accessToken={accessToken} mapApiKey={mapApiKey} onBack={() => setRoute(null)} />;
+  if (route) return <OwnerRouteScreen key={route.route_id} route={route} variantIDs={current.outcome?.route_ids || []} apiBaseUrl={apiBaseUrl} accessToken={accessToken} mapApiKey={mapApiKey} onBack={() => setRoute(null)} />;
   const outcome = current.outcome;
+  const earliestStart = cities[city] ? localDateTime(new Date(Math.ceil((Date.now() + 1) / 60000) * 60000).toISOString(), cities[city].timezone) : '';
+  const today = earliestStart.slice(0, 10);
   return <main className="scenario-page">
     <header><Brand /><h1>{current.source === 'preset' ? presetNames[current.preset_id] : 'Ваш сценарий'}</h1></header>
-    {current.status === 'completed' && onLibrary && <button className="scenario-option" onClick={onLibrary}>Мои маршруты</button>}
+    {onLibrary && <button className="scenario-option" onClick={onLibrary} disabled={busy || saving}>Мои маршруты</button>}
     {current.source_text && <p className="scenario-description">{current.source_text}</p>}
     {current.status === 'draft' && current.pending_extraction && <ExtractionReview input={current.pending_extraction} choice={extractionChoice} disabled={locked} onApply={applyExtraction} onManual={() => { setExtractionChoice('manual'); setReview(null); }} />}
     {current.status === 'draft' && <form onSubmit={prepare}>
@@ -228,23 +237,26 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
         {current.source === 'preset' && <p className="scenario-timezone">Интересы и темп можно изменить под себя.</p>}
         <fieldset disabled={locked}>
           <legend className="scenario-timezone">{cities[city] ? `Время местное · ${cities[city].name}` : 'Сначала выберите старт, чтобы определить часовой пояс'}</legend>
+          <label>День прогулки<input type="date" value={form.day} min={today} onChange={(e) => changeDay(e.target.value)} required /></label>
           <div className="scenario-endpoints">
-            <label>Дата и время начала<input type="datetime-local" value={form.start} onChange={(e) => change('start', e.target.value)} required /></label>
-            <label>Дата и время завершения<input type="datetime-local" value={form.end} onChange={(e) => change('end', e.target.value)} required /></label>
+            <label>Начало<input type="time" value={form.start.slice(11)} min={form.day === today ? earliestStart.slice(11) : undefined} disabled={!form.day} onChange={(e) => change('start', `${form.day}T${e.target.value}`)} required /></label>
+            <label>Конец<input type="time" value={form.end.slice(11)} min={form.start.slice(11)} disabled={!form.day} onChange={(e) => change('end', `${form.day}T${e.target.value}`)} required /></label>
           </div>
+          <button type="button" className="scenario-option scenario-quick-conditions" onClick={() => { setForm((old) => ({ ...old, modes: ['walk'], profile: 'moderate', budgetMode: 'none', budget: '' })); setReview(null); setError(''); }}>Быстрый вариант: пешком · умеренно · без лимита</button>
           <fieldset><legend>Передвижение</legend><div className="scenario-choices">{[...movementModes, ...form.modes.filter((code) => !movementModes.some(([value]) => value === code)).map((code) => [code, code])].map(([code, label]) => <label key={code}><input type="checkbox" checked={form.modes.includes(code)} onChange={() => toggle('modes', code)} />{label}</label>)}</div></fieldset>
           <label>Темп<select value={form.profile} onChange={(e) => change('profile', e.target.value)} required><option value="">Выберите темп</option>{profiles.map(([code, label]) => <option key={code} value={code}>{label}</option>)}{form.profile && !profiles.some(([code]) => code === form.profile) && <option value={form.profile}>{form.profile}</option>}</select></label>
-          <fieldset><legend>Интересы</legend><div className="scenario-choices">{interests.map(([code, label]) => <label key={code}><input type="checkbox" checked={form.interests.includes(code)} onChange={() => toggle('interests', code)} />{label}</label>)}</div></fieldset>
-          <fieldset><legend>Не включать</legend><div className="scenario-choices">{categories.map(([code, label]) => <label key={code}><input type="checkbox" checked={form.excluded.includes(code)} onChange={() => toggle('excluded', code)} />{label}</label>)}</div></fieldset>
           <label>Бюджет<select value={form.budgetMode} onChange={(e) => change('budgetMode', e.target.value)} required><option value="">Выберите условие</option>{budgetModes.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label>
           {form.budgetMode && form.budgetMode !== 'none' && <label>Сумма, ₽<input inputMode="decimal" value={form.budget} onChange={(e) => change('budget', e.target.value)} required /></label>}
+          <details className="scenario-advanced" open={form.lunchEnabled ? true : undefined}><summary>Дополнительные условия{form.interests.length ? ` · ${form.interests.length} интересов` : ''}</summary>
+          <fieldset><legend>Интересы</legend><div className="scenario-choices">{interests.map(([code, label]) => <label key={code}><input type="checkbox" checked={form.interests.includes(code)} onChange={() => toggle('interests', code)} />{label}</label>)}</div></fieldset>
+          <fieldset><legend>Не включать</legend><div className="scenario-choices">{categories.map(([code, label]) => <label key={code}><input type="checkbox" checked={form.excluded.includes(code)} onChange={() => toggle('excluded', code)} />{label}</label>)}</div></fieldset>
           <label className="scenario-check"><input type="checkbox" checked={form.pushkin} onChange={(e) => change('pushkin', e.target.checked)} />Только события по Пушкинской карте</label>
           <fieldset><legend>Обед</legend>
             <label className="scenario-check"><input type="checkbox" checked={form.lunchEnabled} onChange={(e) => toggleLunch(e.target.checked)} />Запланировать обед</label>
             {form.lunchEnabled && <>
               <div className="scenario-endpoints">
-                <label>Можно начать с<input type="datetime-local" value={form.lunchStart} onChange={(e) => change('lunchStart', e.target.value)} required /></label>
-                <label>Закончить до<input type="datetime-local" value={form.lunchEnd} onChange={(e) => change('lunchEnd', e.target.value)} required /></label>
+                <label>Начать с<input type="time" value={form.lunchStart} onChange={(e) => change('lunchStart', e.target.value)} required /></label>
+                <label>Закончить до<input type="time" value={form.lunchEnd} onChange={(e) => change('lunchEnd', e.target.value)} required /></label>
               </div>
               <label>Длительность<select value={form.lunchDuration} onChange={(e) => change('lunchDuration', e.target.value)}>
                 <option value="2700">45 минут</option><option value="3600">60 минут</option>
@@ -254,14 +266,15 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
             </>}
           </fieldset>
           <label>Пожелания<textarea value={form.wishes} onChange={(e) => change('wishes', e.target.value)} rows={3} /></label>
+          </details>
         </fieldset>
         <RetainedConditions input={{ ...current.input, constraints: { ...current.input.constraints, excluded_categories: form.excluded } }} />
         <button type="button" className="scenario-option" disabled={saving || busy || Boolean(attempt) || locating || !dirty && !savePending} onClick={saveConditions}>{saving ? 'Сохраняем…' : draftRequest.current?.conflicted ? 'Обновить сценарий' : savePending ? 'Повторить сохранение' : 'Сохранить условия'}</button>
         {dirty && <p className="scenario-timezone" role="status">Есть несохранённые изменения. Сохраните условия, чтобы продолжить после закрытия.</p>}
-        {!review && !attempt && <button className="scenario-option" disabled={locked || locating || !city || !origin}>Проверить условия</button>}
+        {!review && !attempt && <button className="scenario-option scenario-primary" disabled={locked || locating || !city || !origin}>Построить маршрут</button>}
       </section>
     </form>}
-    {review && <section className="scenario-card" aria-label="Подтверждение расчёта"><h2>Всё верно?</h2>
+    {review && <section className="scenario-card" aria-label="Расчёт маршрута"><h2>{busy ? 'Строим маршрут…' : 'Условия маршрута'}</h2>
       <p>{instant(review.start_at, review.timezone)} — {instant(review.end_at, review.timezone)}</p>
       <p>{review.constraints.movement_modes.map((code) => nameOf(movementModes, code)).join(', ')} · {nameOf(profiles, review.constraints.load_profile)}</p>
       <p>{form.interests.map((code) => nameOf(interests, code)).join(', ') || 'Без дополнительных предпочтений по интересам'}</p>
@@ -272,11 +285,12 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
       {review.constraints.excluded_categories.length > 0 && <p>Исключены: {review.constraints.excluded_categories.map((code) => nameOf(categories, code)).join(', ')}</p>}
       {review.constraints.semantic_query && <p className="scenario-description">{review.constraints.semantic_query}</p>}
       {!attempt && <button className="scenario-option" onClick={() => setReview(null)}>Изменить условия</button>}
-      <button className="scenario-option scenario-primary" disabled={busy} onClick={calculate}>{busy ? 'Рассчитываем…' : attempt ? 'Повторить запрос' : 'Подтвердить и рассчитать'}</button>
+      <button className="scenario-option scenario-primary" disabled={busy} onClick={() => calculate()}>{busy ? 'Рассчитываем…' : attempt ? 'Повторить расчёт' : 'Построить маршрут'}</button>
     </section>}
     {outcome && <section className="scenario-card" aria-live="polite"><h2>{current.status === 'completed' ? 'Варианты маршрута' : 'Условия нужно уточнить'}</h2>
       <p>{modeNames[outcome.data_mode]}</p>
-      {[...outcome.conflicts, ...outcome.warnings].map((item, index) => <p key={`${item.code}-${index}`}>{item.message}</p>)}
+      {outcome.conflicts.map((item, index) => <p key={`${item.code}-${index}`}>{userMessage(item)}</p>)}
+      {outcome.warnings.length > 0 && <details className="route-notes"><summary>Условия посещений</summary>{outcome.warnings.map((item, index) => <p key={`${item.code}-${index}`}>{userMessage(item)}</p>)}</details>}
       {outcome.route_ids.length > 0 && <ScenarioVariants key={`${current.scenario_id}:${current.version}`} routeIDs={outcome.route_ids} apiBaseUrl={apiBaseUrl} accessToken={accessToken} disabled={locked} loadingID={loadingID} retrySelectionID={retrySelectionID} onSelect={openRoute} />}
     </section>}
     {error && <p className="scenario-error" role="alert">{error}</p>}

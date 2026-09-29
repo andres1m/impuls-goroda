@@ -3,7 +3,10 @@ export function parseRuntimeConfig(value) {
     throw new Error('Invalid runtime configuration');
   }
 
-  const { apiBaseUrl, prototypeMode = false, twoGisApiKey = '' } = value;
+  const { apiBaseUrl, prototypeMode = false, twoGisApiKey = '', botUsername = '' } = value;
+  if (typeof botUsername !== 'string' || (botUsername && !/^[A-Za-z0-9_]{1,100}$/.test(botUsername))) {
+    throw new Error('Invalid bot username');
+  }
   if (typeof prototypeMode !== 'boolean') {
     throw new Error('Invalid prototype mode');
   }
@@ -33,7 +36,7 @@ export function parseRuntimeConfig(value) {
     throw new Error('Invalid API address');
   }
 
-  return { apiBaseUrl: url.origin, prototypeMode, ...(twoGisApiKey ? { twoGisApiKey } : {}) };
+  return { apiBaseUrl: url.origin, prototypeMode, ...(twoGisApiKey ? { twoGisApiKey } : {}), ...(botUsername ? { botUsername } : {}) };
 }
 
 export async function loadRuntimeConfig(url, fetcher = fetch, signal) {

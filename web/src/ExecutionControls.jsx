@@ -31,15 +31,15 @@ export default function ExecutionControls({ visitID, execution, timezone, disabl
     } catch (failure) { setError(failure.message); }
   }
   return <section className="server-execution-actions" aria-label="Отметка посещения">
-    {completed && <p>Пройдено · по вашей отметке{execution?.actual_started_at && execution?.actual_ended_at ? '' : '. Добавьте фактическое время для пересчёта маршрута.'}</p>}
-    {!editing ? <button className="scenario-option" disabled={disabled} onClick={() => setEditing(true)}>{completed ? 'Уточнить время посещения' : 'Отметить пройденным'}</button> : <form className="execution-time-form" onSubmit={save}>
-      <p>Фактическое время · {timezone}</p>
-      <label>Начало<input type="datetime-local" value={start} required disabled={disabled} onChange={(event) => setStart(event.target.value)} /></label>
-      <label>Конец<input type="datetime-local" value={end} required disabled={disabled} onChange={(event) => setEnd(event.target.value)} /></label>
+    {completed && <p className="server-execution-status">Пройдено · по вашей отметке{execution?.actual_started_at && execution?.actual_ended_at ? '' : '. Добавьте фактическое время для пересчёта маршрута.'}</p>}
+    {!editing ? <div className="server-execution-choices"><button type="button" className="scenario-option" disabled={disabled} onClick={() => setEditing(true)}>{completed ? 'Изменить фактическое время' : 'Отметить пройденным'}</button>
+      {!completed && <button type="button" className="scenario-option server-execution-skip" disabled={disabled || execution?.status === 'skipped'} onClick={() => onExecution(visitID, 'skipped')}>{execution?.status === 'skipped' ? 'Отмечено пропущенным' : 'Пропустить точку'}</button>}</div> : <form className="execution-time-form" onSubmit={save}>
+      <h4>Когда вы были здесь?</h4><p>Укажите фактические дату и время по местному времени ({timezone}).</p>
+      <label>Начало посещения<input type="datetime-local" value={start} required disabled={disabled} onChange={(event) => setStart(event.target.value)} /></label>
+      <label>Конец посещения<input type="datetime-local" value={end} required disabled={disabled} onChange={(event) => setEnd(event.target.value)} /></label>
       {error && <p role="alert">{error}</p>}
-      <button className="scenario-option" type="submit" disabled={disabled}>Сохранить отметку</button>
-      <button className="scenario-option" type="button" disabled={disabled} onClick={() => { setEditing(false); setError(''); }}>Закрыть</button>
+      <div className="execution-time-buttons"><button className="scenario-option scenario-primary" type="submit" disabled={disabled}>Сохранить отметку</button>
+      <button className="scenario-option" type="button" disabled={disabled} onClick={() => { setEditing(false); setError(''); }}>Отмена</button></div>
     </form>}
-    <button className="scenario-option" disabled={disabled || execution?.status === 'skipped'} onClick={() => onExecution(visitID, 'skipped')}>{execution?.status === 'skipped' ? 'Пропущено' : 'Пропустить'}</button>
   </section>;
 }

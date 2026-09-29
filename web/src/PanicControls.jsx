@@ -3,7 +3,7 @@ import TwoGisRouteMap from './TwoGisRouteMap.jsx';
 import { pinHistoryIncomplete } from './routeCommands.js';
 import { coordinate } from './routeProjection.js';
 
-export default function PanicControls({ route, mapApiKey, disabled, onPanic }) {
+export default function PanicControls({ route, mapApiKey, disabled, onPanic, openRequest = 0, hideLauncher = false }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState('already_delayed');
   const [minutes, setMinutes] = useState('30');
@@ -16,6 +16,7 @@ export default function PanicControls({ route, mapApiKey, disabled, onPanic }) {
   const latest = useRef(null);
   latest.current = { revision: route.revision, disabled };
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
+  useEffect(() => { if (openRequest > 0) setOpen(true); }, [openRequest]);
   const incomplete = pinHistoryIncomplete(route);
   const locked = disabled || locating;
   const seconds = Number(minutes) * 60;
@@ -48,7 +49,7 @@ export default function PanicControls({ route, mapApiKey, disabled, onPanic }) {
   }
 
   return <section className="owner-route-actions panic-controls" aria-label="Опоздание">
-    {!open ? <button className="scenario-option" disabled={disabled} onClick={() => setOpen(true)}>Опаздываю</button> : <form onSubmit={submit}>
+    {!open ? !hideLauncher && <button className="scenario-option" disabled={disabled} onClick={() => setOpen(true)}>Опаздываю</button> : <form className="owner-panic-panel" onSubmit={submit}>
       <h2>Когда продолжим?</h2>
       <div className="server-participation-actions">
         <button type="button" className="scenario-option" aria-pressed={mode === 'already_delayed'} disabled={locked} onClick={() => setMode('already_delayed')}>Уже опоздал</button>

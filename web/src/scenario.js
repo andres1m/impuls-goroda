@@ -68,6 +68,13 @@ export async function loadScenario(apiBaseUrl, accessToken, scenarioID = null, f
   return parseScenarioResponse(await request(apiBaseUrl, path, accessToken, { method: 'GET' }, fetcher, signal), scenarioID);
 }
 
+export async function createScenario(apiBaseUrl, accessToken, input, key, signal) {
+  const body = await request(apiBaseUrl, '/api/v1/scenarios', accessToken, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key }, body: JSON.stringify(input),
+  }, fetch, signal);
+  return parseScenarioResponse(body);
+}
+
 export function createCompletionAttempt(scenario, confirmedInput, idempotencyKey = crypto.randomUUID()) {
   if (!object(scenario) || !scenarioIDPattern.test(scenario.scenario_id) || !validScenarioVersion(scenario.version) ||
       scenario.status !== 'draft' || !object(confirmedInput) || typeof idempotencyKey !== 'string' || !uuidPattern.test(idempotencyKey)) {
