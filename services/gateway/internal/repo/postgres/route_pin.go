@@ -146,6 +146,12 @@ WHERE id=$1 AND owner_id=$4 AND city=$5 AND current_revision=$6`, route, int64(n
 	if updated.RowsAffected() != 1 {
 		return 0, routewire.ErrInvalidResult
 	}
+	if _, err := q.db.Exec(ctx, `UPDATE planning.route_issue i SET state='resolved',resolved_at=$5
+WHERE i.route_id=$1 AND i.issue_type='cancelled' AND i.state<>'resolved' AND i.catalog_revision<=$4
+AND EXISTS (SELECT 1 FROM planning.route_step s WHERE s.route_id=i.route_id AND s.revision=$2 AND s.visit_id=i.visit_id)
+AND NOT EXISTS (SELECT 1 FROM planning.route_step s WHERE s.route_id=i.route_id AND s.revision=$3 AND s.visit_id=i.visit_id)`, route, int64(access.Revision), int64(next), int64(snapshot.CatalogRevision), now); err != nil {
+		return 0, err
+	}
 	return next, nil
 }
 

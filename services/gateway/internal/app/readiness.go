@@ -40,6 +40,9 @@ func (r *Runtime) Readiness(ctx context.Context) OperationReadiness {
 		result.CheckedAt = r.clock().UTC()
 		return result
 	}
+	if r.cfg.LifecycleEnabled {
+		result.Capabilities.CatalogUpdates = CapabilityStatus{Status: "degraded", Reason: "CATALOG_LIFECYCLE_DELIVERY_UNVERIFIED"}
+	}
 	type storageResult struct {
 		state postgres.RouteStorageReadiness
 		err   error

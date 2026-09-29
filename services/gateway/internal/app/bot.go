@@ -116,16 +116,22 @@ func (h *BotHandler) createScenarioReply(ctx context.Context, q *postgres.Querie
 	if account.State != d.AccountActive {
 		return nil, postgres.ErrAccountDisabled
 	}
-	if request.Resume || request.Result {
+	if request.Resume || request.Result || request.Edit {
 		latest, err := q.ReadLatestBotScenario(ctx, account.ID)
 		if err != nil {
 			return nil, err
 		}
 		if latest != nil {
+			if request.Edit {
+				if latest.Status == "completed" {
+					return h.client.ResultScenarioReply(latest.ScenarioID, "Этот сценарий уже рассчитан. Можно открыть варианты или выбрать другую тему для нового расчёта.", "Открыть варианты")
+				}
+				return h.client.DraftScenarioReply(latest.ScenarioID, scenarioGuidance(*latest))
+			}
 			if request.Result || latest.Outcome != nil {
 				return h.scenarioResultReply(ctx, q, account.ID, *latest)
 			}
-			return h.client.ResumeScenarioReply(latest.ScenarioID, latest.Status == "completed")
+			return h.client.DraftScenarioReply(latest.ScenarioID, scenarioGuidance(*latest))
 		}
 		return h.client.ScenarioMenuReply()
 	}
@@ -139,6 +145,10 @@ func (h *BotHandler) createScenarioReply(ctx context.Context, q *postgres.Querie
 	}
 	if request.PresetID != "" {
 		scenario.Source, scenario.PresetID = "preset", &request.PresetID
+		scenario.Input, err = presetScenarioInput(request.PresetID)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		scenario.SourceText = &request.SourceText
 		scenario.PendingExtraction = candidate

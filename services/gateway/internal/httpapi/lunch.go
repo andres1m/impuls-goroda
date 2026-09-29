@@ -15,6 +15,7 @@ import (
 
 	"github.com/andres1m/impuls-goroda/pkg/router"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/domain"
+	"github.com/andres1m/impuls-goroda/services/gateway/internal/lunchprovider"
 	"github.com/labstack/echo/v5"
 )
 
@@ -28,16 +29,20 @@ type LunchSearchRouter struct {
 	runtime LunchSearchRuntime
 	client  *http.Client
 	slots   chan struct{}
+	details *lunchprovider.Client
 }
 
 func NewLunchSearchRouter(key string, runtime LunchSearchRuntime) *LunchSearchRouter {
-	return &LunchSearchRouter{key: strings.TrimSpace(key), runtime: runtime, slots: make(chan struct{}, 4),
+	details, _ := lunchprovider.NewClient(key)
+	return &LunchSearchRouter{key: strings.TrimSpace(key), runtime: runtime, slots: make(chan struct{}, 4), details: details,
 		client: &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 }
 
 func (r *LunchSearchRouter) Routes() []router.Route {
 	return []router.Route{router.NewRoute(http.MethodPost, "/routes/:route_id/lunch/search", func() echo.HandlerFunc { return r.search },
-		shareNoStore, Authenticate(r.runtime), AuthenticatedRateLimit(r.runtime))}
+		shareNoStore, Authenticate(r.runtime), AuthenticatedRateLimit(r.runtime)),
+		router.NewRoute(http.MethodGet, "/routes/:route_id/lunch/organizations/:external_id", func() echo.HandlerFunc { return r.organization },
+			shareNoStore, Authenticate(r.runtime), AuthenticatedRateLimit(r.runtime))}
 }
 
 type lunchPosition struct {

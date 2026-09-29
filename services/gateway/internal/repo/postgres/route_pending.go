@@ -36,6 +36,22 @@ ORDER BY p.created_at DESC,p.id DESC LIMIT 1`, encodeUUID([16]byte(routeID)), en
 	}
 	var proposal routewire.PendingProposal
 	switch reason {
+	case "cancel":
+		record, readErr := q.ReadCancellationProposal(ctx, routeID, owner, d.ProposalID(proposalID))
+		if readErr != nil {
+			return routewire.OwnerRoute{}, readErr
+		}
+		if record.State != d.ProposalPending || record.BaseRevision != state.Access.Revision || record.Candidate.City != state.City {
+			return routewire.OwnerRoute{}, routewire.ErrInvalidResult
+		}
+		if err := routewire.ValidateCancellationCandidate(routeID, state.City, state.Plan, record.Candidate.Plan, state.History, record.Candidate.VisitIDs, record.Candidate.MinCatalogRevision, record.Candidate.Changes); err != nil {
+			return routewire.OwnerRoute{}, err
+		}
+		changes, changeErr := routewire.ProposalChangesToWire(record.Candidate.Changes)
+		if changeErr != nil {
+			return routewire.OwnerRoute{}, changeErr
+		}
+		proposal, err = routewire.PendingCancellationToWire(record.ID, record.BaseRevision, record.CatalogRevision, record.Candidate.Plan, changes, record.CreatedAt)
 	case "delete":
 		record, readErr := q.ReadRemovalProposal(ctx, routeID, owner, d.ProposalID(proposalID))
 		if readErr != nil {

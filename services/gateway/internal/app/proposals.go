@@ -52,6 +52,12 @@ func (r *Runtime) resolveRouteProposal(ctx context.Context, target RouteCommand,
 			return command.Result{}, err
 		}
 		switch reason {
+		case "cancel":
+			if apply {
+				revision, err = q.ApplyCancellationProposal(ctx, target.RouteID, target.ActorID, target.ExpectedRevision, proposalID, r.clock().UTC())
+			} else {
+				revision, err = q.RejectCancellationProposal(ctx, target.RouteID, target.ActorID, target.ExpectedRevision, proposalID, r.clock().UTC())
+			}
 		case "delete":
 			if apply {
 				revision, err = q.ApplyRemovalProposal(ctx, target.RouteID, target.ActorID, target.ExpectedRevision, proposalID, r.clock().UTC())

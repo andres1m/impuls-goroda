@@ -55,6 +55,10 @@ func PendingRemovalToWire(id d.ProposalID, revision d.RouteRevisionNumber, catal
 	return pendingProposalToWire(id, revision, catalog, candidate, changes, now, "delete")
 }
 
+func PendingCancellationToWire(id d.ProposalID, revision d.RouteRevisionNumber, catalog d.CatalogRevision, candidate d.RoutePlanSnapshot, changes []ProposalChange, now time.Time) (PendingProposal, error) {
+	return pendingProposalToWire(id, revision, catalog, candidate, changes, now, "cancel")
+}
+
 func PendingPanicToWire(id d.ProposalID, revision d.RouteRevisionNumber, catalog d.CatalogRevision, candidate d.RoutePlanSnapshot, changes []ProposalChange, now, effective time.Time) (PendingProposal, error) {
 	if effective.IsZero() {
 		return PendingProposal{}, ErrInvalidResult

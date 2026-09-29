@@ -35,21 +35,24 @@ func (r *BotRouter) Routes() []router.Route {
 func (r *BotRouter) webhook() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		body := http.MaxBytesReader(c.Response(), c.Request().Body, maxWebhookBodyBytes)
-		decoder := json.NewDecoder(body)
-		var update maxbot.Update
-		if err := decoder.Decode(&update); err != nil {
-			return &Error{
-				Status:  http.StatusBadRequest,
-				Code:    codeMalformedRequest,
-				Message: msgMalformedRequest,
-			}
+		raw, err := io.ReadAll(body)
+		if err != nil || !json.Valid(raw) {
+			return &Error{Status: http.StatusBadRequest, Code: codeMalformedRequest, Message: msgMalformedRequest}
 		}
-		if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-			return &Error{
-				Status:  http.StatusBadRequest,
-				Code:    codeMalformedRequest,
-				Message: msgMalformedRequest,
+		if handler, ok := r.bot.(interface {
+			HandleRaw(context.Context, json.RawMessage) error
+		}); ok {
+			if err := handler.HandleRaw(c.Request().Context(), raw); err != nil {
+				if errors.Is(err, maxbot.ErrInvalidDeliveryUpdate) || errors.Is(err, postgres.ErrBotEventConflict) {
+					return &Error{Status: http.StatusBadRequest, Code: codeMalformedRequest, Message: msgMalformedRequest}
+				}
+				return &Error{Status: http.StatusServiceUnavailable, Code: "BOT_UNAVAILABLE", Message: "Bot is temporarily unavailable", Retryable: true, Cause: err}
 			}
+			return c.NoContent(http.StatusOK)
+		}
+		var update maxbot.Update
+		if err := json.Unmarshal(raw, &update); err != nil {
+			return &Error{Status: http.StatusBadRequest, Code: codeMalformedRequest, Message: msgMalformedRequest}
 		}
 		if err := r.bot.Handle(c.Request().Context(), &update); err != nil {
 			if errors.Is(err, postgres.ErrBotEventConflict) {

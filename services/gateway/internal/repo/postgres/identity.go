@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -79,6 +80,17 @@ func (q *Queries) UpsertMaxAccount(ctx context.Context, account *domain.UserAcco
 	if account.Kind != domain.AccountMax {
 		return domain.UserAccount{}, errors.New("MAX account kind is required")
 	}
+	var maxID int64
+	if q.maxDeliveryEvents {
+		var err error
+		maxID, err = strconv.ParseInt(account.MaxUserID, 10, 64)
+		if err != nil || maxID <= 0 {
+			return domain.UserAccount{}, errors.New("invalid MAX account identifier")
+		}
+		if err := q.lockMAXPendingState(ctx, maxID); err != nil {
+			return domain.UserAccount{}, err
+		}
+	}
 
 	stored, err := scanAccount(q.db.QueryRow(
 		ctx,
@@ -92,6 +104,11 @@ func (q *Queries) UpsertMaxAccount(ctx context.Context, account *domain.UserAcco
 	))
 	if err != nil {
 		return domain.UserAccount{}, mapQueryError("upsert MAX account", err)
+	}
+	if q.maxDeliveryEvents {
+		if err := q.bindMAXDeliveryState(ctx, maxID, stored.ID); err != nil {
+			return domain.UserAccount{}, err
+		}
 	}
 	return stored, nil
 }
