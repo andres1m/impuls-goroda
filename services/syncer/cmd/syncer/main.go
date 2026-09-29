@@ -143,7 +143,7 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("create dead letter writer error: %w", err)
 	}
 	defer deadLetters.Close()
-	gateway := rpc.NewClient("gateway", infra.log.Log, &infra.cfg.Lifecycle)
+	gateway := gatewayConn{rpc.NewClient("gateway", infra.log.Log, &infra.cfg.Lifecycle)}
 	consumer := kafka.NewConsumer(infra.log.Log, &infra.cfg.Kafka, starter, deadLetters)
 	relay, err := delivery.NewRelay(infra.cfg.Delivery, postgres.NewDeliveries(poolDB{client: infra.pool}),
 		map[string]delivery.Sender{
@@ -183,6 +183,12 @@ func run(ctx context.Context) error {
 
 	return nil
 }
+
+// gatewayConn keeps syncer running while gateway is down: cancellations wait in the outbox and the relay
+// sends them once the connection is ready, whereas the plain client fails startup until gateway answers.
+type gatewayConn struct{ *rpc.Client }
+
+func (gatewayConn) HealthCheck(context.Context) error { return nil }
 
 var errDatabaseNotConnected = errors.New("database is not connected")
 
