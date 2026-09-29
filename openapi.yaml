@@ -411,6 +411,51 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/routes/{route_id}/lunch/organizations/{external_id}:
+    parameters:
+      - $ref: '#/components/parameters/RouteID'
+      - name: external_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+    get:
+      tags: [Routes]
+      operationId: readLunchOrganization
+      summary: Refresh an organization from the provider without changing the route
+      description: Owner-only read. A branch is an organization, not proof of a food category, opening hours or availability. No revision or idempotency key is needed.
+      responses:
+        '200':
+          description: Fresh organization details
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LunchOrganizationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          description: Route inaccessible or LUNCH_ORGANIZATION_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          description: Provider unavailable. Codes include LUNCH_DETAILS_NOT_CONFIGURED, LUNCH_DETAILS_ACCESS_DENIED, LUNCH_DETAILS_BUSY, LUNCH_DETAILS_RATE_LIMITED and LUNCH_DETAILS_UNAVAILABLE.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/routes/optimize:
     post:
       tags: [Routes]
@@ -474,6 +519,79 @@ paths:
           $ref: '#/components/responses/AuthRequired'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/routes/{route_id}/notifications:
+    parameters:
+      - $ref: '#/components/parameters/RouteID'
+    get:
+      tags: [Routes]
+      operationId: getRouteNotificationPreference
+      summary: Read owner-only cancellation notification settings
+      description: |
+        Only the owner can read this setting. An absent preference is disabled
+        with version 0. Platform state describes known delivery restrictions,
+        not a guarantee that MAX can receive a message. Shared viewers cannot
+        access the preference.
+      responses:
+        '200':
+          $ref: '#/components/responses/NotificationPreferenceSucceeded'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      tags: [Routes]
+      operationId: setRouteNotificationPreference
+      summary: Set explicit owner consent for cancellation notifications
+      description: |
+        Requires a saved route, its current revision in If-Match, and the current
+        preference version in expected_version. Changing enabled increments the
+        preference version without creating a route revision; a no-op preserves
+        the version. An identical idempotent retry replays the stored response.
+        Reusing a key with a different body is rejected.
+
+        Enabled records owner intent independently of stopped or muted platform
+        state. Enabling does not resend earlier cancellations or revive suppressed
+        messages. Disabling prevents new attempts, but an external request already
+        in flight can finish. Consent does not imply successful delivery.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetNotificationPreferenceRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/NotificationPreferenceSucceeded'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            Route revision or idempotency conflict, NOTIFICATION_PREFERENCE_CONFLICT
+            for a stale preference version, or ROUTE_NOT_SAVED for a draft route.
+            Read the current preference before submitting a new command after a
+            preference conflict. A conflict does not change consent or the route.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandConflictError'
         '429':
           $ref: '#/components/responses/RateLimited'
         '503':
@@ -1028,6 +1146,21 @@ components:
         pattern: '^"[1-9][0-9]*"$'
         example: '"7"'
   responses:
+    NotificationPreferenceSucceeded:
+      description: Owner preference and unchanged current route revision
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/XRequestID'
+        ETag:
+          $ref: '#/components/headers/RouteETag'
+        Cache-Control:
+          schema:
+            type: string
+            const: no-store
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/NotificationPreferenceResponse'
     ScenarioNotFound:
       description: Scenario is absent, expired, or owned by another user
       headers:
@@ -1224,6 +1357,48 @@ components:
           maxItems: 20
           items:
             $ref: '#/components/schemas/LunchSearchCandidate'
+    LunchOrganizationResponse:
+      type: object
+      additionalProperties: false
+      required: [request_id, organization]
+      properties:
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        organization:
+          $ref: '#/components/schemas/LunchOrganization'
+    LunchOrganization:
+      type: object
+      additionalProperties: false
+      required: [provider, external_id, title, position, observed_at, price_status, availability_status, hours_status]
+      properties:
+        provider:
+          type: string
+          const: 2gis
+        external_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        address:
+          type: string
+          maxLength: 1000
+        position:
+          $ref: '#/components/schemas/Coordinate'
+        observed_at:
+          type: string
+          format: date-time
+        price_status:
+          type: string
+          const: unknown
+        availability_status:
+          type: string
+          const: unknown
+        hours_status:
+          type: string
+          const: unknown
     LunchSearchCandidate:
       type: object
       additionalProperties: false
@@ -1263,6 +1438,47 @@ components:
         hours_status:
           type: string
           const: unknown
+    NotificationPreferenceVersion:
+      type: string
+      pattern: '^(0|[1-9][0-9]*)$'
+      maxLength: 19
+      description: Nonnegative signed 64-bit version, independent of the route revision. Zero means no stored preference.
+    NotificationPreference:
+      type: object
+      additionalProperties: false
+      required: [enabled, version, platform_state]
+      properties:
+        enabled:
+          type: boolean
+          description: Explicit owner consent; defaults to false and is not inherited by copies.
+        version:
+          $ref: '#/components/schemas/NotificationPreferenceVersion'
+        platform_state:
+          type: string
+          enum: [unknown, available, stopped, muted]
+          description: Known platform signals only. Stopped takes precedence over muted; available does not guarantee delivery.
+    SetNotificationPreferenceRequest:
+      type: object
+      additionalProperties: false
+      required: [enabled, expected_version]
+      properties:
+        enabled:
+          type: boolean
+        expected_version:
+          $ref: '#/components/schemas/NotificationPreferenceVersion'
+    NotificationPreferenceResponse:
+      type: object
+      additionalProperties: false
+      required: [request_id, route_id, revision, preference]
+      properties:
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        route_id:
+          $ref: '#/components/schemas/UUID'
+        revision:
+          $ref: '#/components/schemas/Revision'
+        preference:
+          $ref: '#/components/schemas/NotificationPreference'
     UUID:
       type: string
       format: uuid
