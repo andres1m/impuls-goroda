@@ -71,6 +71,10 @@ func newMaterializeFixture(t *testing.T) *materializeFixture {
 func (f *materializeFixture) cleanup(t *testing.T) {
 	for _, q := range []string{
 		`DELETE FROM integration.change_delivery d USING integration.source_record r WHERE d.source_record_id = r.id AND r.source_id = $1`,
+		`DELETE FROM catalog.entity_enrichment en USING catalog.event e, integration.source_record r
+			WHERE en.event_id = e.id AND en.city = e.city AND e.card_source_record_id = r.id AND r.source_id = $1`,
+		`DELETE FROM catalog.entity_enrichment en USING catalog.place c, integration.source_record r
+			WHERE en.place_id = c.id AND en.city = c.city AND c.card_source_record_id = r.id AND r.source_id = $1`,
 		`DELETE FROM catalog.price_offer o USING integration.source_record r WHERE o.source_record_id = r.id AND r.source_id = $1`,
 		`DELETE FROM catalog.session s USING integration.source_record r WHERE s.card_source_record_id = r.id AND r.source_id = $1`,
 		`DELETE FROM catalog.event e USING integration.source_record r WHERE e.card_source_record_id = r.id AND r.source_id = $1`,
