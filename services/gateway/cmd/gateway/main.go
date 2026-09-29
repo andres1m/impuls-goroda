@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/andres1m/impuls-goroda/pkg/ai"
@@ -15,11 +16,14 @@ import (
 	"github.com/andres1m/impuls-goroda/pkg/db"
 	"github.com/andres1m/impuls-goroda/pkg/logger"
 	"github.com/andres1m/impuls-goroda/pkg/router"
+	"github.com/andres1m/impuls-goroda/pkg/rpc"
 	"github.com/andres1m/impuls-goroda/pkg/server"
 	"github.com/andres1m/impuls-goroda/pkg/svc"
 	"github.com/andres1m/impuls-goroda/pkg/telemetry"
+	gatewaypb "github.com/andres1m/impuls-goroda/proto/gateway/v1"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/app"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/auth"
+	"github.com/andres1m/impuls-goroda/services/gateway/internal/grpcapi"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/httpapi"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/maxbot"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/optimizerclient"
@@ -29,17 +33,21 @@ import (
 const configPath = "config.yaml"
 
 type appConfig struct {
-	AI        *ai.Config        `yaml:"ai"`
-	Logger    config.Logger     `yaml:"logger"`
-	Telemetry config.Telemetry  `yaml:"telemetry"`
-	Database  config.Database   `yaml:"database"`
-	Optimizer config.GRPCClient `yaml:"optimizer-client"`
-	APIServer config.HTTPServer `yaml:"api-server"`
-	OpsServer config.HTTPServer `yaml:"ops-server"`
-	Gateway   gatewayConfig     `yaml:"gateway"`
+	AI              *ai.Config         `yaml:"ai"`
+	Logger          config.Logger      `yaml:"logger"`
+	Telemetry       config.Telemetry   `yaml:"telemetry"`
+	Database        config.Database    `yaml:"database"`
+	Optimizer       config.GRPCClient  `yaml:"optimizer-client"`
+	LifecycleServer *config.GRPCServer `yaml:"lifecycle-server"`
+	APIServer       config.HTTPServer  `yaml:"api-server"`
+	OpsServer       config.HTTPServer  `yaml:"ops-server"`
+	Gateway         gatewayConfig      `yaml:"gateway"`
 }
 
 type gatewayConfig struct {
+	CancellationWorker struct {
+		Enabled bool `yaml:"enabled"`
+	} `yaml:"cancellation-worker"`
 	Computation optimizerclient.Policy `yaml:"computation"`
 	Auth        gatewayAuthConfig      `yaml:"auth"`
 	CORS        gatewayCORSConfig      `yaml:"cors"`
@@ -124,6 +132,7 @@ func run(ctx context.Context) error {
 		httpapi.NewAuthRouter(authRuntime),
 		httpapi.NewVisitRouter(authRuntime),
 		httpapi.NewRouteRouter(authRuntime),
+		httpapi.NewNotificationPreferenceRouter(authRuntime),
 		httpapi.NewDeleteRouter(authRuntime),
 		httpapi.NewRecoveryRouter(authRuntime),
 		httpapi.NewScenarioRouter(authRuntime),
@@ -134,11 +143,13 @@ func run(ctx context.Context) error {
 		httpapi.NewDirectionsRouter(os.Getenv("TWO_GIS_API_KEY"), authRuntime),
 		httpapi.NewLunchSearchRouter(os.Getenv("TWO_GIS_API_KEY"), authRuntime),
 	}
+	var botClient *maxbot.Client
 	if username := os.Getenv("MAX_BOT_USERNAME"); username != "" {
 		bot, err := maxbot.NewClient(infra.cfg.Gateway.Auth.BotToken, username)
 		if err != nil {
 			return fmt.Errorf("create MAX bot: %w", err)
 		}
+		botClient = bot
 		var extractor *app.ScenarioExtractor
 		if infra.cfg.AI != nil {
 			models, err := ai.New(*infra.cfg.AI)
@@ -163,7 +174,7 @@ func run(ctx context.Context) error {
 		server.WithMetrics(),
 	)
 
-	if err := svc.Run(ctx, infra.log.Log, []svc.Service{
+	components := []svc.Service{
 		infra.log,
 		telemetry.New("gateway", infra.cfg.Telemetry, infra.log.Log),
 		infra.pool,
@@ -171,7 +182,38 @@ func run(ctx context.Context) error {
 		authRuntime,
 		apiServer,
 		opsServer,
-	}); err != nil {
+	}
+	if authRuntime.NotificationDeliveryEnabled() {
+		if botClient == nil || infra.cfg.LifecycleServer == nil {
+			return errors.New("notification delivery requires bot and lifecycle receiver")
+		}
+		components = append(components, app.NewNotificationWorker(authRuntime, botClient))
+	}
+	if authRuntime.ScenarioResultDeliveryEnabled() {
+		if botClient == nil {
+			return errors.New("scenario result delivery requires a configured bot")
+		}
+		components = append(components, app.NewScenarioResultWorker(authRuntime, botClient))
+	}
+	if infra.cfg.Gateway.CancellationWorker.Enabled {
+		if infra.cfg.LifecycleServer == nil {
+			return errors.New("cancellation worker requires lifecycle receiver")
+		}
+		components = append(components, app.NewCancellationWorker(authRuntime))
+	}
+	if cfg := infra.cfg.LifecycleServer; cfg != nil {
+		if cfg.Port <= 0 || cfg.Port > 65535 {
+			return errors.New("invalid catalog lifecycle server port")
+		}
+		bounded := *cfg
+		bounded.MaxRecvMsgSize = 64 * 1024
+		lifecycleServer := rpc.NewServer("gateway-lifecycle", infra.log.Log, &bounded)
+		lifecycleServer.OnInit(func(server *rpc.Server) {
+			gatewaypb.RegisterLifecycleServiceServer(server.GetServer(), grpcapi.NewLifecycleServer(authRuntime))
+		})
+		components = append(components, lifecycleServer)
+	}
+	if err := svc.Run(ctx, infra.log.Log, components); err != nil {
 		return fmt.Errorf("run service error: %w", err)
 	}
 
@@ -180,17 +222,52 @@ func run(ctx context.Context) error {
 
 func newAuthRuntime(infra *infrastructureComponents) (*app.Runtime, error) {
 	cfg := infra.cfg.Gateway
+	var deliveryEvents bool
+	if value, present := os.LookupEnv("GATEWAY_MAX_DELIVERY_EVENTS_ENABLED"); present {
+		var err error
+		deliveryEvents, err = strconv.ParseBool(value)
+		if err != nil {
+			return nil, errors.New("invalid MAX delivery events configuration")
+		}
+	}
+	var notificationDelivery bool
+	if deliveryEvents && os.Getenv("MAX_BOT_USERNAME") == "" {
+		return nil, errors.New("MAX delivery events require a configured bot")
+	}
+	if value, present := os.LookupEnv("GATEWAY_NOTIFICATION_DELIVERY_ENABLED"); present {
+		var err error
+		notificationDelivery, err = strconv.ParseBool(value)
+		if err != nil {
+			return nil, errors.New("invalid notification delivery configuration")
+		}
+	}
+	if notificationDelivery && !deliveryEvents {
+		return nil, errors.New("notification delivery requires MAX delivery events")
+	}
+	var scenarioResultDelivery bool
+	if value, present := os.LookupEnv("GATEWAY_SCENARIO_RESULT_DELIVERY_ENABLED"); present {
+		var err error
+		scenarioResultDelivery, err = strconv.ParseBool(value)
+		if err != nil {
+			return nil, errors.New("invalid scenario result delivery configuration")
+		}
+	}
 	return app.NewRuntime(infra.pool, infra.log.Log, &app.Config{
-		Optimizer:         infra.optimizer,
-		BotToken:          cfg.Auth.BotToken,
-		WebhookSecret:     cfg.Auth.WebhookSecret,
-		InitDataMaxAge:    cfg.Auth.InitDataMaxAge,
-		InitDataFutureGap: cfg.Auth.InitDataFutureGap,
-		SessionTTL:        cfg.Auth.SessionTTL,
-		SessionCacheTTL:   cfg.Auth.SessionCacheTTL,
-		SessionCacheSize:  cfg.Auth.SessionCacheSize,
-		CleanupInterval:   cfg.Auth.CleanupInterval,
-		CleanupBatchSize:  cfg.Auth.CleanupBatchSize,
+		ScenarioResultDeliveryEnabled: scenarioResultDelivery,
+		NotificationDeliveryEnabled:   notificationDelivery,
+		MAXDeliveryEventsEnabled:      deliveryEvents,
+		CancellationWorkerEnabled:     cfg.CancellationWorker.Enabled,
+		LifecycleEnabled:              infra.cfg.LifecycleServer != nil,
+		Optimizer:                     infra.optimizer,
+		BotToken:                      cfg.Auth.BotToken,
+		WebhookSecret:                 cfg.Auth.WebhookSecret,
+		InitDataMaxAge:                cfg.Auth.InitDataMaxAge,
+		InitDataFutureGap:             cfg.Auth.InitDataFutureGap,
+		SessionTTL:                    cfg.Auth.SessionTTL,
+		SessionCacheTTL:               cfg.Auth.SessionCacheTTL,
+		SessionCacheSize:              cfg.Auth.SessionCacheSize,
+		CleanupInterval:               cfg.Auth.CleanupInterval,
+		CleanupBatchSize:              cfg.Auth.CleanupBatchSize,
 		AnonymousLimit: auth.RateLimitConfig{
 			RequestsPerMinute: cfg.RateLimit.Anonymous.RequestsPerMinute,
 			Burst:             cfg.RateLimit.Anonymous.Burst,

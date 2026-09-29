@@ -18,7 +18,9 @@ type DBTX interface {
 }
 
 type Queries struct {
-	db DBTX
+	db                     DBTX
+	maxDeliveryEvents      bool
+	scenarioResultDelivery bool
 }
 
 func NewQueries(db DBTX) (*Queries, error) {
@@ -29,8 +31,14 @@ func NewQueries(db DBTX) (*Queries, error) {
 }
 
 type Transactor struct {
-	pool *pgxpool.Pool
+	pool                   *pgxpool.Pool
+	maxDeliveryEvents      bool
+	scenarioResultDelivery bool
 }
+
+func (t *Transactor) EnableMAXDeliveryEvents(enabled bool) { t.maxDeliveryEvents = enabled }
+
+func (t *Transactor) EnableScenarioResultDelivery(enabled bool) { t.scenarioResultDelivery = enabled }
 
 func NewTransactor(pool *pgxpool.Pool) (*Transactor, error) {
 	if pool == nil {
@@ -67,6 +75,8 @@ func (t *Transactor) WithinTx(
 	if err != nil {
 		return err
 	}
+	queries.maxDeliveryEvents = t.maxDeliveryEvents
+	queries.scenarioResultDelivery = t.scenarioResultDelivery
 	if err := fn(queries); err != nil {
 		return err
 	}

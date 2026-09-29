@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/command"
@@ -68,10 +69,21 @@ func (r *Runtime) CompleteBotScenario(ctx context.Context, owner d.UserID, scena
 			for _, route := range routes {
 				ids = append(ids, route.RouteID)
 			}
-			return q.RecordScenarioOutcome(ctx, owner, scenario, input.Input, routewire.BotScenarioOutcome{
+			now := r.clock().UTC()
+			if err := q.RecordScenarioOutcome(ctx, owner, scenario, input.Input, routewire.BotScenarioOutcome{
 				Status: diagnostics.Status, RouteIDs: ids, Warnings: diagnostics.Warnings,
 				Conflicts: diagnostics.Conflicts, DataMode: diagnostics.DataMode, DataAsOf: diagnostics.DataAsOf,
-			}, r.clock())
+			}, now); err != nil {
+				return err
+			}
+			if !r.cfg.ScenarioResultDeliveryEnabled {
+				return nil
+			}
+			version, err := strconv.ParseInt(scenario.Version, 10, 64)
+			if err != nil {
+				return errors.New("invalid completed scenario version")
+			}
+			return q.EnqueueScenarioResult(ctx, owner, scenarioID, version+1, now)
 		})
 }
 

@@ -31,6 +31,7 @@ const (
 	RevokeRouteShare         Operation = "revokeRouteShare"
 	CopySharedRoute          Operation = "copySharedRoute"
 	DeleteRoute              Operation = "deleteRoute"
+	SetRouteNotifications    Operation = "setRouteNotifications"
 )
 
 var ErrIdempotencyKeyReused = errors.New("idempotency key was reused")
@@ -64,7 +65,7 @@ func (o Operation) Valid() bool {
 	switch o {
 	case SelectScenarioRoute, OptimizeRoutes, CompleteBotScenario, SaveBotScenarioDraft, SaveRoute, ProposePanicReroute, ApplyRouteProposal,
 		RejectRouteProposal, SetVisitPin, ProposeVisitRemoval, UpdateVisitParticipation,
-		UpdateVisitExecution, CreateRouteShare, RevokeRouteShare, CopySharedRoute, DeleteRoute:
+		UpdateVisitExecution, CreateRouteShare, RevokeRouteShare, CopySharedRoute, DeleteRoute, SetRouteNotifications:
 		return true
 	default:
 		return false

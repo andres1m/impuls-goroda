@@ -12,6 +12,7 @@ type ScenarioRequest struct {
 	SourceText string
 	Resume     bool
 	Result     bool
+	Edit       bool
 }
 
 func (c *Client) PrepareScenarioReply(update Update) (PreparedReply, *ScenarioRequest, bool, error) {
@@ -27,13 +28,21 @@ func (c *Client) PrepareScenarioReply(update Update) (PreparedReply, *ScenarioRe
 		input = update.Callback.Payload
 	}
 	text := strings.ToLower(strings.TrimSpace(input))
+	if text == "/edit" || text == "изменить условия" {
+		return reply, &ScenarioRequest{Edit: true}, true, nil
+	}
+	if text == "/help" || strings.HasPrefix(text, "/") &&
+		text != "/start" && text != "/route" && text != "/menu" && text != "/continue" && text != "/result" {
+		reply.Body, err = c.ScenarioHelpReply()
+		return reply, nil, true, err
+	}
 	if text == "/result" || text == "результат" {
 		return reply, &ScenarioRequest{Result: true}, true, nil
 	}
 	if text == "/continue" || text == "продолжить сценарий" {
 		return reply, &ScenarioRequest{Resume: true}, true, nil
 	}
-	if text == "" || text == "/start" || text == "/help" || text == "/route" || text == "меню" || text == "другой сценарий" {
+	if text == "" || text == "/start" || text == "/route" || text == "/menu" || text == "меню" || text == "другой сценарий" {
 		reply.Body, err = c.ScenarioMenuReply()
 		return reply, nil, true, err
 	}
@@ -48,7 +57,7 @@ func (c *Client) PrepareScenarioReply(update Update) (PreparedReply, *ScenarioRe
 }
 
 func (c *Client) ScenarioReply(scenarioID string) (json.RawMessage, error) {
-	return c.scenarioReply(scenarioID, "Сценарий сохранён. Выберите старт и проверьте условия в Mini App — затем рассчитаем маршрут.")
+	return c.scenarioReply(scenarioID, "Тема выбрана. В Mini App можно изменить интересы и темп. Укажите дату, время и старт — затем подтвердите расчёт.")
 }
 
 func (c *Client) ExtractedScenarioReply(scenarioID string, extracted bool) (json.RawMessage, error) {
@@ -66,6 +75,17 @@ func (c *Client) ScenarioMenuReply() (json.RawMessage, error) {
 	return json.Marshal(body)
 }
 
+func (c *Client) ScenarioHelpReply() (json.RawMessage, error) {
+	body := welcome()
+	body.Text = "Выберите тему или напишите пожелания обычным сообщением.\n\n/route — темы дня\n/continue — продолжить сценарий\n/edit — изменить незавершённые условия\n/result — результат расчёта\n/menu — вернуться к темам\n\nДату, время и старт выбираем в Mini App. Возврат в меню не удаляет сохранённый сценарий."
+	body.addKeyboard([][]button{{{Type: "message", Text: "Продолжить сценарий"}, {Type: "message", Text: "Изменить условия"}}})
+	return json.Marshal(body)
+}
+
+func (c *Client) DraftScenarioReply(scenarioID, text string) (json.RawMessage, error) {
+	return c.scenarioReply(scenarioID, text)
+}
+
 func (c *Client) ResumeScenarioReply(scenarioID string, completed bool) (json.RawMessage, error) {
 	text := "Продолжите сохранённый сценарий в Mini App."
 	if completed {
@@ -80,7 +100,7 @@ func (c *Client) ResultScenarioReply(scenarioID, text, label string) (json.RawMe
 	if label != "" {
 		rows = append(rows, []button{{Type: "open_app", Text: label, WebApp: c.username, Payload: "scenario_" + scenarioID}})
 	}
-	rows = append(rows, []button{{Type: "message", Text: "Результат"}, {Type: "message", Text: "Другой сценарий"}})
+	rows = append(rows, []button{{Type: "message", Text: "Изменить условия"}, {Type: "message", Text: "Другой сценарий"}})
 	body.addKeyboard(rows)
 	return json.Marshal(body)
 }

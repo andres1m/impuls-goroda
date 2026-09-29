@@ -16,18 +16,23 @@ import (
 )
 
 type Config struct {
-	Optimizer          Optimizer
-	BotToken           string
-	WebhookSecret      string
-	InitDataMaxAge     time.Duration
-	InitDataFutureGap  time.Duration
-	SessionTTL         time.Duration
-	SessionCacheTTL    time.Duration
-	SessionCacheSize   int64
-	CleanupInterval    time.Duration
-	CleanupBatchSize   int
-	AnonymousLimit     auth.RateLimitConfig
-	AuthenticatedLimit auth.RateLimitConfig
+	LifecycleEnabled              bool
+	CancellationWorkerEnabled     bool
+	NotificationDeliveryEnabled   bool
+	ScenarioResultDeliveryEnabled bool
+	MAXDeliveryEventsEnabled      bool
+	Optimizer                     Optimizer
+	BotToken                      string
+	WebhookSecret                 string
+	InitDataMaxAge                time.Duration
+	InitDataFutureGap             time.Duration
+	SessionTTL                    time.Duration
+	SessionCacheTTL               time.Duration
+	SessionCacheSize              int64
+	CleanupInterval               time.Duration
+	CleanupBatchSize              int
+	AnonymousLimit                auth.RateLimitConfig
+	AuthenticatedLimit            auth.RateLimitConfig
 }
 
 type Runtime struct {
@@ -61,14 +66,24 @@ func NewRuntime(database *db.PostgresClient, log *zap.Logger, cfg *Config) (*Run
 	if cfg.CleanupInterval <= 0 || cfg.CleanupBatchSize <= 0 {
 		return nil, errors.New("invalid session cleanup configuration")
 	}
+	if cfg.NotificationDeliveryEnabled && !cfg.MAXDeliveryEventsEnabled {
+		return nil, errors.New("notification delivery requires MAX delivery events")
+	}
+	if cfg.ScenarioResultDeliveryEnabled && !cfg.MAXDeliveryEventsEnabled {
+		return nil, errors.New("scenario result delivery requires MAX delivery events")
+	}
 	return &Runtime{db: database, log: log, cfg: *cfg, clock: time.Now}, nil
 }
 
 func (r *Runtime) Name() string { return "gateway-auth" }
 
+func (r *Runtime) NotificationDeliveryEnabled() bool { return r.cfg.NotificationDeliveryEnabled }
+
+func (r *Runtime) ScenarioResultDeliveryEnabled() bool { return r.cfg.ScenarioResultDeliveryEnabled }
+
 func (r *Runtime) DependsOn() []string { return []string{"db"} }
 
-func (r *Runtime) Init(context.Context) error {
+func (r *Runtime) Init(ctx context.Context) error {
 	if r.db.Pool == nil {
 		return errors.New("database pool is not initialized")
 	}
@@ -79,6 +94,24 @@ func (r *Runtime) Init(context.Context) error {
 	transactor, err := postgres.NewTransactor(r.db.Pool)
 	if err != nil {
 		return err
+	}
+	transactor.EnableMAXDeliveryEvents(r.cfg.MAXDeliveryEventsEnabled)
+	transactor.EnableScenarioResultDelivery(r.cfg.ScenarioResultDeliveryEnabled)
+	if r.cfg.MAXDeliveryEventsEnabled {
+		checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		ready, err := queries.MAXDeliveryEventsStorageReady(checkCtx)
+		cancel()
+		if err != nil || !ready {
+			return errors.New("MAX delivery events storage is unavailable")
+		}
+	}
+	if r.cfg.ScenarioResultDeliveryEnabled {
+		checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		ready, err := queries.ScenarioDeliveryStorageReady(checkCtx)
+		cancel()
+		if err != nil || !ready {
+			return errors.New("scenario result delivery storage is unavailable")
+		}
 	}
 	commands, err := postgres.NewCommandExecutor(transactor)
 	if err != nil {

@@ -35,6 +35,10 @@ optimizer-client:
   port: 50051
   use_tls: false
 
+lifecycle-server:
+  port: 50052
+  use_tls: false
+
 api-server:
   port: 8080
   read-timeout: 10s
@@ -48,6 +52,8 @@ ops-server:
   idle-timeout: 60s
 
 gateway:
+  cancellation-worker:
+    enabled: true
   auth:
     bot-token: ${MAX_BOT_TOKEN}
     webhook-secret: ${MAX_WEBHOOK_SECRET}

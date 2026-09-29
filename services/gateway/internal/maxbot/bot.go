@@ -76,6 +76,7 @@ type Client struct {
 	http     *http.Client
 	mu       sync.Mutex
 	seen     map[string]time.Time
+	sends    sendThrottle
 }
 
 func NewClient(token, username string) (*Client, error) {
@@ -261,6 +262,11 @@ func (c *Client) send(ctx context.Context, userID int64, body message) (err erro
 	}
 	req.Header.Set("Authorization", c.token)
 	req.Header.Set("Content-Type", "application/json")
+	release, err := c.sends.acquire(ctx, userID)
+	if err != nil {
+		return err
+	}
+	defer release()
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return errors.New("MAX message transport unavailable")
