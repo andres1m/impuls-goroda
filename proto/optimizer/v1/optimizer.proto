@@ -4,6 +4,7 @@ package optimizer.v1;
 
 import "google/protobuf/timestamp.proto";
 import "optimizer/v1/constraints.proto";
+import "optimizer/v1/lunch.proto";
 import "optimizer/v1/plan.proto";
 import "optimizer/v1/values.proto";
 
@@ -133,6 +134,7 @@ message RecomputeRequest {
     CancellationTrigger cancellation = 11;
     RemovalTrigger removal = 12;
     PinTrigger pin = 13;
+    LunchTrigger lunch = 14;
   }
 }
 
@@ -152,6 +154,7 @@ enum RouteChangeKind {
   ROUTE_CHANGE_KIND_COST_CHANGED = 5;
   ROUTE_CHANGE_KIND_PARTICIPATION_ACTION = 6;
   ROUTE_CHANGE_KIND_VERIFICATION_CHANGED = 7;
+  ROUTE_CHANGE_KIND_ADDED = 8;
 }
 
 message CostChange {

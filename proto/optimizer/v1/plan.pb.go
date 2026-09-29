@@ -344,9 +344,10 @@ func (ConstraintOutcome) EnumDescriptor() ([]byte, []int) {
 type VisitKind int32
 
 const (
-	VisitKind_VISIT_KIND_UNSPECIFIED VisitKind = 0
-	VisitKind_VISIT_KIND_VISIT       VisitKind = 1
-	VisitKind_VISIT_KIND_FREE_TIME   VisitKind = 2
+	VisitKind_VISIT_KIND_UNSPECIFIED    VisitKind = 0
+	VisitKind_VISIT_KIND_VISIT          VisitKind = 1
+	VisitKind_VISIT_KIND_FREE_TIME      VisitKind = 2
+	VisitKind_VISIT_KIND_EXTERNAL_LUNCH VisitKind = 3
 )
 
 // Enum value maps for VisitKind.
@@ -355,11 +356,13 @@ var (
 		0: "VISIT_KIND_UNSPECIFIED",
 		1: "VISIT_KIND_VISIT",
 		2: "VISIT_KIND_FREE_TIME",
+		3: "VISIT_KIND_EXTERNAL_LUNCH",
 	}
 	VisitKind_value = map[string]int32{
-		"VISIT_KIND_UNSPECIFIED": 0,
-		"VISIT_KIND_VISIT":       1,
-		"VISIT_KIND_FREE_TIME":   2,
+		"VISIT_KIND_UNSPECIFIED":    0,
+		"VISIT_KIND_VISIT":          1,
+		"VISIT_KIND_FREE_TIME":      2,
+		"VISIT_KIND_EXTERNAL_LUNCH": 3,
 	}
 )
 
@@ -1023,9 +1026,11 @@ type RouteStep struct {
 	Obligation         bool                   `protobuf:"varint,10,opt,name=obligation,proto3" json:"obligation,omitempty"`
 	Participation      *ParticipationSnapshot `protobuf:"bytes,11,opt,name=participation,proto3" json:"participation,omitempty"`
 	// Present for visits and absent for free time.
-	Catalog            *CatalogSnapshot     `protobuf:"bytes,12,opt,name=catalog,proto3" json:"catalog,omitempty"`
-	Cost               *CostSnapshot        `protobuf:"bytes,13,opt,name=cost,proto3" json:"cost,omitempty"`
-	AppliedConstraints []*AppliedConstraint `protobuf:"bytes,14,rep,name=applied_constraints,json=appliedConstraints,proto3" json:"applied_constraints,omitempty"`
+	Catalog            *CatalogSnapshot       `protobuf:"bytes,12,opt,name=catalog,proto3" json:"catalog,omitempty"`
+	Cost               *CostSnapshot          `protobuf:"bytes,13,opt,name=cost,proto3" json:"cost,omitempty"`
+	AppliedConstraints []*AppliedConstraint   `protobuf:"bytes,14,rep,name=applied_constraints,json=appliedConstraints,proto3" json:"applied_constraints,omitempty"`
+	Lunch              *LunchMetadata         `protobuf:"bytes,15,opt,name=lunch,proto3" json:"lunch,omitempty"`
+	ExternalVenue      *ExternalVenueSnapshot `protobuf:"bytes,16,opt,name=external_venue,json=externalVenue,proto3" json:"external_venue,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -1154,6 +1159,20 @@ func (x *RouteStep) GetCost() *CostSnapshot {
 func (x *RouteStep) GetAppliedConstraints() []*AppliedConstraint {
 	if x != nil {
 		return x.AppliedConstraints
+	}
+	return nil
+}
+
+func (x *RouteStep) GetLunch() *LunchMetadata {
+	if x != nil {
+		return x.Lunch
+	}
+	return nil
+}
+
+func (x *RouteStep) GetExternalVenue() *ExternalVenueSnapshot {
+	if x != nil {
+		return x.ExternalVenue
 	}
 	return nil
 }
@@ -1665,7 +1684,7 @@ var File_optimizer_v1_plan_proto protoreflect.FileDescriptor
 
 const file_optimizer_v1_plan_proto_rawDesc = "" +
 	"\n" +
-	"\x17optimizer/v1/plan.proto\x12\foptimizer.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x19optimizer/v1/values.proto\"\xbe\x05\n" +
+	"\x17optimizer/v1/plan.proto\x12\foptimizer.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x18optimizer/v1/lunch.proto\x1a\x19optimizer/v1/values.proto\"\xbe\x05\n" +
 	"\x0fCatalogSnapshot\x12\x19\n" +
 	"\bplace_id\x18\x01 \x01(\fR\aplaceId\x12\x1f\n" +
 	"\ventrance_id\x18\x02 \x01(\fR\n" +
@@ -1717,7 +1736,7 @@ const file_optimizer_v1_plan_proto_rawDesc = "" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12<\n" +
 	"\bstrength\x18\x02 \x01(\x0e2 .optimizer.v1.ConstraintStrengthR\bstrength\x129\n" +
 	"\aoutcome\x18\x03 \x01(\x0e2\x1f.optimizer.v1.ConstraintOutcomeR\aoutcome\x12\x18\n" +
-	"\amessage\x18\x04 \x01(\tR\amessage\"\xd9\x05\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\"\xd8\x06\n" +
 	"\tRouteStep\x12\x19\n" +
 	"\bvisit_id\x18\x01 \x01(\fR\avisitId\x12+\n" +
 	"\x04kind\x18\x02 \x01(\x0e2\x17.optimizer.v1.VisitKindR\x04kind\x12\x1a\n" +
@@ -1737,7 +1756,9 @@ const file_optimizer_v1_plan_proto_rawDesc = "" +
 	"\rparticipation\x18\v \x01(\v2#.optimizer.v1.ParticipationSnapshotR\rparticipation\x127\n" +
 	"\acatalog\x18\f \x01(\v2\x1d.optimizer.v1.CatalogSnapshotR\acatalog\x12.\n" +
 	"\x04cost\x18\r \x01(\v2\x1a.optimizer.v1.CostSnapshotR\x04cost\x12P\n" +
-	"\x13applied_constraints\x18\x0e \x03(\v2\x1f.optimizer.v1.AppliedConstraintR\x12appliedConstraints\"\xb4\x01\n" +
+	"\x13applied_constraints\x18\x0e \x03(\v2\x1f.optimizer.v1.AppliedConstraintR\x12appliedConstraints\x121\n" +
+	"\x05lunch\x18\x0f \x01(\v2\x1b.optimizer.v1.LunchMetadataR\x05lunch\x12J\n" +
+	"\x0eexternal_venue\x18\x10 \x01(\v2#.optimizer.v1.ExternalVenueSnapshotR\rexternalVenue\"\xb4\x01\n" +
 	"\vLegEvidence\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x16\n" +
 	"\x06method\x18\x02 \x01(\tR\x06method\x12;\n" +
@@ -1821,11 +1842,12 @@ const file_optimizer_v1_plan_proto_rawDesc = "" +
 	"\x11ConstraintOutcome\x12\"\n" +
 	"\x1eCONSTRAINT_OUTCOME_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cCONSTRAINT_OUTCOME_SATISFIED\x10\x01\x12\"\n" +
-	"\x1eCONSTRAINT_OUTCOME_CONDITIONAL\x10\x02*W\n" +
+	"\x1eCONSTRAINT_OUTCOME_CONDITIONAL\x10\x02*v\n" +
 	"\tVisitKind\x12\x1a\n" +
 	"\x16VISIT_KIND_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10VISIT_KIND_VISIT\x10\x01\x12\x18\n" +
-	"\x14VISIT_KIND_FREE_TIME\x10\x02*\x92\x01\n" +
+	"\x14VISIT_KIND_FREE_TIME\x10\x02\x12\x1d\n" +
+	"\x19VISIT_KIND_EXTERNAL_LUNCH\x10\x03*\x92\x01\n" +
 	"\x0fLegEndpointKind\x12!\n" +
 	"\x1dLEG_ENDPOINT_KIND_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18LEG_ENDPOINT_KIND_ORIGIN\x10\x01\x12\x1b\n" +
@@ -1880,9 +1902,11 @@ var file_optimizer_v1_plan_proto_goTypes = []any{
 	(*Price)(nil),                 // 25: optimizer.v1.Price
 	(*Money)(nil),                 // 26: optimizer.v1.Money
 	(ParticipationStatus)(0),      // 27: optimizer.v1.ParticipationStatus
-	(*Coordinate)(nil),            // 28: optimizer.v1.Coordinate
-	(VerificationStatus)(0),       // 29: optimizer.v1.VerificationStatus
-	(Archetype)(0),                // 30: optimizer.v1.Archetype
+	(*LunchMetadata)(nil),         // 28: optimizer.v1.LunchMetadata
+	(*ExternalVenueSnapshot)(nil), // 29: optimizer.v1.ExternalVenueSnapshot
+	(*Coordinate)(nil),            // 30: optimizer.v1.Coordinate
+	(VerificationStatus)(0),       // 31: optimizer.v1.VerificationStatus
+	(Archetype)(0),                // 32: optimizer.v1.Archetype
 }
 var file_optimizer_v1_plan_proto_depIdxs = []int32{
 	21, // 0: optimizer.v1.CatalogSnapshot.category:type_name -> optimizer.v1.Category
@@ -1916,33 +1940,35 @@ var file_optimizer_v1_plan_proto_depIdxs = []int32{
 	9,  // 28: optimizer.v1.RouteStep.catalog:type_name -> optimizer.v1.CatalogSnapshot
 	11, // 29: optimizer.v1.RouteStep.cost:type_name -> optimizer.v1.CostSnapshot
 	14, // 30: optimizer.v1.RouteStep.applied_constraints:type_name -> optimizer.v1.AppliedConstraint
-	22, // 31: optimizer.v1.LegEvidence.observed_at:type_name -> google.protobuf.Timestamp
-	7,  // 32: optimizer.v1.RouteLeg.from_kind:type_name -> optimizer.v1.LegEndpointKind
-	7,  // 33: optimizer.v1.RouteLeg.to_kind:type_name -> optimizer.v1.LegEndpointKind
-	22, // 34: optimizer.v1.RouteLeg.departure_at:type_name -> google.protobuf.Timestamp
-	22, // 35: optimizer.v1.RouteLeg.arrival_at:type_name -> google.protobuf.Timestamp
-	28, // 36: optimizer.v1.RouteLeg.geometry:type_name -> optimizer.v1.Coordinate
-	29, // 37: optimizer.v1.RouteLeg.verification:type_name -> optimizer.v1.VerificationStatus
-	16, // 38: optimizer.v1.RouteLeg.evidence:type_name -> optimizer.v1.LegEvidence
-	11, // 39: optimizer.v1.RouteLeg.cost:type_name -> optimizer.v1.CostSnapshot
-	8,  // 40: optimizer.v1.Warning.scope:type_name -> optimizer.v1.TargetScope
-	30, // 41: optimizer.v1.RoutePlan.archetype:type_name -> optimizer.v1.Archetype
-	22, // 42: optimizer.v1.RoutePlan.start_at:type_name -> google.protobuf.Timestamp
-	22, // 43: optimizer.v1.RoutePlan.end_at:type_name -> google.protobuf.Timestamp
-	28, // 44: optimizer.v1.RoutePlan.origin:type_name -> optimizer.v1.Coordinate
-	28, // 45: optimizer.v1.RoutePlan.destination:type_name -> optimizer.v1.Coordinate
-	0,  // 46: optimizer.v1.RoutePlan.result:type_name -> optimizer.v1.ResultStatus
-	18, // 47: optimizer.v1.RoutePlan.warnings:type_name -> optimizer.v1.Warning
-	19, // 48: optimizer.v1.RoutePlan.conflicts:type_name -> optimizer.v1.Conflict
-	12, // 49: optimizer.v1.RoutePlan.cost:type_name -> optimizer.v1.CostSummary
-	28, // 50: optimizer.v1.RoutePlan.geometry:type_name -> optimizer.v1.Coordinate
-	15, // 51: optimizer.v1.RoutePlan.steps:type_name -> optimizer.v1.RouteStep
-	17, // 52: optimizer.v1.RoutePlan.legs:type_name -> optimizer.v1.RouteLeg
-	53, // [53:53] is the sub-list for method output_type
-	53, // [53:53] is the sub-list for method input_type
-	53, // [53:53] is the sub-list for extension type_name
-	53, // [53:53] is the sub-list for extension extendee
-	0,  // [0:53] is the sub-list for field type_name
+	28, // 31: optimizer.v1.RouteStep.lunch:type_name -> optimizer.v1.LunchMetadata
+	29, // 32: optimizer.v1.RouteStep.external_venue:type_name -> optimizer.v1.ExternalVenueSnapshot
+	22, // 33: optimizer.v1.LegEvidence.observed_at:type_name -> google.protobuf.Timestamp
+	7,  // 34: optimizer.v1.RouteLeg.from_kind:type_name -> optimizer.v1.LegEndpointKind
+	7,  // 35: optimizer.v1.RouteLeg.to_kind:type_name -> optimizer.v1.LegEndpointKind
+	22, // 36: optimizer.v1.RouteLeg.departure_at:type_name -> google.protobuf.Timestamp
+	22, // 37: optimizer.v1.RouteLeg.arrival_at:type_name -> google.protobuf.Timestamp
+	30, // 38: optimizer.v1.RouteLeg.geometry:type_name -> optimizer.v1.Coordinate
+	31, // 39: optimizer.v1.RouteLeg.verification:type_name -> optimizer.v1.VerificationStatus
+	16, // 40: optimizer.v1.RouteLeg.evidence:type_name -> optimizer.v1.LegEvidence
+	11, // 41: optimizer.v1.RouteLeg.cost:type_name -> optimizer.v1.CostSnapshot
+	8,  // 42: optimizer.v1.Warning.scope:type_name -> optimizer.v1.TargetScope
+	32, // 43: optimizer.v1.RoutePlan.archetype:type_name -> optimizer.v1.Archetype
+	22, // 44: optimizer.v1.RoutePlan.start_at:type_name -> google.protobuf.Timestamp
+	22, // 45: optimizer.v1.RoutePlan.end_at:type_name -> google.protobuf.Timestamp
+	30, // 46: optimizer.v1.RoutePlan.origin:type_name -> optimizer.v1.Coordinate
+	30, // 47: optimizer.v1.RoutePlan.destination:type_name -> optimizer.v1.Coordinate
+	0,  // 48: optimizer.v1.RoutePlan.result:type_name -> optimizer.v1.ResultStatus
+	18, // 49: optimizer.v1.RoutePlan.warnings:type_name -> optimizer.v1.Warning
+	19, // 50: optimizer.v1.RoutePlan.conflicts:type_name -> optimizer.v1.Conflict
+	12, // 51: optimizer.v1.RoutePlan.cost:type_name -> optimizer.v1.CostSummary
+	30, // 52: optimizer.v1.RoutePlan.geometry:type_name -> optimizer.v1.Coordinate
+	15, // 53: optimizer.v1.RoutePlan.steps:type_name -> optimizer.v1.RouteStep
+	17, // 54: optimizer.v1.RoutePlan.legs:type_name -> optimizer.v1.RouteLeg
+	55, // [55:55] is the sub-list for method output_type
+	55, // [55:55] is the sub-list for method input_type
+	55, // [55:55] is the sub-list for extension type_name
+	55, // [55:55] is the sub-list for extension extendee
+	0,  // [0:55] is the sub-list for field type_name
 }
 
 func init() { file_optimizer_v1_plan_proto_init() }
@@ -1950,6 +1976,7 @@ func file_optimizer_v1_plan_proto_init() {
 	if File_optimizer_v1_plan_proto != nil {
 		return
 	}
+	file_optimizer_v1_lunch_proto_init()
 	file_optimizer_v1_values_proto_init()
 	file_optimizer_v1_plan_proto_msgTypes[8].OneofWrappers = []any{}
 	file_optimizer_v1_plan_proto_msgTypes[9].OneofWrappers = []any{}

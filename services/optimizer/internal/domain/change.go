@@ -16,6 +16,7 @@ const (
 	ChangeCostChanged         ChangeKind = "cost_changed"
 	ChangeParticipationAction ChangeKind = "participation_action"
 	ChangeVerificationChanged ChangeKind = "verification_changed"
+	ChangeAdded               ChangeKind = "added"
 )
 
 type ChangeDetails interface {

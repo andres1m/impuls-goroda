@@ -333,6 +333,7 @@ const (
 	RouteChangeKind_ROUTE_CHANGE_KIND_COST_CHANGED         RouteChangeKind = 5
 	RouteChangeKind_ROUTE_CHANGE_KIND_PARTICIPATION_ACTION RouteChangeKind = 6
 	RouteChangeKind_ROUTE_CHANGE_KIND_VERIFICATION_CHANGED RouteChangeKind = 7
+	RouteChangeKind_ROUTE_CHANGE_KIND_ADDED                RouteChangeKind = 8
 )
 
 // Enum value maps for RouteChangeKind.
@@ -346,6 +347,7 @@ var (
 		5: "ROUTE_CHANGE_KIND_COST_CHANGED",
 		6: "ROUTE_CHANGE_KIND_PARTICIPATION_ACTION",
 		7: "ROUTE_CHANGE_KIND_VERIFICATION_CHANGED",
+		8: "ROUTE_CHANGE_KIND_ADDED",
 	}
 	RouteChangeKind_value = map[string]int32{
 		"ROUTE_CHANGE_KIND_UNSPECIFIED":          0,
@@ -356,6 +358,7 @@ var (
 		"ROUTE_CHANGE_KIND_COST_CHANGED":         5,
 		"ROUTE_CHANGE_KIND_PARTICIPATION_ACTION": 6,
 		"ROUTE_CHANGE_KIND_VERIFICATION_CHANGED": 7,
+		"ROUTE_CHANGE_KIND_ADDED":                8,
 	}
 )
 
@@ -1043,6 +1046,7 @@ type RecomputeRequest struct {
 	//	*RecomputeRequest_Cancellation
 	//	*RecomputeRequest_Removal
 	//	*RecomputeRequest_Pin
+	//	*RecomputeRequest_Lunch
 	Trigger       isRecomputeRequest_Trigger `protobuf_oneof:"trigger"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1156,6 +1160,15 @@ func (x *RecomputeRequest) GetPin() *PinTrigger {
 	return nil
 }
 
+func (x *RecomputeRequest) GetLunch() *LunchTrigger {
+	if x != nil {
+		if x, ok := x.Trigger.(*RecomputeRequest_Lunch); ok {
+			return x.Lunch
+		}
+	}
+	return nil
+}
+
 type isRecomputeRequest_Trigger interface {
 	isRecomputeRequest_Trigger()
 }
@@ -1176,6 +1189,10 @@ type RecomputeRequest_Pin struct {
 	Pin *PinTrigger `protobuf:"bytes,13,opt,name=pin,proto3,oneof"`
 }
 
+type RecomputeRequest_Lunch struct {
+	Lunch *LunchTrigger `protobuf:"bytes,14,opt,name=lunch,proto3,oneof"`
+}
+
 func (*RecomputeRequest_Delay) isRecomputeRequest_Trigger() {}
 
 func (*RecomputeRequest_Cancellation) isRecomputeRequest_Trigger() {}
@@ -1183,6 +1200,8 @@ func (*RecomputeRequest_Cancellation) isRecomputeRequest_Trigger() {}
 func (*RecomputeRequest_Removal) isRecomputeRequest_Trigger() {}
 
 func (*RecomputeRequest_Pin) isRecomputeRequest_Trigger() {}
+
+func (*RecomputeRequest_Lunch) isRecomputeRequest_Trigger() {}
 
 type CostChange struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1539,7 +1558,7 @@ var File_optimizer_v1_optimizer_proto protoreflect.FileDescriptor
 
 const file_optimizer_v1_optimizer_proto_rawDesc = "" +
 	"\n" +
-	"\x1coptimizer/v1/optimizer.proto\x12\foptimizer.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1eoptimizer/v1/constraints.proto\x1a\x17optimizer/v1/plan.proto\x1a\x19optimizer/v1/values.proto\"\xdb\x02\n" +
+	"\x1coptimizer/v1/optimizer.proto\x12\foptimizer.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1eoptimizer/v1/constraints.proto\x1a\x18optimizer/v1/lunch.proto\x1a\x17optimizer/v1/plan.proto\x1a\x19optimizer/v1/values.proto\"\xdb\x02\n" +
 	"\x0fOptimizeRequest\x12\x12\n" +
 	"\x04city\x18\x01 \x01(\tR\x04city\x12\x1a\n" +
 	"\btimezone\x18\x02 \x01(\tR\btimezone\x125\n" +
@@ -1588,7 +1607,7 @@ const file_optimizer_v1_optimizer_proto_rawDesc = "" +
 	"\n" +
 	"PinTrigger\x12\x19\n" +
 	"\bvisit_id\x18\x01 \x01(\fR\avisitId\x12)\n" +
-	"\x04kind\x18\x02 \x01(\x0e2\x15.optimizer.v1.PinKindR\x04kind\"\xe2\x03\n" +
+	"\x04kind\x18\x02 \x01(\x0e2\x15.optimizer.v1.PinKindR\x04kind\"\x96\x04\n" +
 	"\x10RecomputeRequest\x12\x12\n" +
 	"\x04city\x18\x01 \x01(\tR\x04city\x12\x1a\n" +
 	"\btimezone\x18\x02 \x01(\tR\btimezone\x124\n" +
@@ -1599,7 +1618,8 @@ const file_optimizer_v1_optimizer_proto_rawDesc = "" +
 	" \x01(\v2\x1a.optimizer.v1.DelayTriggerH\x00R\x05delay\x12G\n" +
 	"\fcancellation\x18\v \x01(\v2!.optimizer.v1.CancellationTriggerH\x00R\fcancellation\x128\n" +
 	"\aremoval\x18\f \x01(\v2\x1c.optimizer.v1.RemovalTriggerH\x00R\aremoval\x12,\n" +
-	"\x03pin\x18\r \x01(\v2\x18.optimizer.v1.PinTriggerH\x00R\x03pinB\t\n" +
+	"\x03pin\x18\r \x01(\v2\x18.optimizer.v1.PinTriggerH\x00R\x03pin\x122\n" +
+	"\x05lunch\x18\x0e \x01(\v2\x1a.optimizer.v1.LunchTriggerH\x00R\x05lunchB\t\n" +
 	"\atrigger\"d\n" +
 	"\n" +
 	"CostChange\x12+\n" +
@@ -1654,7 +1674,7 @@ const file_optimizer_v1_optimizer_proto_rawDesc = "" +
 	"\x1cRECOMPUTE_STATUS_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19RECOMPUTE_STATUS_PROPOSED\x10\x01\x12\x1e\n" +
 	"\x1aRECOMPUTE_STATUS_UNCHANGED\x10\x02\x12\x1d\n" +
-	"\x19RECOMPUTE_STATUS_CONFLICT\x10\x03*\xaf\x02\n" +
+	"\x19RECOMPUTE_STATUS_CONFLICT\x10\x03*\xcc\x02\n" +
 	"\x0fRouteChangeKind\x12!\n" +
 	"\x1dROUTE_CHANGE_KIND_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16ROUTE_CHANGE_KIND_KEPT\x10\x01\x12\x1d\n" +
@@ -1663,7 +1683,8 @@ const file_optimizer_v1_optimizer_proto_rawDesc = "" +
 	"\x1eROUTE_CHANGE_KIND_TIME_SHIFTED\x10\x04\x12\"\n" +
 	"\x1eROUTE_CHANGE_KIND_COST_CHANGED\x10\x05\x12*\n" +
 	"&ROUTE_CHANGE_KIND_PARTICIPATION_ACTION\x10\x06\x12*\n" +
-	"&ROUTE_CHANGE_KIND_VERIFICATION_CHANGED\x10\a2\xf9\x01\n" +
+	"&ROUTE_CHANGE_KIND_VERIFICATION_CHANGED\x10\a\x12\x1b\n" +
+	"\x17ROUTE_CHANGE_KIND_ADDED\x10\b2\xf9\x01\n" +
 	"\x10OptimizerService\x12I\n" +
 	"\bOptimize\x12\x1d.optimizer.v1.OptimizeRequest\x1a\x1e.optimizer.v1.OptimizeResponse\x12L\n" +
 	"\tRecompute\x12\x1e.optimizer.v1.RecomputeRequest\x1a\x1f.optimizer.v1.RecomputeResponse\x12L\n" +
@@ -1713,9 +1734,10 @@ var file_optimizer_v1_optimizer_proto_goTypes = []any{
 	(*Warning)(nil),               // 26: optimizer.v1.Warning
 	(*Conflict)(nil),              // 27: optimizer.v1.Conflict
 	(*DataFreshness)(nil),         // 28: optimizer.v1.DataFreshness
-	(*Money)(nil),                 // 29: optimizer.v1.Money
-	(VerificationStatus)(0),       // 30: optimizer.v1.VerificationStatus
-	(TargetScope)(0),              // 31: optimizer.v1.TargetScope
+	(*LunchTrigger)(nil),          // 29: optimizer.v1.LunchTrigger
+	(*Money)(nil),                 // 30: optimizer.v1.Money
+	(VerificationStatus)(0),       // 31: optimizer.v1.VerificationStatus
+	(TargetScope)(0),              // 32: optimizer.v1.TargetScope
 }
 var file_optimizer_v1_optimizer_proto_depIdxs = []int32{
 	21, // 0: optimizer.v1.OptimizeRequest.start_at:type_name -> google.protobuf.Timestamp
@@ -1753,30 +1775,31 @@ var file_optimizer_v1_optimizer_proto_depIdxs = []int32{
 	13, // 32: optimizer.v1.RecomputeRequest.cancellation:type_name -> optimizer.v1.CancellationTrigger
 	14, // 33: optimizer.v1.RecomputeRequest.removal:type_name -> optimizer.v1.RemovalTrigger
 	15, // 34: optimizer.v1.RecomputeRequest.pin:type_name -> optimizer.v1.PinTrigger
-	29, // 35: optimizer.v1.CostChange.before:type_name -> optimizer.v1.Money
-	29, // 36: optimizer.v1.CostChange.after:type_name -> optimizer.v1.Money
-	30, // 37: optimizer.v1.VerificationChange.before:type_name -> optimizer.v1.VerificationStatus
-	30, // 38: optimizer.v1.VerificationChange.after:type_name -> optimizer.v1.VerificationStatus
-	6,  // 39: optimizer.v1.RouteChange.kind:type_name -> optimizer.v1.RouteChangeKind
-	31, // 40: optimizer.v1.RouteChange.scope:type_name -> optimizer.v1.TargetScope
-	17, // 41: optimizer.v1.RouteChange.cost:type_name -> optimizer.v1.CostChange
-	18, // 42: optimizer.v1.RouteChange.verification:type_name -> optimizer.v1.VerificationChange
-	5,  // 43: optimizer.v1.RecomputeResponse.status:type_name -> optimizer.v1.RecomputeStatus
-	25, // 44: optimizer.v1.RecomputeResponse.candidate:type_name -> optimizer.v1.RoutePlan
-	19, // 45: optimizer.v1.RecomputeResponse.changes:type_name -> optimizer.v1.RouteChange
-	27, // 46: optimizer.v1.RecomputeResponse.conflicts:type_name -> optimizer.v1.Conflict
-	28, // 47: optimizer.v1.RecomputeResponse.data:type_name -> optimizer.v1.DataFreshness
-	7,  // 48: optimizer.v1.OptimizerService.Optimize:input_type -> optimizer.v1.OptimizeRequest
-	16, // 49: optimizer.v1.OptimizerService.Recompute:input_type -> optimizer.v1.RecomputeRequest
-	9,  // 50: optimizer.v1.OptimizerService.CopyRoute:input_type -> optimizer.v1.CopyRouteRequest
-	8,  // 51: optimizer.v1.OptimizerService.Optimize:output_type -> optimizer.v1.OptimizeResponse
-	20, // 52: optimizer.v1.OptimizerService.Recompute:output_type -> optimizer.v1.RecomputeResponse
-	10, // 53: optimizer.v1.OptimizerService.CopyRoute:output_type -> optimizer.v1.CopyRouteResponse
-	51, // [51:54] is the sub-list for method output_type
-	48, // [48:51] is the sub-list for method input_type
-	48, // [48:48] is the sub-list for extension type_name
-	48, // [48:48] is the sub-list for extension extendee
-	0,  // [0:48] is the sub-list for field type_name
+	29, // 35: optimizer.v1.RecomputeRequest.lunch:type_name -> optimizer.v1.LunchTrigger
+	30, // 36: optimizer.v1.CostChange.before:type_name -> optimizer.v1.Money
+	30, // 37: optimizer.v1.CostChange.after:type_name -> optimizer.v1.Money
+	31, // 38: optimizer.v1.VerificationChange.before:type_name -> optimizer.v1.VerificationStatus
+	31, // 39: optimizer.v1.VerificationChange.after:type_name -> optimizer.v1.VerificationStatus
+	6,  // 40: optimizer.v1.RouteChange.kind:type_name -> optimizer.v1.RouteChangeKind
+	32, // 41: optimizer.v1.RouteChange.scope:type_name -> optimizer.v1.TargetScope
+	17, // 42: optimizer.v1.RouteChange.cost:type_name -> optimizer.v1.CostChange
+	18, // 43: optimizer.v1.RouteChange.verification:type_name -> optimizer.v1.VerificationChange
+	5,  // 44: optimizer.v1.RecomputeResponse.status:type_name -> optimizer.v1.RecomputeStatus
+	25, // 45: optimizer.v1.RecomputeResponse.candidate:type_name -> optimizer.v1.RoutePlan
+	19, // 46: optimizer.v1.RecomputeResponse.changes:type_name -> optimizer.v1.RouteChange
+	27, // 47: optimizer.v1.RecomputeResponse.conflicts:type_name -> optimizer.v1.Conflict
+	28, // 48: optimizer.v1.RecomputeResponse.data:type_name -> optimizer.v1.DataFreshness
+	7,  // 49: optimizer.v1.OptimizerService.Optimize:input_type -> optimizer.v1.OptimizeRequest
+	16, // 50: optimizer.v1.OptimizerService.Recompute:input_type -> optimizer.v1.RecomputeRequest
+	9,  // 51: optimizer.v1.OptimizerService.CopyRoute:input_type -> optimizer.v1.CopyRouteRequest
+	8,  // 52: optimizer.v1.OptimizerService.Optimize:output_type -> optimizer.v1.OptimizeResponse
+	20, // 53: optimizer.v1.OptimizerService.Recompute:output_type -> optimizer.v1.RecomputeResponse
+	10, // 54: optimizer.v1.OptimizerService.CopyRoute:output_type -> optimizer.v1.CopyRouteResponse
+	52, // [52:55] is the sub-list for method output_type
+	49, // [49:52] is the sub-list for method input_type
+	49, // [49:49] is the sub-list for extension type_name
+	49, // [49:49] is the sub-list for extension extendee
+	0,  // [0:49] is the sub-list for field type_name
 }
 
 func init() { file_optimizer_v1_optimizer_proto_init() }
@@ -1785,6 +1808,7 @@ func file_optimizer_v1_optimizer_proto_init() {
 		return
 	}
 	file_optimizer_v1_constraints_proto_init()
+	file_optimizer_v1_lunch_proto_init()
 	file_optimizer_v1_plan_proto_init()
 	file_optimizer_v1_values_proto_init()
 	file_optimizer_v1_optimizer_proto_msgTypes[9].OneofWrappers = []any{
@@ -1792,6 +1816,7 @@ func file_optimizer_v1_optimizer_proto_init() {
 		(*RecomputeRequest_Cancellation)(nil),
 		(*RecomputeRequest_Removal)(nil),
 		(*RecomputeRequest_Pin)(nil),
+		(*RecomputeRequest_Lunch)(nil),
 	}
 	file_optimizer_v1_optimizer_proto_msgTypes[12].OneofWrappers = []any{
 		(*RouteChange_TimeShiftSeconds)(nil),

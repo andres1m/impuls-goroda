@@ -105,6 +105,7 @@ var (
 	stepKinds = newEnumMap([]enumPair[pb.VisitKind, domain.StepKind]{
 		{pb.VisitKind_VISIT_KIND_VISIT, domain.StepVisit},
 		{pb.VisitKind_VISIT_KIND_FREE_TIME, domain.StepFreeTime},
+		{pb.VisitKind_VISIT_KIND_EXTERNAL_LUNCH, domain.StepExternalLunch},
 	})
 	legEndpoints = newEnumMap([]enumPair[pb.LegEndpointKind, domain.LegEndpoint]{
 		{pb.LegEndpointKind_LEG_ENDPOINT_KIND_ORIGIN, domain.EndpointOrigin},
@@ -150,5 +151,6 @@ var (
 		{pb.RouteChangeKind_ROUTE_CHANGE_KIND_COST_CHANGED, domain.ChangeCostChanged},
 		{pb.RouteChangeKind_ROUTE_CHANGE_KIND_PARTICIPATION_ACTION, domain.ChangeParticipationAction},
 		{pb.RouteChangeKind_ROUTE_CHANGE_KIND_VERIFICATION_CHANGED, domain.ChangeVerificationChanged},
+		{pb.RouteChangeKind_ROUTE_CHANGE_KIND_ADDED, domain.ChangeAdded},
 	})
 )

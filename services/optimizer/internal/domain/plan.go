@@ -137,8 +137,9 @@ func (p Participation) Validate() error {
 type StepKind string
 
 const (
-	StepVisit    StepKind = "visit"
-	StepFreeTime StepKind = "free_time"
+	StepVisit         StepKind = "visit"
+	StepFreeTime      StepKind = "free_time"
+	StepExternalLunch StepKind = "external_lunch"
 )
 
 type Step struct {

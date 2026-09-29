@@ -3,6 +3,7 @@ syntax = "proto3";
 package optimizer.v1;
 
 import "google/protobuf/timestamp.proto";
+import "optimizer/v1/lunch.proto";
 import "optimizer/v1/values.proto";
 
 option go_package = "github.com/andres1m/impuls-goroda/proto/optimizer/v1;optimizerv1";
@@ -113,6 +114,7 @@ enum VisitKind {
   VISIT_KIND_UNSPECIFIED = 0;
   VISIT_KIND_VISIT = 1;
   VISIT_KIND_FREE_TIME = 2;
+  VISIT_KIND_EXTERNAL_LUNCH = 3;
 }
 
 message RouteStep {
@@ -132,6 +134,8 @@ message RouteStep {
   CatalogSnapshot catalog = 12;
   CostSnapshot cost = 13;
   repeated AppliedConstraint applied_constraints = 14;
+  LunchMetadata lunch = 15;
+  ExternalVenueSnapshot external_venue = 16;
 }
 
 enum LegEndpointKind {
