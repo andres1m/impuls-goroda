@@ -4,7 +4,7 @@ import OwnerRouteScreen from './OwnerRouteScreen.jsx';
 import { loadOwnerRoute, loadRoutePage } from './route.js';
 import { archetypeTitles } from './routeProjection.js';
 
-export default function RouteLibrary({ apiBaseUrl, accessToken, mapApiKey, onBack, onAuthRequired }) {
+export default function RouteLibrary({ apiBaseUrl, accessToken, mapApiKey, onBack, onAuthRequired, onCreate }) {
   const [lifecycle, setLifecycle] = useState('saved');
   const [attempt, setAttempt] = useState(0);
   const [page, setPage] = useState({ state: 'loading', routes: [], nextCursor: null });
@@ -63,8 +63,9 @@ export default function RouteLibrary({ apiBaseUrl, accessToken, mapApiKey, onBac
   const busy = ['loading', 'more'].includes(page.state) || owner.state === 'loading';
   return <main className="entry-page route-library">
     <header><Brand className="entry-brand" /></header>
-    <button className="scenario-option" onClick={onBack}>Назад</button>
+    <button className="scenario-option" onClick={onBack}>Главное меню</button>
     <h1>Мои маршруты</h1>
+    {onCreate && <button className="scenario-option scenario-primary" onClick={onCreate}>Создать маршрут</button>}
     <div className="route-library-filters" aria-label="Тип маршрутов">
       {[['saved', 'Сохранённые'], ['draft', 'Черновики']].map(([value, label]) => <button key={value} className="scenario-option" disabled={busy} aria-pressed={lifecycle === value} onClick={() => { setOwner({ state: 'idle' }); setLifecycle(value); }}>{label}</button>)}
     </div>

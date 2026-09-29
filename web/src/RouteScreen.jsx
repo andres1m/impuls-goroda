@@ -1,5 +1,6 @@
 ﻿import React, { useMemo, useRef, useState } from 'react';
 import Brand from './Brand.jsx';
+import { userMessage } from './messages.js';
 import ExecutionControls from './ExecutionControls.jsx';
 import ServerRouteMap from './ServerRouteMap.jsx';
 import { pinHistoryIncomplete } from './routeCommands.js';
@@ -43,7 +44,7 @@ function RemovalControls({ step, participation, disabled, onRemove }) {
   </section>;
 }
 
-export default function RouteScreen({ route, mapApiKey, shared = false, actionsDisabled = false, lunchSearchDisabled = false, onLunch, onExecution, onParticipation, onPin, onRemoval }) {
+export default function RouteScreen({ route, mapApiKey, apiBaseUrl = '', toolbar, variantTabs, lunchPreview, onClearLunch, shared = false, actionsDisabled = false, lunchSearchDisabled = false, onLunch, onExecution, onParticipation, onPin, onRemoval }) {
   const { plan } = route;
   const projection = useMemo(() => projectRoute(route), [route]);
   const [selectedID, setSelectedID] = useState(null);
@@ -75,24 +76,26 @@ export default function RouteScreen({ route, mapApiKey, shared = false, actionsD
   return <main className="workspace server-route-workspace" style={{ '--route-accent': '#087af5' }}>
     <header className="workspace-topbar"><Brand className="workspace-wordmark" /><span className="server-lifecycle">{shared ? 'Общий маршрут' : route.lifecycle === 'saved' ? 'Сохранён' : 'Черновик'}</span></header>
     <div className="workspace-wrap">
+      {toolbar}
       <div className="workspace-heading"><div className="workspace-title-block">
-        <h1>{archetypeTitles[plan.archetype_id] || 'Ваш маршрут'}</h1>
+        <div className="server-title-row"><h1>{archetypeTitles[plan.archetype_id] || 'Ваш маршрут'}</h1><div className="server-title-cost"><strong>{personalCost || 'Цена неизвестна'}</strong>{unknownCost && personalCost && <small aria-label="Есть неучтённые расходы">+ неучтено</small>}</div></div>
         <p>{localTime(plan.start_at, timezone, { day: 'numeric', month: 'long' })} · {start}—{end} · {projection.visits.length} точек</p>
       </div></div>
-      <div className="server-summary"><span>{personalCost ? `${unknownCost ? 'Известные расходы: ' : ''}${personalCost}` : 'Стоимость неизвестна'}</span>{unknownCost && <span>Есть неучтённые расходы</span>}{plan.constraints?.pushkin_card_only && <span>По Пушкинской карте</span>}</div>
+      {plan.constraints?.pushkin_card_only && <div className="server-summary"><span>По Пушкинской карте</span></div>}
+      {variantTabs}
       {plan.result === 'PARTIAL' && <p className="workspace-route-alert is-warning">Вариант построен с оговорками. Проверьте условия посещений.</p>}
-      {plan.warnings?.map((warning, index) => <p className="workspace-route-alert is-warning" key={`${warning.code}-${index}`}>{warning.message}</p>)}
+      {plan.warnings?.length > 0 && <details className="route-notes"><summary>Подробнее об условиях</summary>{plan.warnings.map((warning, index) => <p key={`${warning.code}-${index}`}>{userMessage(warning)}</p>)}</details>}
       {cancellations.size > 0 && <section className="server-cancellation-notice" aria-label="Недоступные посещения в маршруте">
         <h2>Есть недоступные посещения</h2>
         <p>{shared ? 'В расписании остались недоступные точки.' : 'Расписание пока сохранено. Изменения применяются только после вашего подтверждения.'}</p>
         <ul>{[...cancellations.values()].map(({ visit, messages }) => <li key={visit.id}>
           <button type="button" onClick={() => chooseVisit(visit.id, true)}><span>{visit.number}</span><strong>{visit.title}</strong><span aria-hidden="true">›</span></button>
-          {[...messages].map((message) => <p key={message}>{message}</p>)}
+          {[...messages].map((message) => <p key={message}>{userMessage(message)}</p>)}
         </li>)}</ul>
       </section>}
-      {route.issues?.filter((issue) => issue.state !== 'resolved' && !(issue.type === 'cancelled' && cancelledVisits.has(issue.visit_id))).map((issue) => <p className="workspace-route-alert is-warning" key={issue.issue_id}>{issue.message}</p>)}
+      {route.issues?.filter((issue) => issue.state !== 'resolved' && !(issue.type === 'cancelled' && cancelledVisits.has(issue.visit_id))).map((issue) => <p className="workspace-route-alert is-warning" key={issue.issue_id}>{userMessage(issue)}</p>)}
       <div className="workspace-columns">
-        <ServerRouteMap apiKey={mapApiKey} projection={projection} onSelect={chooseVisit} />
+        <ServerRouteMap apiKey={mapApiKey} apiBaseUrl={apiBaseUrl} projection={projection} lunchPreview={lunchPreview} onClearLunch={onClearLunch} onSelect={chooseVisit} />
         <section className="workspace-itinerary" aria-labelledby="server-itinerary-title">
           <div className="workspace-section-head"><h2 id="server-itinerary-title">По пути</h2><span>Версия {route.revision}</span></div>
           <p className="server-local-time">{timezone} · местное время</p>
@@ -131,16 +134,16 @@ export default function RouteScreen({ route, mapApiKey, shared = false, actionsD
                       {step.catalog?.registration_details && <p>{step.catalog.registration_details}</p>}
                       {step.catalog?.age_requirements && <p>{step.catalog.age_requirements}</p>}
                       {!visit.point && <p>Координаты этой точки в плане отсутствуют. Она показана только в расписании.</p>}
-                      {onPin && <section className="server-participation" aria-label="Закрепление посещения">
-                        <h3>В маршруте</h3>
-                        <p>{step.obligation ? 'Обязательное посещение' : step.pinned ? 'Предпочтительная точка' : 'Без закрепления'}</p>
+                      {onPin && <section className="server-participation" aria-label="Приоритет точки при перестроении">
+                        <h3>Если маршрут изменится</h3>
+                        <p>{step.obligation ? 'Эту точку и выбранное время нужно сохранить. Если это невозможно, маршрут не будет изменён.' : step.pinned ? 'Постараемся сохранить эту точку. При конфликте её можно заменить с объяснением.' : 'Эту точку можно заменить при следующем перестроении маршрута.'}</p>
                         {['completed', 'skipped'].includes(executed?.status) ? <p>История посещения сохраняется.</p> : <>
                           <div className="server-participation-actions">
-                            <button className="scenario-option" disabled={actionsDisabled || pinUnavailable || step.pinned && !step.obligation} onClick={() => onPin(step.visit_id, 'preferred')}>Предпочесть</button>
-                            <button className="scenario-option" disabled={actionsDisabled || pinUnavailable || step.pinned && step.obligation} onClick={() => onPin(step.visit_id, 'obligation')}>Обязательно</button>
-                            <button className="scenario-option" disabled={actionsDisabled || pinUnavailable || !step.pinned && !step.obligation} onClick={() => onPin(step.visit_id, 'none')}>Снять закрепление</button>
+                            <button className="scenario-option" aria-pressed={!step.pinned && !step.obligation} disabled={actionsDisabled || pinUnavailable || !step.pinned && !step.obligation} onClick={() => onPin(step.visit_id, 'none')}>Можно заменить</button>
+                            <button className="scenario-option" aria-pressed={step.pinned && !step.obligation} disabled={actionsDisabled || pinUnavailable || step.pinned && !step.obligation} onClick={() => onPin(step.visit_id, 'preferred')}>По возможности сохранить</button>
+                            <button className="scenario-option" aria-pressed={Boolean(step.obligation)} disabled={actionsDisabled || pinUnavailable || step.pinned && step.obligation} onClick={() => onPin(step.visit_id, 'obligation')}>Сохранить обязательно</button>
                           </div>
-                          {['user_reported_confirmed', 'provider_confirmed'].includes(participation?.status) && <p>Снятие закрепления сохраняет оформленное участие и обязательство.</p>}
+                          {['user_reported_confirmed', 'provider_confirmed'].includes(participation?.status) && <p>Это не отменяет билет или регистрацию и не снимает связанное с ними обязательство.</p>}
                           {pinUnavailable && <p>Пересчёт пока недоступен: у пройденных точек не указано фактическое время.</p>}
                         </>}
                       </section>}
@@ -159,7 +162,7 @@ export default function RouteScreen({ route, mapApiKey, shared = false, actionsD
                     </>}
                     {onRemoval && !['completed', 'skipped'].includes(executed?.status) && <RemovalControls step={step} participation={participation} disabled={actionsDisabled || pinUnavailable} onRemove={onRemoval} />}
                     {!isVisit && onRemoval && pinUnavailable && <p>Пересчёт пока недоступен: у пройденных точек не указано фактическое время.</p>}
-                    {step.applied_constraints?.map((item, index) => <p key={`${item.code}-${index}`}>{item.message}</p>)}
+                    {step.applied_constraints?.map((item, index) => <p key={`${item.code}-${index}`}>{userMessage(item)}</p>)}
                   </div>}
                 </li>
               </React.Fragment>;

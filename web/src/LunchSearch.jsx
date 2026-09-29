@@ -1,6 +1,7 @@
 import React, { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { coordinate } from './routeProjection.js';
 import { externalLegLink, openExternalNavigation } from './externalNavigation.js';
+import { localDateTime } from './scenarioForm.js';
 
 const radii = [300, 500, 800, 1000];
 
@@ -24,14 +25,17 @@ function searchMessage(status, code) {
   return 'Не удалось получить кафе рядом. Попробуйте снова.';
 }
 
-export default function LunchSearch({ routeID, apiBaseUrl, accessToken, disabled, openRequest = 0 }) {
+export default function LunchSearch({ routeID, plan, apiBaseUrl, accessToken, disabled, onChoose, onSchedule, openRequest = 0, hideLauncher = false }) {
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState('nearby');
   const [radius, setRadius] = useState(500);
   const [phase, setPhase] = useState('idle');
   const [message, setMessage] = useState('');
   const [results, setResults] = useState(null);
-  const [detail, setDetail] = useState(null);
-  const detailRequest = useRef(null);
+  const [lunchStart, setLunchStart] = useState(() => localDateTime(plan?.constraints?.lunch_window?.start_at, plan?.timezone).slice(11) || '13:00');
+  const [lunchEnd, setLunchEnd] = useState(() => localDateTime(plan?.constraints?.lunch_window?.end_at, plan?.timezone).slice(11) || '14:30');
+  const [lunchDuration, setLunchDuration] = useState(() => String(plan?.constraints?.lunch_window?.min_duration_seconds || 2700));
+  const [scheduleError, setScheduleError] = useState('');
   const current = useRef(null);
   const heading = useRef(null);
   const opener = useRef(null);
@@ -40,7 +44,7 @@ export default function LunchSearch({ routeID, apiBaseUrl, accessToken, disabled
     heading.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     heading.current?.focus({ preventScroll: true });
   });
-  useEffect(() => () => { current.current?.abort(); detailRequest.current?.abort(); }, []);
+  useEffect(() => () => current.current?.abort(), []);
   useEffect(() => { if (openRequest > 0) openFromTimeline(); }, [openRequest]);
   useEffect(() => {
     if (open) {
@@ -50,21 +54,41 @@ export default function LunchSearch({ routeID, apiBaseUrl, accessToken, disabled
   }, [open]);
 
   function close() {
-    detailRequest.current?.abort(); detailRequest.current = null; setDetail(null);
     current.current?.abort(); current.current = null;
-    setOpen(false); setResults(null); setMessage(''); setPhase('idle');
+    setOpen(false); setMode('nearby'); setResults(null); setMessage(''); setPhase('idle'); setScheduleError('');
     if (opener.current?.isConnected) opener.current.focus({ preventScroll: true });
     opener.current = null;
   }
 
+  function choose(item) {
+    if (disabled || !results?.position || !onChoose) return;
+    onChoose({ cafe: item, origin: results.position });
+    close();
+  }
+
+  function showSchedule() {
+    current.current?.abort(); current.current = null;
+    setMode('time'); setScheduleError('');
+  }
+
+  async function schedule(event) {
+    event.preventDefault();
+    if (disabled || !onSchedule) return;
+    setScheduleError('');
+    try {
+      const outcome = await onSchedule({ lunchStart, lunchEnd, lunchDuration });
+      if (outcome?.ok) { close(); requestAnimationFrame(() => document.querySelector('.owner-variants')?.scrollIntoView({ behavior: 'smooth', block: 'center' })); }
+      else setScheduleError(outcome?.message || 'Не удалось рассчитать новый вариант. Попробуйте снова.');
+    } catch { setScheduleError('Не удалось рассчитать новый вариант. Попробуйте снова.'); }
+  }
+
   async function search(nextRadius) {
     if (disabled) return;
-    detailRequest.current?.abort(); detailRequest.current = null; setDetail(null);
     if (!open) opener.current = document.activeElement;
     current.current?.abort();
     const controller = new AbortController();
     current.current = controller;
-    setOpen(true); setRadius(nextRadius); setResults(null); setMessage(''); setPhase('locating');
+    setOpen(true); setMode('nearby'); setRadius(nextRadius); setResults(null); setMessage(''); setPhase('locating');
     let timer;
     let timedOut = false;
     try {
@@ -76,7 +100,7 @@ export default function LunchSearch({ routeID, apiBaseUrl, accessToken, disabled
       if (controller.signal.aborted) return;
       if (!coordinate(position)) throw { geo: true };
       setPhase('searching');
-      timer = setTimeout(() => { timedOut = true; controller.abort(); }, 10000);
+      timer = setTimeout(() => { timedOut = true; controller.abort(); }, 15000);
       const response = await fetch(`${apiBaseUrl}/api/v1/routes/${encodeURIComponent(routeID)}/lunch/search`, {
         method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
         credentials: 'omit', cache: 'no-store', signal: controller.signal,
@@ -97,63 +121,34 @@ export default function LunchSearch({ routeID, apiBaseUrl, accessToken, disabled
     }
   }
 
-  async function loadDetails(item) {
-    if (disabled) return;
-    detailRequest.current?.abort();
-    const controller = new AbortController(); detailRequest.current = controller;
-    setDetail({ id: item.external_id, phase: 'loading' });
-    let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 10000);
-    try {
-      const response = await fetch(`${apiBaseUrl}/api/v1/routes/${encodeURIComponent(routeID)}/lunch/organizations/${encodeURIComponent(item.external_id)}`, {
-        headers: { Authorization: `Bearer ${accessToken}` }, credentials: 'omit', cache: 'no-store', signal: controller.signal,
-      });
-      const body = await response.json();
-      if (controller.signal.aborted) throw new Error('Details cancelled');
-      if (!response.ok) throw { status: response.status, code: body?.code };
-      const value = body?.organization;
-      if (typeof body?.request_id !== 'string' || value?.provider !== '2gis' || value.external_id !== item.external_id
-        || typeof value.title !== 'string' || !value.title.trim() || [...value.title].length > 500 || !coordinate(value.position)
-        || !Number.isFinite(Date.parse(value.observed_at)) || value.price_status !== 'unknown'
-        || value.hours_status !== 'unknown' || value.availability_status !== 'unknown'
-        || value.address !== undefined && (typeof value.address !== 'string' || [...value.address].length > 1000)) throw new Error('Invalid organization response');
-      if (detailRequest.current !== controller) return;
-      setDetail({ id: item.external_id, phase: 'ready', value });
-    } catch (error) {
-      if (detailRequest.current !== controller || controller.signal.aborted && !timedOut) return;
-      const message = error.status === 401 ? 'Сессия закончилась. Откройте Mini App заново в MAX.'
-        : error.code === 'LUNCH_ORGANIZATION_NOT_FOUND' ? 'Организация больше не найдена в 2ГИС. Обновите поиск.'
-        : error.status === 429 || ['LUNCH_DETAILS_BUSY', 'LUNCH_DETAILS_RATE_LIMITED'].includes(error.code) ? 'Источник занят. Попробуйте немного позже.'
-        : 'Не удалось обновить сведения. Ниже остаются данные поиска.';
-      setDetail({ id: item.external_id, phase: 'error', message });
-    } finally { clearTimeout(timer); }
-  }
-
   const busy = phase === 'locating' || phase === 'searching';
   return <section className="owner-route-actions lunch-search" aria-label="Кафе рядом">
-    {!open ? <button className="scenario-option lunch-search-open" disabled={disabled} onClick={() => search(radius)}>Обед · кафе рядом</button> : <div className="lunch-search-panel">
+    {!open ? !hideLauncher && <button className="scenario-option lunch-search-open" disabled={disabled} onClick={() => search(radius)}>Обед · кафе рядом</button> : <div className="lunch-search-panel">
       <div className="lunch-search-heading"><h2 ref={heading} tabIndex={-1}>Где пообедать?</h2><button type="button" className="scenario-option" onClick={close}>Закрыть</button></div>
+      <div className="lunch-search-modes" aria-label="Способ выбора обеда"><button type="button" className="scenario-option" aria-pressed={mode === 'nearby'} disabled={disabled} onClick={() => search(radius)}>Кафе рядом сейчас</button><button type="button" className="scenario-option" aria-pressed={mode === 'time'} disabled={disabled} onClick={showSchedule}>Запланировать время</button></div>
+      {mode === 'time' ? <form className="lunch-time-form" onSubmit={schedule}>
+        <p>Выберите время обеда в день маршрута. Будет рассчитан новый вариант; текущий маршрут сохранится, точки могут измениться.</p>
+        <div className="lunch-time-fields"><label>Начать не раньше<input type="time" value={lunchStart} required disabled={disabled} onChange={(event) => setLunchStart(event.target.value)} /></label><label>Закончить не позже<input type="time" value={lunchEnd} required disabled={disabled} onChange={(event) => setLunchEnd(event.target.value)} /></label></div>
+        <label>Длительность<select value={lunchDuration} disabled={disabled} onChange={(event) => setLunchDuration(event.target.value)}><option value="2700">45 минут</option><option value="3600">60 минут</option></select></label>
+        {scheduleError && <p className="scenario-error" role="alert">{scheduleError}</p>}
+        <button type="submit" className="scenario-option scenario-primary" disabled={disabled}>Рассчитать новый вариант</button>
+      </form> : <>
       <div className="lunch-search-radii" aria-label="Радиус поиска">{radii.map((value) => <button type="button" className="scenario-option" key={value} aria-pressed={radius === value} disabled={disabled} onClick={() => search(value)}>{value === 1000 ? '1 км' : `${value} м`}</button>)}</div>
       {busy && <p role="status">{phase === 'locating' ? 'Определяем вашу позицию…' : 'Ищем кафе рядом…'}</p>}
       {message && <p className="scenario-error" role="alert">{message}</p>}
       {phase === 'ready' && results.candidates.length === 0 && <p role="status">В этом радиусе ничего не найдено. Попробуйте увеличить радиус.</p>}
       {phase === 'ready' && results.candidates.length > 0 && <>
-        <p className="lunch-search-note">Расстояние по прямой. Часы работы и цены уточните в кафе. Переход в 2ГИС не меняет расписание.</p>
+        <p className="lunch-search-note">Кафе можно посмотреть на карте. В расписание оно пока не добавляется; цены и часы работы уточните в заведении.</p>
         <ul className="lunch-search-list">{results.candidates.map((item) => {
-          const selected = detail?.id === item.external_id ? detail : null;
-          const value = selected?.phase === 'ready' ? selected.value : item;
-          const link = externalLegLink({ mode: 'walk', verification: 'unknown' }, [[results.position.latitude, results.position.longitude], [value.position.latitude, value.position.longitude]]);
+          const link = externalLegLink({ mode: 'walk', verification: 'unknown' }, [[results.position.latitude, results.position.longitude], [item.position.latitude, item.position.longitude]]);
           return <li key={item.external_id}>
-            <div className="lunch-search-place"><h3>{value.title}</h3>{!selected?.value && <span>{item.distance_meters} м</span>}</div>
-            {value.address && <div className="lunch-search-address">{value.address}</div>}
-            <button type="button" className="scenario-option" disabled={disabled || selected?.phase === 'loading'} onClick={() => loadDetails(item)}>{selected?.phase === 'loading' ? 'Получаем сведения…' : selected?.phase === 'error' ? 'Повторить сведения' : 'Сведения о заведении'}</button>
-            {selected?.phase === 'ready' && <p className="lunch-search-note" role="status">Сведения обновлены из 2ГИС. Часы работы и цены не подтверждены.</p>}
-            {selected?.phase === 'error' && <p className="scenario-error" role="alert">{selected.message}</p>}
-            <a className="scenario-option" href={link} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" onClick={openExternalNavigation}>Как дойти · 2ГИС</a>
+            <button type="button" className="lunch-search-place" disabled={disabled} onClick={() => choose(item)}><span className="lunch-search-place-main"><strong>{item.title}</strong><small>{item.address || 'Адрес не указан'} · {item.distance_meters} м по прямой</small></span><span className="lunch-search-place-action">Показать на карте</span></button>
+            <a className="lunch-search-directions" href={link} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" onClick={openExternalNavigation}>Как дойти в 2ГИС</a>
           </li>;
         })}</ul>
       </>}
       <button type="button" className="scenario-option" disabled={disabled || busy} onClick={() => search(radius)}>Обновить рядом со мной</button>
+      </>}
     </div>}
   </section>;
 }

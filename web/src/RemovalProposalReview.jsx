@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { userMessage } from './messages.js';
 
 function time(value, timezone) {
   return new Intl.DateTimeFormat('ru-RU', { timeZone: timezone, hour: '2-digit', minute: '2-digit' }).format(new Date(value));
@@ -30,7 +31,7 @@ export default function RemovalProposalReview({ route, proposal, disabled, onApp
       {change.kind === 'removed' ? `Убрать: ${before.get(change.before_visit_id) || 'посещение'}` : change.kind === 'replaced' ? `${before.get(change.before_visit_id) || 'Посещение'} → ${after.get(change.after_visit_id) || 'новая точка'}` : change.kind === 'participation_action' ? proposal.reason === 'cancel' ? 'Уточните возврат или перенос у организатора. Применение маршрута не возвращает деньги и не отменяет регистрацию.' : 'Билет или регистрация сохраняются. Проверьте условия у организатора.' : change.kind === 'cost_changed' ? 'Расходы изменятся — сравните суммы выше.' : change.kind === 'time_shifted' ? 'Время посещения изменится.' : 'Расписание или условия посещения обновятся.'}
     </li>)}</ul>
     {proposal.candidate.result === 'PARTIAL' && <p className="scenario-error">Вариант с оговорками — проверьте условия.</p>}
-    {proposal.candidate.warnings?.map((warning, index) => <p key={index}>{warning.message}</p>)}
+    {proposal.candidate.warnings?.map((warning, index) => <p key={index}>{userMessage(warning)}</p>)}
     <div className="server-participation-actions">
       <button className="scenario-option scenario-primary" disabled={disabled} onClick={onApply}>Применить</button>
       <button className="scenario-option" disabled={disabled} onClick={onReject}>Отклонить</button>
