@@ -369,6 +369,48 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/routes/{route_id}/lunch/search:
+    parameters:
+      - $ref: '#/components/parameters/RouteID'
+    post:
+      tags: [Routes]
+      operationId: searchNearbyLunchPlaces
+      summary: Search nearby places for lunch without changing the route
+      description: Owner-only search around a fresh device position. Distance is straight-line; hours, price and availability are unknown. Device position is not persisted. No revision or idempotency key is needed for this read operation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LunchSearchRequest'
+      responses:
+        '200':
+          description: Real search results, including an empty list
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LunchSearchResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          description: Search unavailable. Codes include LUNCH_SEARCH_UNAVAILABLE, LUNCH_SEARCH_NOT_CONFIGURED, LUNCH_SEARCH_BUSY, LUNCH_SEARCH_ACCESS_DENIED and LUNCH_SEARCH_RATE_LIMITED. Provider failures are never returned as an empty success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/routes/optimize:
     post:
       tags: [Routes]
@@ -1154,6 +1196,73 @@ components:
           schema:
             $ref: '#/components/schemas/ProposalResponse'
   schemas:
+    LunchSearchRequest:
+      type: object
+      additionalProperties: false
+      required: [position, radius_meters]
+      properties:
+        position:
+          $ref: '#/components/schemas/Coordinate'
+        radius_meters:
+          type: integer
+          enum: [300, 500, 800, 1000]
+    LunchSearchResponse:
+      type: object
+      additionalProperties: false
+      required: [request_id, searched_at, radius_meters, candidates]
+      properties:
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        searched_at:
+          type: string
+          format: date-time
+        radius_meters:
+          type: integer
+          enum: [300, 500, 800, 1000]
+        candidates:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/LunchSearchCandidate'
+    LunchSearchCandidate:
+      type: object
+      additionalProperties: false
+      required: [provider, external_id, title, position, distance_meters, observed_at, price_status, availability_status, hours_status]
+      properties:
+        provider:
+          type: string
+          const: 2gis
+        external_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        address:
+          type: string
+          maxLength: 1000
+        position:
+          $ref: '#/components/schemas/Coordinate'
+        distance_meters:
+          type: integer
+          minimum: 0
+          maximum: 1000
+          description: Rounded straight-line distance from the search position, not walking distance.
+        observed_at:
+          type: string
+          format: date-time
+          description: Retrieval time, not proof of fresh opening hours.
+        price_status:
+          type: string
+          const: unknown
+        availability_status:
+          type: string
+          const: unknown
+        hours_status:
+          type: string
+          const: unknown
     UUID:
       type: string
       format: uuid
