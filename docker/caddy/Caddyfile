@@ -1,3 +1,9 @@
+{
+	log default {
+		exclude http.log.error http.log.access http.log.trace http.handlers.reverse_proxy
+	}
+}
+
 impulsgoroda.duckdns.org {
 	handle /api/* {
 		reverse_proxy edge:8080
