@@ -54,6 +54,13 @@ func (c *Client) HealthCheck(context.Context) error {
 	return nil
 }
 
+func (c *Client) CheckTransport(ctx context.Context) error {
+	if c.optimizer == nil || c.transport == nil {
+		return errors.New("optimizer client is not initialized")
+	}
+	return c.transport.HealthCheck(ctx)
+}
+
 func (c *Client) Run(ctx context.Context) error { return c.transport.Run(ctx) }
 
 func (c *Client) Stop(ctx context.Context) error {

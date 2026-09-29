@@ -118,6 +118,7 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("create CORS middleware: %w", err)
 	}
 	routers := []router.Router{
+		httpapi.NewReadinessRouter(authRuntime),
 		httpapi.NewAuthRouter(authRuntime),
 		httpapi.NewVisitRouter(authRuntime),
 		httpapi.NewRouteRouter(authRuntime),
