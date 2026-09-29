@@ -620,6 +620,24 @@ button { cursor: pointer; }
 .panic-controls form { display: grid; gap: 16px; width: 100%; }
 .panic-controls h2 { margin: 0; font-size: 21px; }
 .panic-controls .scenario-option[aria-pressed="true"] { background: #eaf3ff; border-color: #a6cdfb; color: #0864bd; }
+.lunch-search .lunch-search-open { background: #fff4cd; border-color: #eadca2; color: #65501c; }
+.lunch-search-panel { padding: 20px; border-radius: 24px; background: #fffaf0; border: 1px solid #eee3c6; }
+.lunch-search-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.lunch-search-heading h2 { margin: 0; font-size: 21px; }
+.lunch-search-heading .scenario-option { width: auto; margin: 0; flex-shrink: 0; }
+.lunch-search-radii { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 20px 0; }
+.lunch-search-radii .scenario-option { margin: 0; padding: 12px 8px; }
+.lunch-search-radii .scenario-option[aria-pressed="true"] { background: #ffeab0; border-color: #d9bd68; color: #65501c; }
+.lunch-search .lunch-search-note { padding: 0; background: transparent; color: #766b51; font-size: 13px; }
+.lunch-search-list { display: grid; gap: 12px; padding: 0; list-style: none; }
+.lunch-search-list li { padding: 18px; background: #fff; border-radius: 18px; border: 1px solid #eee7d9; min-width: 0; }
+.lunch-search-place { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.lunch-search-place h3 { margin: 0; font-size: 17px; overflow-wrap: anywhere; }
+.lunch-search-place span { flex-shrink: 0; color: #766b51; font-size: 13px; }
+.lunch-search-address { margin-top: 8px; color: #607086; font-size: 14px; overflow-wrap: anywhere; }
+.lunch-search-list a { box-sizing: border-box; text-align: center; text-decoration: none; }
+.lunch-search button:focus-visible, .lunch-search a:focus-visible { outline: 2px solid #087af5; outline-offset: 3px; }
+@media (max-width: 380px) { .lunch-search-panel { padding: 16px; } .lunch-search-radii { grid-template-columns: repeat(2, minmax(0, 1fr)); } .lunch-search-heading { flex-wrap: wrap; } }
 .panic-wait { display: grid; gap: 8px; }
 .panic-wait input { min-height: 48px; width: 100%; box-sizing: border-box; border: 1px solid #d8dee8; border-radius: 14px; padding: 10px 14px; font: inherit; }
 .route-delete-ack { display: flex; align-items: flex-start; gap: 12px; padding: 16px 0; line-height: 1.5; }

@@ -3,6 +3,7 @@ import RouteScreen from './RouteScreen.jsx';
 import RemovalProposalReview from './RemovalProposalReview.jsx';
 import PanicControls from './PanicControls.jsx';
 import ShareControls from './ShareControls.jsx';
+import LunchSearch from './LunchSearch.jsx';
 import { createShareAttempt, createRevokeShareAttempt, sendShareCommand } from './sharing.js';
 import { createPanicAttempt, createRemovalAttempt, createProposalResolutionAttempt, sendProposalCommand } from './proposalCommands.js';
 import { loadOwnerRoute } from './route.js';
@@ -101,6 +102,7 @@ export default function OwnerRouteScreen({ route: initialRoute, apiBaseUrl, acce
     {proposal && <RemovalProposalReview route={route} proposal={proposal} disabled={busy || pending} onApply={() => runCommand('apply')} onReject={() => runCommand('reject')} />}
     <PanicControls route={route} mapApiKey={mapApiKey} disabled={busy || pending || Boolean(proposal)} onPanic={(input) => runCommand('panic', input)} />
     <RouteScreen route={route} mapApiKey={mapApiKey} actionsDisabled={busy || pending || Boolean(proposal)} onExecution={(visitID, status, times) => runCommand('execution', visitID, status, times)} onParticipation={(visitID, action) => runCommand('participation', visitID, action)} onPin={(visitID, kind) => runCommand('pin', visitID, kind)} onRemoval={(visitID, mode, acknowledge) => runCommand('removal', visitID, mode, acknowledge)} />
+    <LunchSearch key={route.route_id} routeID={route.route_id} apiBaseUrl={apiBaseUrl} accessToken={accessToken} disabled={busy || pending} />
     <section className="owner-route-actions" aria-label="Сохранение маршрута">
       <button className="scenario-option scenario-primary" disabled={busy || Boolean(proposal) && !pending || route.lifecycle === 'saved' && !pending} onClick={() => runCommand()}>
         {busy ? 'Выполняем…' : command.current?.conflict ? 'Обновить маршрут' : pending ? 'Повторить запрос' : route.lifecycle === 'saved' ? 'Сохранён' : 'Сохранить'}

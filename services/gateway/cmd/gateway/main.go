@@ -132,6 +132,7 @@ func run(ctx context.Context) error {
 		httpapi.NewPanicRouter(authRuntime),
 		httpapi.NewShareRouter(authRuntime, os.Getenv("MAX_BOT_USERNAME")),
 		httpapi.NewDirectionsRouter(os.Getenv("TWO_GIS_API_KEY"), authRuntime),
+		httpapi.NewLunchSearchRouter(os.Getenv("TWO_GIS_API_KEY"), authRuntime),
 	}
 	if username := os.Getenv("MAX_BOT_USERNAME"); username != "" {
 		bot, err := maxbot.NewClient(infra.cfg.Gateway.Auth.BotToken, username)
