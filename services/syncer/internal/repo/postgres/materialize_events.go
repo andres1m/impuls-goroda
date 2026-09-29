@@ -86,7 +86,8 @@ func writeEvent(
 	changed, err := returnedIDs(tx.Query(ctx, `
 		INSERT INTO catalog.event AS t (id, city, place_id, title, normalized_title, category, tag_mask,
 			organizer_name, age_min, data_mode, card_source_record_id, is_active, review_required, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7::bigint::bit(64), $8, $9, $10, $11, true, false, $12, $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7::bigint::bit(64) | COALESCE((SELECT en.llm_tag_mask FROM catalog.entity_enrichment en
+				WHERE en.event_id = $1 AND en.city = $2), 0::bit(64)), $8, $9, $10, $11, true, false, $12, $12)
 		ON CONFLICT (id, city) DO UPDATE SET
 			title = EXCLUDED.title, normalized_title = EXCLUDED.normalized_title, category = EXCLUDED.category,
 			tag_mask = EXCLUDED.tag_mask, organizer_name = EXCLUDED.organizer_name, age_min = EXCLUDED.age_min,

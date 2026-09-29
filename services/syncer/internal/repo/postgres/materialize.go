@@ -276,7 +276,8 @@ func upsertPlace(
 	rows, err := tx.Query(ctx, `
 		INSERT INTO catalog.place AS t (id, city, title, normalized_title, category, tag_mask, coordinates,
 			address_text, opening_rules, data_mode, card_source_record_id, is_active, review_required, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6::bigint::bit(64), ST_SetSRID(ST_MakePoint($7, $8), 4326),
+		VALUES ($1, $2, $3, $4, $5, $6::bigint::bit(64) | COALESCE((SELECT en.llm_tag_mask FROM catalog.entity_enrichment en
+				WHERE en.place_id = $1 AND en.city = $2), 0::bit(64)), ST_SetSRID(ST_MakePoint($7, $8), 4326),
 			$9, $10::jsonb, $11, $12, true, false, $13, $13)
 		ON CONFLICT (id, city) DO UPDATE SET
 			title = EXCLUDED.title, normalized_title = EXCLUDED.normalized_title, category = EXCLUDED.category,
