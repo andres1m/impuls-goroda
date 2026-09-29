@@ -81,6 +81,8 @@ func runSubcommand(ctx context.Context, command string, args []string) bool {
 		err = runEmbed(ctx, args)
 	case "rematerialize":
 		err = runRematerialize(ctx, args)
+	case "boundary":
+		err = runBoundary(ctx, args)
 	case "healthcheck":
 		if err = healthcheck(ctx); err != nil {
 			log.Printf("healthcheck failed: %v", err)
