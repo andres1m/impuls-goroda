@@ -50,6 +50,7 @@ export function summarizeVariant(route) {
     modes.add(leg.mode); if (leg.verification !== 'verified') uncertainLegs++;
   }
   return {
+    archetypeId: plan.archetype_id || 'urban_avantgarde',
     title: archetypeTitles[plan.archetype_id] || 'Маршрут', window: `${date.format(start)} — ${date.format(end)}`,
     visits, pauses, modes: [...modes], travelMinutes: Math.ceil(travelSeconds / 60), walkMinutes: Math.ceil(walkSeconds / 60), uncertainLegs,
     personalCost: money(plan.cost.known_personal), transportCost: money(plan.cost.known_transport), unknownCostCount: plan.cost.unknown_components.length,

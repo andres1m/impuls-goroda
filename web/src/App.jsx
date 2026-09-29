@@ -147,7 +147,7 @@ export default function App() {
         <span className="entry-rule" aria-hidden="true" />
         <h1>{title}</h1>
         <p>{message}</p>
-        {retry && <Button onClick={retry}>Повторить</Button>}
+        {retry && <Button stretched onClick={retry}>Повторить</Button>}
         {session.state === 'ready' && ['empty', 'error'].includes(route.state) && <button className="scenario-option" onClick={() => setLibraryOpen(true)}>Мои маршруты</button>}
       </section>
     </main></>

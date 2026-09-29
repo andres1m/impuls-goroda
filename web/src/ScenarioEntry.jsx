@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Brand from './Brand.jsx';
 import ExtractionReview from './ExtractionReview.jsx';
 import ScenarioVariants from './ScenarioVariants.jsx';
@@ -219,9 +219,15 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
   const earliestStart = cities[city] ? localDateTime(new Date(Math.ceil((Date.now() + 1) / 60000) * 60000).toISOString(), cities[city].timezone) : '';
   const today = earliestStart.slice(0, 10);
   return <main className="scenario-page">
-    <header><Brand /><h1>{current.source === 'preset' ? presetNames[current.preset_id] : 'Ваш сценарий'}</h1></header>
-    {onLibrary && <button className="scenario-option" onClick={onLibrary} disabled={busy || saving}>Мои маршруты</button>}
-    {current.source_text && <p className="scenario-description">{current.source_text}</p>}
+    <header className="scenario-topbar">
+      <Brand className="entry-brand" />
+      {onLibrary && <button type="button" className="route-library-nav-btn" onClick={onLibrary} disabled={busy || saving}>Мои маршруты</button>}
+    </header>
+    <div className="scenario-hero">
+      <span className="scenario-hero-badge">{current.source === 'preset' ? 'Тематический день' : 'Персональный маршрут'}</span>
+      <h1>{current.source === 'preset' ? presetNames[current.preset_id] : 'Ваш сценарий'}</h1>
+      {current.source_text && <p className="scenario-description">{current.source_text}</p>}
+    </div>
     {current.status === 'draft' && current.pending_extraction && <ExtractionReview input={current.pending_extraction} choice={extractionChoice} disabled={locked} onApply={applyExtraction} onManual={() => { setExtractionChoice('manual'); setReview(null); }} />}
     {current.status === 'draft' && <form onSubmit={prepare}>
       <section className="scenario-card"><h2>Начало и конец маршрута</h2>

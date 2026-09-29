@@ -32,11 +32,17 @@ function VariantCard({ id, index, apiBaseUrl, accessToken, disabled, selecting, 
 }
 
 function VariantDetails({ id, summary: s, difference, disabled, selecting, retrySelection, onSelect }) {
-  return <article className="variant-card">
-    <h3>{s.title}</h3><p className="variant-window">{s.window} · местное время</p>
-    <div className="variant-labels">{s.dataModes.map((mode) => <span key={mode}>{dataNames[mode]}</span>)}</div>
+  return <article className="variant-card" data-archetype={s.archetypeId || 'urban_avantgarde'}>
+    <div className="variant-card-head">
+      <div className="variant-labels">
+        <span className="variant-archetype-tag">{s.partial ? 'С ограничениями' : 'Оптимальный'}</span>
+        {s.dataModes.map((mode) => <span key={mode}>{dataNames[mode]}</span>)}
+      </div>
+      <h3>{s.title}</h3>
+      <p className="variant-window">{s.window} · местное время</p>
+    </div>
     {difference && <p className="variant-difference">{difference}</p>}
-    <dl>
+    <dl className="variant-metrics">
       <div><dt>Посещения</dt><dd>{s.visits.length}{s.pauses ? ` · пауз: ${s.pauses}` : ''}</dd></div>
       <div><dt>Переходы по расписанию</dt><dd>{s.travelMinutes} мин. · пешком {s.walkMinutes} мин.</dd></div>
       <div><dt>Известные личные расходы</dt><dd>{s.personalCost}<small>Включая транспорт: {s.transportCost}</small></dd></div>
@@ -45,7 +51,7 @@ function VariantDetails({ id, summary: s, difference, disabled, selecting, retry
     {s.unknownCostCount > 0 && <p className="variant-warning">Часть расходов неизвестна — итоговая стоимость может отличаться.</p>}
     {s.uncertainLegs > 0 && <p className="variant-warning">Есть приблизительные или непроверенные переходы.</p>}
     {s.issueCount > 0 && <p className="variant-warning">В маршруте есть изменения или проблемы. Проверьте их перед выходом.</p>}
-    <ol className="variant-visits">{s.visits.map((visit, index) => <li key={index}><span>{index + 1}</span>{visit.title}</li>)}</ol>
+    <ol className="variant-visits">{s.visits.map((visit, index) => <li key={index}><span>{index + 1}</span><strong>{visit.title}</strong></li>)}</ol>
     {s.warnings.length > 0 && <details className="variant-notices"><summary>Условия посещений</summary>{s.warnings.map((message, index) => <p key={index}>{userMessage(message)}</p>)}</details>}
     <button type="button" className="scenario-option scenario-primary" disabled={disabled} onClick={() => onSelect(id)}>{selecting ? 'Открываем…' : retrySelection ? 'Повторить выбор' : 'Выбрать этот вариант'}</button>
   </article>;

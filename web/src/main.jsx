@@ -8,5 +8,5 @@ import './styles.css';
 
 const useDevPreview = Boolean(import.meta.env?.DEV) && new URLSearchParams(window.location.search).get('prod') !== '1';
 const root = createRoot(document.getElementById('root'));
-root.render(<MaxUI>{useDevPreview ? <DevPreview /> : <App />}</MaxUI>);
+root.render(<MaxUI colorScheme="light">{useDevPreview ? <DevPreview /> : <App />}</MaxUI>);
 

@@ -21,12 +21,12 @@ export default function SharedRouteScreen({ apiBaseUrl, token, mapApiKey }) {
     return { revision, issues, updated_at, city, plan };
   }, [snapshot]);
 
-  if (display) return <>
+  if (display) return <div className="owner-page shared-route-page">
     <RouteScreen route={display} mapApiKey={mapApiKey} shared />
     <section className="owner-route-actions" aria-label="Обновление общего маршрута">
       <button className="scenario-option" onClick={() => setAttempt((value) => value + 1)}>Обновить маршрут</button>
     </section>
-  </>;
+  </div>;
 
   const title = snapshot.state === 'loading' ? 'Открываем маршрут' : snapshot.state === 'unavailable' ? 'Ссылка недоступна' : 'Не удалось загрузить маршрут';
   const message = snapshot.state === 'loading' ? 'Загружаем общий маршрут.' : snapshot.state === 'unavailable' ? 'Попросите автора отправить новую ссылку.' : 'Проверьте соединение и попробуйте снова.';

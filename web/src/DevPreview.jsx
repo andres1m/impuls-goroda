@@ -346,11 +346,13 @@ export default function DevPreview() {
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    const originalFetch = window.fetch.bind(window);
-    const originalGeo = navigator.geolocation;
+  const stateRef = React.useRef({ screen, notifEnabled, notifVersion });
+  stateRef.current = { screen, notifEnabled, notifVersion };
 
-    // Provide fallback geolocation on desktop browsers so LunchSearch & PanicControls work out of the box
+  if (typeof window !== 'undefined' && !window.__DEV_PREVIEW_FETCH_INSTALLED__) {
+    window.__DEV_PREVIEW_FETCH_INSTALLED__ = true;
+    const originalFetch = window.fetch.bind(window);
+
     if (!navigator.geolocation || typeof navigator.geolocation.getCurrentPosition === 'function') {
       const origGetPos = navigator.geolocation?.getCurrentPosition?.bind(navigator.geolocation);
       try {
@@ -378,6 +380,11 @@ export default function DevPreview() {
     window.fetch = async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input?.url || '';
       const method = (init?.method || 'GET').toUpperCase();
+      const current = window.__DEV_PREVIEW_STATE__ || {
+        screen: 'prototype',
+        notifEnabled: true,
+        notifVersion: '1',
+      };
 
       if (url.includes('/api/v1/health/ready')) {
         return new Response(
@@ -435,9 +442,9 @@ export default function DevPreview() {
         const routeId = notifMatch[1].toLowerCase();
         if (method === 'POST') {
           const parsed = JSON.parse(init?.body || '{}');
-          const nextVer = String(BigInt(parsed.expected_version || notifVersion) + 1n);
-          setNotifEnabled(Boolean(parsed.enabled));
-          setNotifVersion(nextVer);
+          const nextVer = String(BigInt(parsed.expected_version || current.notifVersion) + 1n);
+          current.setNotifEnabled?.(Boolean(parsed.enabled));
+          current.setNotifVersion?.(nextVer);
           return new Response(
             JSON.stringify({
               request_id: 'req-dev-notif-post',
@@ -458,8 +465,8 @@ export default function DevPreview() {
             route_id: routeId,
             revision: '3',
             preference: {
-              enabled: notifEnabled,
-              version: notifVersion,
+              enabled: current.notifEnabled,
+              version: current.notifVersion,
               platform_state: 'available',
             },
           }),
@@ -587,9 +594,19 @@ export default function DevPreview() {
         return new Response(
           JSON.stringify({
             request_id: 'req-dev-route',
-            route: makeMockRoute(id, archetype, 'saved', screen === 'owner-proposal'),
+            route: makeMockRoute(id, archetype, 'saved', current.screen === 'owner-proposal'),
           }),
           { status: 200, headers: { 'Content-Type': 'application/json', ETag: '"3"' } },
+        );
+      }
+
+      if (url.includes('/api/v1/me/scenario') || /\/api\/v1\/scenarios\/[0-9a-f-]{36}$/i.test(url)) {
+        return new Response(
+          JSON.stringify({
+            request_id: 'req-dev-scenario-get',
+            scenario: MOCK_SCENARIO_COMPLETED,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
 
@@ -614,6 +631,41 @@ export default function DevPreview() {
         );
       }
 
+      const draftMatch = /\/api\/v1\/scenarios\/([0-9a-f-]{36})\/draft$/i.exec(url);
+      if (draftMatch && method === 'POST') {
+        const parsed = JSON.parse(init?.body || '{}');
+        const nextVer = String(BigInt(parsed.expected_version || '1') + 1n);
+        return new Response(
+          JSON.stringify({
+            request_id: 'req-dev-scenario-draft',
+            scenario: {
+              ...MOCK_SCENARIO_DRAFT,
+              scenario_id: draftMatch[1].toLowerCase(),
+              version: nextVer,
+              status: 'draft',
+              outcome: undefined,
+              input: parsed.input || MOCK_SCENARIO_DRAFT.input,
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+
+      const completeMatch = /\/api\/v1\/scenarios\/([0-9a-f-]{36})\/complete$/i.exec(url);
+      if (completeMatch && method === 'POST') {
+        return new Response(
+          JSON.stringify({
+            request_id: 'req-dev-scenario-complete',
+            result: 'READY',
+            data_mode: 'prepared',
+            route_ids: [ROUTE_1_ID, ROUTE_2_ID, ROUTE_3_ID],
+            warnings: [],
+            conflicts: [],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+
       if (url.includes('/select')) {
         return new Response(
           JSON.stringify({
@@ -628,18 +680,17 @@ export default function DevPreview() {
 
       return originalFetch(input, init);
     };
+  }
 
-    return () => {
-      window.fetch = originalFetch;
-      if (originalGeo) {
-        try {
-          Object.defineProperty(navigator, 'geolocation', { configurable: true, value: originalGeo });
-        } catch {
-          // ignore
-        }
-      }
+  if (typeof window !== 'undefined') {
+    window.__DEV_PREVIEW_STATE__ = {
+      screen,
+      notifEnabled,
+      notifVersion,
+      setNotifEnabled,
+      setNotifVersion,
     };
-  }, [screen, notifEnabled, notifVersion]);
+  }
 
   function selectScreen(id) {
     setScreen(id);
@@ -814,7 +865,7 @@ export default function DevPreview() {
             <span className="entry-rule" aria-hidden="true" />
             <h1>Откройте приложение в MAX</h1>
             <p>Для просмотра личного маршрута нужен вход через MAX.</p>
-            <Button onClick={() => selectScreen('owner-saved')}>Повторить</Button>
+            <Button stretched onClick={() => selectScreen('owner-saved')}>Повторить</Button>
             <button className="scenario-option" onClick={() => selectScreen('library')}>Мои маршруты</button>
           </section>
         </main>

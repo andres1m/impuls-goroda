@@ -236,7 +236,7 @@ export default function OwnerRouteScreen({ route: initialRoute, apiBaseUrl, acce
         <PanicControls openRequest={panicRequest} hideLauncher route={route} mapApiKey={mapApiKey} disabled={busy || pending || Boolean(proposal)} onPanic={(input) => runCommand('panic', input)} /></>}
       variantTabs={variantsOpen && <section className="owner-variants" aria-label="Варианты маршрута">{variants.map((value) => <button key={value.route_id} aria-pressed={route.route_id === value.route_id} disabled={busy || pending || Boolean(proposal)} onClick={() => chooseVariant(value.route_id)}>{archetypeTitles[value.plan.archetype_id] || 'Вариант маршрута'}</button>)}<button disabled={busy || pending || Boolean(proposal)} onClick={() => rebuild()}>{rebuilding.current ? 'Повторить расчёт' : 'Другие варианты'}</button></section>}
       actionsDisabled={busy || pending || Boolean(proposal)} lunchSearchDisabled={busy || pending} onLunch={() => setLunchRequest((value) => value + 1)} onExecution={(visitID, status, times) => runCommand('execution', visitID, status, times)} onParticipation={(visitID, action) => runCommand('participation', visitID, action)} onPin={(visitID, kind) => runCommand('pin', visitID, kind)} onRemoval={(visitID, mode, acknowledge) => runCommand('removal', visitID, mode, acknowledge)} />
-    <LunchSearch hideLauncher key={route.route_id} openRequest={lunchRequest} routeID={route.route_id} plan={route.plan} apiBaseUrl={apiBaseUrl} accessToken={accessToken} disabled={busy || pending} onChoose={chooseLunch} onSchedule={rebuild} />
+    <LunchSearch hideLauncher key={`lunch-${route.route_id}`} openRequest={lunchRequest} routeID={route.route_id} plan={route.plan} apiBaseUrl={apiBaseUrl} accessToken={accessToken} disabled={busy || pending} onChoose={chooseLunch} onSchedule={rebuild} />
     <section className="owner-fixed-actions" aria-label="Действия маршрута">
       <button className="scenario-option" disabled={busy || pending || Boolean(proposal)} onClick={() => { setVariantsOpen(true); document.querySelector('.owner-variants')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>Варианты</button>
       <button className="scenario-option" disabled={busy || pending} onClick={() => setLunchRequest((value) => value + 1)}>Обед</button>
@@ -247,7 +247,7 @@ export default function OwnerRouteScreen({ route: initialRoute, apiBaseUrl, acce
     </section>
     {message && <p className="owner-message" role="status">{message}</p>}
     <ShareControls key={shareLink || 'no-share-link'} link={shareLink} disabled={busy || pending || Boolean(proposal)} onCreate={() => runCommand('share-create')} onRevoke={() => runCommand('share-revoke')} />
-    {route.lifecycle === 'saved' && <NotificationControls key={route.route_id} route={route} apiBaseUrl={apiBaseUrl} accessToken={accessToken}
+    {route.lifecycle === 'saved' && <NotificationControls key={`notifications-${route.route_id}`} route={route} apiBaseUrl={apiBaseUrl} accessToken={accessToken}
       disabled={commandBusy || pending || Boolean(proposal) || deleteReview} onBlockingChange={setNotificationBlocked}
       onRouteUpdated={(updated) => { setRoute(updated); setProposal(updated.pending_proposal || null); }} />}
     <section className="owner-route-actions" aria-label="Удаление маршрута">
