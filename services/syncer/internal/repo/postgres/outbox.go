@@ -14,6 +14,7 @@ import (
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/delivery"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/ingest"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/lifecycle"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/materialize"
 )
 
@@ -42,6 +43,55 @@ func EnqueueRevision(ctx context.Context, tx pgx.Tx, m *catalogevent.Invalidatio
 	)
 	if err != nil {
 		return fmt.Errorf("enqueue catalog revision: %w", err)
+	}
+	return nil
+}
+
+// enqueueCancellations records in the publication's own transaction that gateway and the urgent topic still
+// have to hear about each cancelled session. The rows carry the revision that cancelled the session, so
+// they exist only if the cancellation committed.
+func enqueueCancellations(
+	ctx context.Context,
+	tx pgx.Tx,
+	city domain.City,
+	revision int64,
+	at time.Time,
+	gone []withdrawnSession,
+) error {
+	for i := range gone {
+		g := &gone[i]
+		c := lifecycle.Cancellation{
+			Version:               lifecycle.SchemaVersion,
+			ChangeID:              lifecycle.ChangeID(g.SessionID, revision),
+			City:                  city,
+			CatalogRevision:       revision,
+			EventID:               g.EventID,
+			SessionID:             g.SessionID,
+			OldAvailabilityStatus: g.OldStatus,
+			NewAvailabilityStatus: lifecycle.StatusCancelled,
+			SourceRecordID:        g.SourceRecordID,
+			DataMode:              g.DataMode,
+			ObservedAt:            at,
+			Reason:                lifecycle.ReasonSourceRemoved,
+		}
+		payload, err := lifecycle.Encode(&c)
+		if err != nil {
+			return fmt.Errorf("cancellation of session %s: %w", g.SessionID, err)
+		}
+		for _, target := range [...]struct{ destination, eventType string }{
+			{lifecycle.GatewayDestination, lifecycle.GatewayEventType},
+			{lifecycle.KafkaDestination, lifecycle.KafkaEventType},
+		} {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO integration.change_delivery (id, change_id, city, catalog_revision, destination,
+					event_type, source_record_id, payload, state, next_attempt_at, created_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $9)
+				ON CONFLICT (change_id, destination, event_type) DO NOTHING`,
+				uuid.New(), c.ChangeID, city, revision, target.destination, target.eventType, g.SourceRecordID,
+				payload, at); err != nil {
+				return fmt.Errorf("enqueue cancellation of session %s for %s: %w", g.SessionID, target.destination, err)
+			}
+		}
 	}
 	return nil
 }

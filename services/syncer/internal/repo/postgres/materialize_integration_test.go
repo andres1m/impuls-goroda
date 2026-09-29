@@ -11,10 +11,13 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/andres1m/impuls-goroda/pkg/catalogevent"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/ingest"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/lifecycle"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/materialize"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/normalize"
 )
@@ -566,5 +569,134 @@ func TestSharedPlaceDoesNotFlapIntegration(t *testing.T) {
 	if err := f.pool.QueryRow(f.ctx, `SELECT address_text FROM catalog.place WHERE city = 'perm' AND id = $1`,
 		normalize.EntityID(string(f.source)+":place:a")).Scan(&address); err != nil || address != "ул Радио,д 17" {
 		t.Fatalf("place keeps %q, %v; the last description in the batch wins", address, err)
+	}
+}
+
+type queuedDelivery struct {
+	destination, eventType string
+	changeID               uuid.UUID
+	revision               int64
+	payload                []byte
+}
+
+func (f *materializeFixture) queued(t *testing.T, sessionID uuid.UUID) []queuedDelivery {
+	t.Helper()
+	rows, err := f.pool.Query(f.ctx, `
+		SELECT destination, event_type, change_id, catalog_revision, payload
+		FROM integration.change_delivery
+		WHERE city = 'perm' AND payload->>'session_id' = $1
+		ORDER BY catalog_revision, destination`, sessionID.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (queuedDelivery, error) {
+		var q queuedDelivery
+		return q, row.Scan(&q.destination, &q.eventType, &q.changeID, &q.revision, &q.payload)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return queue
+}
+
+func (f *materializeFixture) announcement(t *testing.T, revision int64) catalogevent.Invalidation {
+	t.Helper()
+	var payload []byte
+	if err := f.pool.QueryRow(f.ctx, `SELECT payload FROM integration.change_delivery
+		WHERE city = 'perm' AND destination = 'redis' AND catalog_revision = $1`, revision).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	m, err := catalogevent.Decode(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func TestCancellationsAreQueuedWithTheRevisionIntegration(t *testing.T) {
+	f := newMaterializeFixture(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	day1, day2 := now.Add(24*time.Hour), now.Add(48*time.Hour)
+	eventA := normalize.EntityID(string(f.source) + ":event:1@place:a")
+	day1A, day2A := normalize.SessionID(eventA, day1), normalize.SessionID(eventA, day2)
+
+	if !f.publishEvent(t, 1, now, "a", day1, day2) {
+		t.Fatal("first version did not publish")
+	}
+	if len(f.queued(t, day1A))+len(f.queued(t, day2A)) != 0 {
+		t.Fatal("new sessions queued cancellations")
+	}
+	if m := f.announcement(t, f.revision(t)); m.Reason != catalogevent.ReasonIngest || len(m.Sessions) != 0 {
+		t.Fatalf("a batch without cancellations announced %+v", m)
+	}
+
+	// The source stops listing day two: only that session is cancelled.
+	if !f.publishEvent(t, 2, now, "a", day1) {
+		t.Fatal("a withdrawn session did not publish")
+	}
+	revision := f.revision(t)
+	queue := f.queued(t, day2A)
+	if len(queue) != 2 || queue[0].destination != lifecycle.GatewayDestination ||
+		queue[0].eventType != lifecycle.GatewayEventType || queue[1].destination != lifecycle.KafkaDestination ||
+		queue[1].eventType != lifecycle.KafkaEventType {
+		t.Fatalf("queued %+v", queue)
+	}
+	for _, q := range queue {
+		if q.changeID != lifecycle.ChangeID(day2A, revision) || q.revision != revision {
+			t.Fatalf("row %+v, revision %d", q, revision)
+		}
+	}
+	c, err := lifecycle.Decode(queue[0].payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.SessionID != day2A || c.EventID != eventA || c.OldAvailabilityStatus != "unknown" ||
+		c.NewAvailabilityStatus != lifecycle.StatusCancelled || c.Reason != lifecycle.ReasonSourceRemoved ||
+		c.City != domain.Perm || c.CatalogRevision != revision || c.DataMode != domain.Live {
+		t.Fatalf("payload %+v", c)
+	}
+	if got := f.queued(t, day1A); len(got) != 0 {
+		t.Fatalf("a session the source still lists got %+v", got)
+	}
+	if m := f.announcement(t, revision); m.Reason != catalogevent.ReasonUrgent ||
+		!slices.Equal(m.Sessions, []string{day2A.String()}) {
+		t.Fatalf("announcement %+v", m)
+	}
+
+	// Another version of the same content cancels nothing more.
+	f.publishEvent(t, 3, now, "a", day1)
+	if got := f.queued(t, day2A); len(got) != 2 {
+		t.Fatalf("a repeat queued %d rows", len(got))
+	}
+
+	// A session that returns and is withdrawn again is a new cancellation.
+	f.publishEvent(t, 4, now, "a", day1, day2)
+	if !f.publishEvent(t, 5, now, "a", day1) {
+		t.Fatal("the second withdrawal did not publish")
+	}
+	queue = f.queued(t, day2A)
+	if len(queue) != 4 || queue[0].changeID == queue[2].changeID || queue[0].revision >= queue[2].revision {
+		t.Fatalf("queued %+v", queue)
+	}
+}
+
+func TestMovedEventCancelsItsSessionsIntegration(t *testing.T) {
+	f := newMaterializeFixture(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	day1 := now.Add(24 * time.Hour)
+	eventA := normalize.EntityID(string(f.source) + ":event:1@place:a")
+	day1A := normalize.SessionID(eventA, day1)
+
+	f.publishEvent(t, 1, now, "a", day1)
+	if !f.publishEvent(t, 2, now, "b", day1) {
+		t.Fatal("a moved event did not publish")
+	}
+	queue := f.queued(t, day1A)
+	if len(queue) != 2 {
+		t.Fatalf("the session of the moved event queued %+v", queue)
+	}
+	eventB := normalize.EntityID(string(f.source) + ":event:1@place:b")
+	if got := f.queued(t, normalize.SessionID(eventB, day1)); len(got) != 0 {
+		t.Fatalf("the session at the new place queued %+v", got)
 	}
 }

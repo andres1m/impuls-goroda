@@ -13,6 +13,7 @@ import (
 
 	"github.com/andres1m/impuls-goroda/pkg/catalogevent"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/lifecycle"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/materialize"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/normalize"
 )
@@ -132,15 +133,17 @@ func (s *MaterializeStore) Publish(
 			touched[placeIDs[i]] = true
 		}
 	}
+	var withdrawn []withdrawnSession
 	for i := range o.Apply {
 		n := &o.Apply[i]
 		if n.Event == nil {
 			continue
 		}
-		places, err := writeEvent(ctx, tx, city, n, placeIDs[i], ref.TagBits, at)
+		places, gone, err := writeEvent(ctx, tx, city, n, placeIDs[i], ref.TagBits, at)
 		if err != nil {
 			return 0, false, err
 		}
+		withdrawn = append(withdrawn, gone...)
 		for _, id := range places {
 			touched[id] = true
 		}
@@ -160,7 +163,17 @@ func (s *MaterializeStore) Publish(
 			Reason:          catalogevent.ReasonIngest,
 			PublishedAt:     at,
 		}
+		if len(withdrawn) > 0 {
+			announcement.Reason = catalogevent.ReasonUrgent
+			announcement.Sessions = make([]string, len(withdrawn))
+			for i := range withdrawn {
+				announcement.Sessions[i] = withdrawn[i].SessionID.String()
+			}
+		}
 		if err := EnqueueRevision(ctx, tx, &announcement); err != nil {
+			return 0, false, err
+		}
+		if err := enqueueCancellations(ctx, tx, city, revision, at, withdrawn); err != nil {
 			return 0, false, err
 		}
 	}
@@ -170,6 +183,7 @@ func (s *MaterializeStore) Publish(
 	if err := tx.Commit(ctx); err != nil {
 		return 0, false, fmt.Errorf("commit: %w", err)
 	}
+	lifecycle.Recorded.Add(float64(len(withdrawn)))
 	return revision, len(touched) > 0, nil
 }
 

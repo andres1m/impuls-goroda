@@ -6,6 +6,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/uber/h3-go/v4"
 
@@ -51,6 +52,13 @@ func returnedIDs(rows pgx.Rows, err error) ([]string, error) {
 	return ids, nil
 }
 
+// withdrawnSession is a session the source stopped listing, with what delivery needs to tell about it.
+type withdrawnSession struct {
+	SessionID, EventID, SourceRecordID uuid.UUID
+	OldStatus                          string
+	DataMode                           domain.DataMode
+}
+
 // writeEvent writes the event with its sessions and prices, retires the event rows the record had at other
 // places and withdraws future sessions the source no longer lists. It returns the places whose projection
 // the change affects.
@@ -64,11 +72,11 @@ func writeEvent(
 	placeID string,
 	bits map[string]int,
 	at time.Time,
-) ([]string, error) {
+) ([]string, []withdrawnSession, error) {
 	e := n.Event
 	mask, maskErr := interestMask(e.Tags, bits, "event "+e.ExternalID)
 	if maskErr != nil {
-		return nil, maskErr
+		return nil, nil, maskErr
 	}
 	eventID := normalize.EntityID(string(n.Raw.Source) + ":" + e.ExternalID)
 	record := n.Raw.SourceRecordID
@@ -95,7 +103,7 @@ func writeEvent(
 		eventID, city, placeID, e.Title, e.NormalizedTitle, e.Category, mask, e.Organizer, e.AgeMin,
 		n.Raw.DataMode, record, at))
 	if err != nil {
-		return nil, fmt.Errorf("upsert event %s: %w", e.ExternalID, err)
+		return nil, nil, fmt.Errorf("upsert event %s: %w", e.ExternalID, err)
 	}
 	touch(changed, placeID)
 
@@ -104,7 +112,7 @@ func writeEvent(
 		WHERE city = $1 AND card_source_record_id = $2 AND id <> $3 AND is_active
 		RETURNING place_id::text`, city, record, eventID, at))
 	if err != nil {
-		return nil, fmt.Errorf("retire moved event %s: %w", e.ExternalID, err)
+		return nil, nil, fmt.Errorf("retire moved event %s: %w", e.ExternalID, err)
 	}
 	touched = append(touched, moved...)
 
@@ -136,7 +144,7 @@ func writeEvent(
 			durationSeconds(s.RecommendedDuration), s.AccessType, s.SlotType == "FIXED_SESSION", s.BookingURL,
 			n.Raw.DataMode, record, at))
 		if sessionErr != nil {
-			return nil, fmt.Errorf(
+			return nil, nil, fmt.Errorf(
 				"upsert session %s of %s: %w",
 				s.StartsAt.Format(time.RFC3339),
 				e.ExternalID,
@@ -168,29 +176,48 @@ func writeEvent(
 			normalize.PriceID(sessionID), city, sessionID, s.Price.Status, s.Price.TariffLabel, s.Price.AmountMin,
 			s.Price.AmountMax, currency, s.BookingURL, record, at, n.Raw.DataMode))
 		if err != nil {
-			return nil, fmt.Errorf("upsert price of %s: %w", e.ExternalID, err)
+			return nil, nil, fmt.Errorf("upsert price of %s: %w", e.ExternalID, err)
 		}
 		touch(changed, placeID)
 	}
 
 	// A session missing from a version of an event that is still published was taken down by the source.
-	withdrawn, err := returnedIDs(tx.Query(ctx, `
-		UPDATE catalog.session SET availability_status = 'cancelled', cancellation_reason = 'source_removed',
-			version = version + 1, updated_at = $4
-		WHERE city = $1 AND card_source_record_id = $2 AND ends_at > $4
-			AND availability_status <> 'cancelled' AND NOT (id = ANY ($3::uuid[]))
-		RETURNING id::text`, city, record, listed, at))
+	recordID, err := uuid.Parse(record)
 	if err != nil {
-		return nil, fmt.Errorf("withdraw sessions of %s: %w", e.ExternalID, err)
+		return nil, nil, fmt.Errorf("source record id %q: %w", record, err)
+	}
+	rows, err := tx.Query(ctx, `
+		WITH gone AS (
+			SELECT id, event_id, availability_status AS old_status FROM catalog.session
+			WHERE city = $1 AND card_source_record_id = $2 AND ends_at > $4
+				AND availability_status <> 'cancelled' AND NOT (id = ANY ($3::uuid[]))
+			FOR UPDATE)
+		UPDATE catalog.session s SET availability_status = 'cancelled', cancellation_reason = 'source_removed',
+			version = s.version + 1, updated_at = $4
+		FROM gone WHERE s.city = $1 AND s.id = gone.id
+		RETURNING s.id, gone.event_id, gone.old_status, s.data_mode`, city, record, listed, at)
+	if err != nil {
+		return nil, nil, fmt.Errorf("withdraw sessions of %s: %w", e.ExternalID, err)
+	}
+	withdrawn, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (withdrawnSession, error) {
+		w := withdrawnSession{SourceRecordID: recordID}
+		return w, row.Scan(&w.SessionID, &w.EventID, &w.OldStatus, &w.DataMode)
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("withdraw sessions of %s: %w", e.ExternalID, err)
 	}
 	if len(withdrawn) > 0 {
+		ids := make([]string, len(withdrawn))
+		for i := range withdrawn {
+			ids[i] = withdrawn[i].SessionID.String()
+		}
 		if _, err := tx.Exec(ctx, `UPDATE catalog.price_offer SET is_active = false
-			WHERE city = $1 AND session_id = ANY ($2::uuid[]) AND is_active`, city, withdrawn); err != nil {
-			return nil, fmt.Errorf("retire prices of withdrawn sessions of %s: %w", e.ExternalID, err)
+			WHERE city = $1 AND session_id = ANY ($2::uuid[]) AND is_active`, city, ids); err != nil {
+			return nil, nil, fmt.Errorf("retire prices of withdrawn sessions of %s: %w", e.ExternalID, err)
 		}
 		touched = append(touched, placeID)
 	}
-	return touched, nil
+	return touched, withdrawn, nil
 }
 
 // projectPlaces rebuilds the search projection of the places, reading their coordinates from the catalog.
