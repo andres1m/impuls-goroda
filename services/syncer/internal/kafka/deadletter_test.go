@@ -6,11 +6,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/delivery"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/ingest"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/lifecycle"
 )
 
 type fakeProducer struct {
@@ -29,7 +31,7 @@ func (p *fakeProducer) ProduceSync(_ context.Context, records ...*kgo.Record) kg
 
 func testDeadLetters(p *fakeProducer, ensured *int) *DeadLetters {
 	return &DeadLetters{cfg: testConfig("unused:9092"), client: p, timeout: publishTimeout,
-		ensure: func(context.Context) error { *ensured++; return nil }}
+		ensure: func(context.Context, string) error { *ensured++; return nil }}
 }
 
 func payloadLetter() ingest.DeadLetter {
@@ -114,5 +116,74 @@ func TestDeadLettersGiveUpWellWithinTheOutboxLease(t *testing.T) {
 	defer d.Close()
 	if d.timeout > 10*time.Second {
 		t.Fatalf("timeout %v", d.timeout)
+	}
+}
+
+func urgentItem(t *testing.T) (*delivery.Item, lifecycle.Cancellation) {
+	t.Helper()
+	c := lifecycle.Cancellation{
+		Version: lifecycle.SchemaVersion, ChangeID: uuid.New(), City: domain.Perm, CatalogRevision: 7,
+		EventID: uuid.New(), SessionID: uuid.New(), OldAvailabilityStatus: "unknown",
+		NewAvailabilityStatus: lifecycle.StatusCancelled, SourceRecordID: uuid.New(), DataMode: domain.Live,
+		ObservedAt: time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC), Reason: lifecycle.ReasonSourceRemoved,
+	}
+	payload, err := lifecycle.Encode(&c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &delivery.Item{ID: uuid.New(), Destination: lifecycle.KafkaDestination,
+		EventType: lifecycle.KafkaEventType, Payload: payload}, c
+}
+
+func TestDeadLettersSendPublishesAnUrgentCancellation(t *testing.T) {
+	producer, ensured := &fakeProducer{}, 0
+	d := testDeadLetters(producer, &ensured)
+	item, c := urgentItem(t)
+	for range 2 {
+		if err := d.Send(context.Background(), item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(producer.records) != 2 || producer.records[0].Topic != "events.lifecycle.urgent" ||
+		string(producer.records[0].Key) != "perm:"+c.SessionID.String() ||
+		string(producer.records[0].Value) != string(item.Payload) {
+		t.Fatalf("records %+v", producer.records)
+	}
+	if ensured != 1 {
+		t.Fatalf("the urgent topic was created %d times", ensured)
+	}
+}
+
+func TestDeadLettersCreateEachTopicOnce(t *testing.T) {
+	producer, ensured := &fakeProducer{}, 0
+	d := testDeadLetters(producer, &ensured)
+	letter := payloadLetter()
+	urgent, _ := urgentItem(t)
+	for range 2 {
+		if err := d.Write(context.Background(), []byte("k"), &letter); err != nil {
+			t.Fatal(err)
+		}
+		if err := d.Send(context.Background(), urgent); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ensured != 2 {
+		t.Fatalf("topics created %d times, want 2", ensured)
+	}
+}
+
+func TestDeadLettersSendRefusesWhatItCannotRoute(t *testing.T) {
+	producer, ensured := &fakeProducer{}, 0
+	d := testDeadLetters(producer, &ensured)
+	unknown := &delivery.Item{EventType: "something.else", Payload: []byte("{}")}
+	garbled, _ := urgentItem(t)
+	garbled.Payload = []byte("{")
+	for _, item := range []*delivery.Item{unknown, garbled} {
+		if err := d.Send(context.Background(), item); err == nil {
+			t.Errorf("%s was sent", item.EventType)
+		}
+	}
+	if len(producer.records) != 0 {
+		t.Fatalf("records %+v", producer.records)
 	}
 }

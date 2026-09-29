@@ -89,6 +89,7 @@ func TestProducerIntegration(t *testing.T) {
 func TestDeadLettersIntegration(t *testing.T) {
 	cfg := testConfig(kafkaBrokers(t)...)
 	cfg.DLQTopic = "dlq.integration.raw.test-" + randomSuffix(t)
+	cfg.UrgentTopic = "events.lifecycle.urgent.test-" + randomSuffix(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	d, err := NewDeadLetters(&cfg)
