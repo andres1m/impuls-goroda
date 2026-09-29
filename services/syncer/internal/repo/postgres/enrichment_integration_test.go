@@ -1,8 +1,12 @@
 package postgres
 
 import (
+	"context"
+	"os"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/enrich"
@@ -175,5 +179,60 @@ func TestEnrichmentOfAnEventKeepsAcrossRematerializationIntegration(t *testing.T
 	if err := f.pool.QueryRow(f.ctx, `SELECT tag_mask::bigint FROM catalog.event WHERE city = 'perm' AND id = $1`,
 		eventID).Scan(&eventMask); err != nil || eventMask != want {
 		t.Fatalf("event mask after rematerialization %b %v", eventMask, err)
+	}
+}
+
+func TestReSeedingKeepsLLMTagsIntegration(t *testing.T) {
+	databaseURL := os.Getenv("SYNCER_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("SYNCER_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
+
+	rows := seedPermForEmbeddings(ctx, t, tx)
+	place, event := rows.Places[0], rows.Events[0]
+	const llmBit = 1 << 12
+	if place.TagMask&llmBit != 0 || event.TagMask&llmBit != 0 {
+		t.Fatal("seed already carries the bit the test adds")
+	}
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, execErr := tx.Exec(ctx, sql, args...); execErr != nil {
+			t.Fatal(execErr)
+		}
+	}
+	exec(`UPDATE catalog.place SET tag_mask = tag_mask | $2::bigint::bit(64) WHERE id = $1 AND city = 'perm'`,
+		place.ID.String(), int64(llmBit))
+	exec(`INSERT INTO catalog.entity_enrichment (id, city, place_id, model, input_hash, llm_tag_mask, enriched_at)
+		VALUES (gen_random_uuid(), 'perm', $1, 'test/model', '\x00', $2::bigint::bit(64), now())`,
+		place.ID.String(), int64(llmBit))
+	exec(`UPDATE catalog.event SET tag_mask = tag_mask | $2::bigint::bit(64) WHERE id = $1 AND city = 'perm'`,
+		event.ID.String(), int64(llmBit))
+	exec(`INSERT INTO catalog.entity_enrichment (id, city, event_id, model, input_hash, llm_tag_mask, enriched_at)
+		VALUES (gen_random_uuid(), 'perm', $1, 'test/model', '\x00', $2::bigint::bit(64), now())`,
+		event.ID.String(), int64(llmBit))
+
+	if _, err := ApplySeed(ctx, tx, &rows, time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	var placeMask, eventMask int64
+	if err := tx.QueryRow(ctx, `SELECT tag_mask::bigint FROM catalog.place WHERE id = $1 AND city = 'perm'`,
+		place.ID.String()).Scan(&placeMask); err != nil || placeMask != place.TagMask|llmBit {
+		t.Fatalf("place mask after re-seeding %b, want %b (%v)", placeMask, place.TagMask|llmBit, err)
+	}
+	if err := tx.QueryRow(ctx, `SELECT tag_mask::bigint FROM catalog.event WHERE id = $1 AND city = 'perm'`,
+		event.ID.String()).Scan(&eventMask); err != nil || eventMask != event.TagMask|llmBit {
+		t.Fatalf("event mask after re-seeding %b, want %b (%v)", eventMask, event.TagMask|llmBit, err)
 	}
 }

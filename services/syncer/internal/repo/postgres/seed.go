@@ -168,7 +168,8 @@ func (w *seedWriter) place(ctx context.Context, p *seed.PlaceRow) error {
 	_, err = w.tx.Exec(ctx, `
 		INSERT INTO catalog.place AS t (id, city, title, normalized_title, category, tag_mask, coordinates,
 			address_text, opening_rules, data_mode, card_source_record_id, is_active, review_required, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6::bigint::bit(64), ST_SetSRID(ST_MakePoint($7, $8), 4326),
+		VALUES ($1, $2, $3, $4, $5, $6::bigint::bit(64) | COALESCE((SELECT en.llm_tag_mask FROM catalog.entity_enrichment en
+				WHERE en.place_id = $1 AND en.city = $2), 0::bit(64)), ST_SetSRID(ST_MakePoint($7, $8), 4326),
 			$9, $10::jsonb, 'synthetic', $11, true, false, $12, $12)
 		ON CONFLICT (id, city) DO UPDATE SET
 			title = EXCLUDED.title, normalized_title = EXCLUDED.normalized_title, category = EXCLUDED.category,
@@ -195,7 +196,8 @@ func (w *seedWriter) event(ctx context.Context, e *seed.EventRow) error {
 	_, err = w.tx.Exec(ctx, `
 		INSERT INTO catalog.event AS t (id, city, place_id, title, normalized_title, category, tag_mask,
 			organizer_name, age_min, data_mode, card_source_record_id, is_active, review_required, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7::bigint::bit(64), $8, $9, 'synthetic', $10, true, false, $11, $11)
+		VALUES ($1, $2, $3, $4, $5, $6, $7::bigint::bit(64) | COALESCE((SELECT en.llm_tag_mask FROM catalog.entity_enrichment en
+				WHERE en.event_id = $1 AND en.city = $2), 0::bit(64)), $8, $9, 'synthetic', $10, true, false, $11, $11)
 		ON CONFLICT (id, city) DO UPDATE SET
 			place_id = EXCLUDED.place_id, title = EXCLUDED.title, normalized_title = EXCLUDED.normalized_title,
 			category = EXCLUDED.category, tag_mask = EXCLUDED.tag_mask, organizer_name = EXCLUDED.organizer_name,
