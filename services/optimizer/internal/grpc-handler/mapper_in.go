@@ -238,6 +238,22 @@ func recomputeRequestFromProto(in *pb.RecomputeRequest) (domain.RecomputeRequest
 	return out, r.result()
 }
 
+func copyRequestFromProto(in *pb.CopyRouteRequest) (domain.CopyRequest, error) {
+	r := &reader{}
+	out := domain.CopyRequest{
+		City: in.GetCity(), Timezone: in.GetTimezone(),
+		Origin:      requiredCoordinate(r, "origin", in.GetOrigin()),
+		Destination: optionalCoordinate(in.GetDestination()),
+		Constraints: constraintsFromProto(r, "constraints", in.GetConstraints()),
+	}
+	if in.GetBasePlan() == nil {
+		r.fail("base_plan", reasonRequired)
+	} else {
+		out.Base = planFromProto(r, "base_plan", in.GetBasePlan())
+	}
+	return out, r.result()
+}
+
 func triggerFromProto(r *reader, in *pb.RecomputeRequest) domain.Trigger {
 	switch t := in.GetTrigger().(type) {
 	case *pb.RecomputeRequest_Delay:

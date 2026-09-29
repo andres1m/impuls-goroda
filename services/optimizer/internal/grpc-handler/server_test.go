@@ -28,6 +28,7 @@ import (
 type fakePlanner struct {
 	optimize  func(context.Context, domain.OptimizeRequest) (domain.OptimizeResult, error)
 	recompute func(context.Context, domain.RecomputeRequest) (domain.RecomputeResult, error)
+	copyRoute func(context.Context, domain.CopyRequest) (domain.CopyResult, error)
 }
 
 func (f fakePlanner) Optimize(ctx context.Context, r *domain.OptimizeRequest) (domain.OptimizeResult, error) {
@@ -36,6 +37,13 @@ func (f fakePlanner) Optimize(ctx context.Context, r *domain.OptimizeRequest) (d
 
 func (f fakePlanner) Recompute(ctx context.Context, r *domain.RecomputeRequest) (domain.RecomputeResult, error) {
 	return f.recompute(ctx, *r)
+}
+
+func (f fakePlanner) CopyRoute(ctx context.Context, r *domain.CopyRequest) (domain.CopyResult, error) {
+	if f.copyRoute == nil {
+		return domain.CopyResult{}, errors.New("copy planner is not configured")
+	}
+	return f.copyRoute(ctx, *r)
 }
 
 type testServer struct {

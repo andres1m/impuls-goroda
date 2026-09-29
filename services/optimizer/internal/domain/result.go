@@ -33,6 +33,35 @@ type OptimizeResult struct {
 	ComputationTime time.Duration
 }
 
+func (r *CopyResult) Validate() error {
+	switch r.Status {
+	case ResultReady, ResultPartial:
+		if r.Route == nil || r.Route.Result != r.Status {
+			return errors.New("feasible copy requires a matching route")
+		}
+	case ResultNoFeasibleRoute, ResultConflict:
+		if r.Route != nil {
+			return errors.New("refused copy must not carry a route")
+		}
+		if r.Status == ResultConflict && len(r.Conflicts) == 0 {
+			return errors.New("copy conflict requires an explanation")
+		}
+	default:
+		return errors.New("invalid copy result status")
+	}
+	if r.Route != nil {
+		if err := r.Route.Validate(); err != nil {
+			return fmt.Errorf("route: %w", err)
+		}
+	}
+	for _, warning := range r.Warnings {
+		if err := warning.Validate(); err != nil {
+			return err
+		}
+	}
+	return validateOutcome(r.Conflicts, r.Data, r.ComputationTime)
+}
+
 func (r *OptimizeResult) Validate() error {
 	switch r.Status {
 	case ResultReady, ResultPartial:

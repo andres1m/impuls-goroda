@@ -210,7 +210,7 @@ func (p *Planner) executeRecompute(
 		return domain.RecomputeResult{}, errors.New("recomputed plan failed validation")
 	}
 	w.recordChanges(&candidate)
-	if len(w.changes) == 0 {
+	if len(w.changes) == 0 && !isCopyTrigger(req.Trigger) {
 		return done(domain.RecomputeResult{Status: domain.RecomputeUnchanged})
 	}
 	return done(domain.RecomputeResult{Status: domain.RecomputeProposed, Candidate: &candidate, Changes: w.changes})
@@ -271,6 +271,9 @@ func newRework(req *domain.RecomputeRequest) (*rework, error) {
 	if d, ok := req.Trigger.(domain.DelayTrigger); ok {
 		// The caller already resolved the delay into a time; adding anything here would count it twice.
 		w.start, w.position, w.located = later(d.EffectiveStart, w.start), d.Position, true
+	}
+	if c, ok := req.Trigger.(domain.CopyTrigger); ok {
+		w.position, w.located = c.Origin, true
 	}
 	return w, nil
 }
@@ -592,6 +595,9 @@ func (w *rework) historyPlaces() []domain.PlaceID {
 // planned; after any other change the plan keeps its times where it can.
 func (w *rework) repairSteps() (steps []solver.RepairStep, order []int) {
 	_, delayed := w.req.Trigger.(domain.DelayTrigger)
+	if isCopyTrigger(w.req.Trigger) {
+		delayed = true
+	}
 	for i := range w.future {
 		a := &w.future[i]
 		if a.gap {
@@ -608,6 +614,11 @@ func (w *rework) repairSteps() (steps []solver.RepairStep, order []int) {
 		steps = append(steps, step)
 	}
 	return steps, order
+}
+
+func isCopyTrigger(trigger domain.Trigger) bool {
+	_, ok := trigger.(domain.CopyTrigger)
+	return ok
 }
 
 func (w *rework) points(req *domain.RecomputeRequest, catalog []domain.Candidate) []domain.Coordinate {

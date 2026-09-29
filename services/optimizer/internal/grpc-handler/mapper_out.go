@@ -42,6 +42,20 @@ func recomputeResponseToProto(r *domain.RecomputeResult) *pb.RecomputeResponse {
 	return out
 }
 
+func copyResponseToProto(r *domain.CopyResult) *pb.CopyRouteResponse {
+	out := &pb.CopyRouteResponse{
+		Status:            resultStatuses.toProto[r.Status],
+		Warnings:          warningsToProto(r.Warnings),
+		Conflicts:         conflictsToProto(r.Conflicts),
+		Data:              freshnessToProto(r.Data),
+		ComputationTimeMs: milliseconds(r.ComputationTime),
+	}
+	if r.Route != nil {
+		out.Route = planToProto(r.Route)
+	}
+	return out
+}
+
 func milliseconds(d time.Duration) uint32 {
 	ms := d.Milliseconds()
 	if ms < 0 {

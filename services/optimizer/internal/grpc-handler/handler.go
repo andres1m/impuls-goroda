@@ -14,6 +14,7 @@ import (
 type Planner interface {
 	Optimize(ctx context.Context, req *domain.OptimizeRequest) (domain.OptimizeResult, error)
 	Recompute(ctx context.Context, req *domain.RecomputeRequest) (domain.RecomputeResult, error)
+	CopyRoute(ctx context.Context, req *domain.CopyRequest) (domain.CopyResult, error)
 }
 
 type Handler struct {

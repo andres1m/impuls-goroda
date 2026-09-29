@@ -94,6 +94,47 @@ type RecomputeRequest struct {
 	Trigger     Trigger
 }
 
+// CopyRequest recomputes the visits of a shared plan for a different traveller.
+// The base is an immutable snapshot; its execution and participation state is not inherited.
+type CopyRequest struct {
+	City        string
+	Timezone    string
+	Base        Plan
+	Origin      Coordinate
+	Destination *Coordinate
+	Constraints RouteConstraints
+}
+
+func (r *CopyRequest) Validate() error {
+	if err := validateCityZone(r.City, r.Timezone); err != nil {
+		return err
+	}
+	if err := r.Base.Validate(); err != nil {
+		return fmt.Errorf("base plan: %w", err)
+	}
+	if err := r.Origin.Validate(); err != nil {
+		return err
+	}
+	if r.Destination != nil {
+		if err := r.Destination.Validate(); err != nil {
+			return err
+		}
+	}
+	if err := r.Constraints.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+type CopyResult struct {
+	Status          ResultStatus
+	Route           *Plan
+	Warnings        []Warning
+	Conflicts       []Conflict
+	Data            DataFreshness
+	ComputationTime time.Duration
+}
+
 func (r *RecomputeRequest) Validate() error {
 	if err := validateCityZone(r.City, r.Timezone); err != nil {
 		return err
@@ -104,8 +145,10 @@ func (r *RecomputeRequest) Validate() error {
 	if err := r.Constraints.Validate(); err != nil {
 		return err
 	}
-	if err := r.Base.ValidateBudget(r.Constraints.Budget); err != nil {
-		return fmt.Errorf("base plan: %w", err)
+	if _, copying := r.Trigger.(CopyTrigger); !copying {
+		if err := r.Base.ValidateBudget(r.Constraints.Budget); err != nil {
+			return fmt.Errorf("base plan: %w", err)
+		}
 	}
 	for _, execution := range r.History {
 		if err := execution.Validate(); err != nil {
@@ -125,6 +168,11 @@ func (r *RecomputeRequest) Validate() error {
 type Trigger interface {
 	validate(base *Plan) error
 }
+
+// CopyTrigger is internal to the planner: it starts a fresh route at the recipient's origin.
+type CopyTrigger struct{ Origin Coordinate }
+
+func (t CopyTrigger) validate(*Plan) error { return t.Origin.Validate() }
 
 type DelayMode string
 
