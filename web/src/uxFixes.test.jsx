@@ -11,7 +11,7 @@ Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, co
 globalThis.HTMLElement = dom.window.HTMLElement;
 globalThis.MutationObserver = dom.window.MutationObserver;
 
-const { cleanup, render, screen } = await import('@testing-library/react');
+const { cleanup, fireEvent, render, screen } = await import('@testing-library/react');
 const { default: OwnerRouteScreen } = await import('./OwnerRouteScreen.jsx');
 const { default: RouteLibrary } = await import('./RouteLibrary.jsx');
 const { default: ScenarioCreate } = await import('./ScenarioCreate.jsx');
@@ -290,4 +290,67 @@ test('movementModes includes car ("На автомобиле") for ScenarioEntry
   assert.deepEqual(proposal.rows, [['Передвижение', 'На автомобиле, Пешком']]);
 });
 
+test('ScenarioEntry renders compact interest chips, 1-click presets, expand toggle, and keeps advanced section closed when lunch is enabled', () => {
+  try {
+    render(
+      createElement(ScenarioEntry, {
+        scenario: {
+          scenario_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          version: '1',
+          status: 'draft',
+          source: 'custom',
+          source_text: 'Маршрут на выходной',
+          input: {
+            city: 'perm',
+            timezone: 'Asia/Yekaterinburg',
+            start_at: '2026-09-30T07:00:00Z',
+            end_at: '2026-09-30T13:00:00Z',
+            origin: { latitude: 58.01, longitude: 56.25 },
+            constraints: {
+              movement_modes: ['walk'],
+              load_profile: 'moderate',
+              budget: { mode: 'none' },
+              interests: [],
+              excluded_categories: [],
+              lunch_window: {
+                start_at: '2026-09-30T08:00:00Z',
+                end_at: '2026-09-30T09:30:00Z',
+                min_duration_seconds: 3600,
+              },
+            },
+          },
+        },
+        apiBaseUrl: 'http://localhost:8080',
+        accessToken: 'dev-token',
+        mapApiKey: '',
+        onLibrary: () => {},
+      }),
+    );
 
+    const advanced = document.querySelector('details.scenario-advanced');
+    assert.ok(advanced, 'expected details.scenario-advanced to exist');
+    assert.equal(advanced.hasAttribute('open'), false, 'expected details.scenario-advanced not to be forced open by lunch_window');
+
+    const expandBtn = screen.getByRole('button', { name: /\+\s*Ещё\s*7\s*тем/i });
+    assert.ok(expandBtn, 'expected expand button for remaining 7 interests');
+    assert.equal(screen.queryByLabelText('Кино'), null, 'expected rare interest "Кино" to be collapsed by default');
+
+    fireEvent.click(expandBtn);
+    assert.ok(screen.getByLabelText('Кино'), 'expected "Кино" to appear after expanding');
+
+    const presetBtn = screen.getByRole('button', { name: /Прогулки и кофе/i });
+    fireEvent.click(presetBtn);
+    assert.equal(screen.getByLabelText('Городские прогулки').checked, true);
+    assert.equal(screen.getByLabelText('Кофейни и гастрономия').checked, true);
+
+    const resetBtn = screen.getByRole('button', { name: /Сбросить/i });
+    fireEvent.click(resetBtn);
+    assert.equal(screen.getByLabelText('Городские прогулки').checked, false);
+
+    const css = fs.readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+    assert.match(css, /\.scenario-choices\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap/);
+    assert.match(css, /\.scenario-chips\s+input\[type=checkbox\]\s*\{[^}]*opacity:\s*0/);
+  } finally {
+    cleanup();
+  }
+});

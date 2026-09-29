@@ -572,11 +572,25 @@ button { cursor: pointer; }
 .scenario-form input:not([type=checkbox]), .scenario-form select, .scenario-form textarea { box-sizing: border-box; width: 100%; min-width: 0; min-height: 48px; padding: 12px 14px; border: 1px solid #d5dfec; border-radius: 14px; color: #1d2939; background: #f9fbfd; font: inherit; font-weight: 500; transition: border-color .15s, background .15s; }
 .scenario-form input:not([type=checkbox]):focus, .scenario-form select:focus, .scenario-form textarea:focus { background: #fff; border-color: #087af5; }
 .scenario-form textarea { resize: vertical; line-height: 1.5; }
-.scenario-form .scenario-check, .scenario-choices label { flex-direction: row; align-items: center; gap: 10px; min-height: 48px; margin: 0; padding: 8px 14px; border: 1px solid #e2e8f0; border-radius: 14px; background: #f8fafc; color: #1e293b; font-weight: 550; cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
+.scenario-form .scenario-check, .scenario-choices label { flex-direction: row; align-items: center; gap: 10px; min-height: 46px; margin: 0; padding: 8px 14px; border: 1px solid #e2e8f0; border-radius: 14px; background: #f8fafc; color: #1e293b; font-weight: 550; cursor: pointer; transition: background .15s, border-color .15s, color .15s, box-shadow .15s; }
 .scenario-form .scenario-check:hover, .scenario-choices label:hover { background: #f1f5f9; border-color: #cbd5e1; }
 .scenario-form .scenario-check:has(input:checked), .scenario-choices label:has(input:checked) { background: #eaf3ff; border-color: #90c2f9; color: #0a58a8; font-weight: 650; }
 .scenario-form input[type=checkbox] { flex: 0 0 20px; width: 20px; height: 20px; accent-color: #087af5; }
-.scenario-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.scenario-choices { display: flex; flex-wrap: wrap; gap: 8px; }
+.scenario-chips label { position: relative; min-height: 36px; padding: 6px 14px; border-radius: 999px; font-size: 13px; line-height: 1.3; user-select: none; }
+.scenario-chips input[type=checkbox] { position: absolute; width: 1px; height: 1px; margin: 0; padding: 0; opacity: 0; pointer-events: none; }
+.scenario-chips label:has(input:focus-visible) { outline: 2px solid #087af5; outline-offset: 2px; }
+.scenario-chips label:has(input:checked) { background: #087af5; border-color: #087af5; color: #fff; box-shadow: 0 2px 8px rgba(8, 122, 245, .2); }
+.scenario-chips-exclude label:has(input:checked) { background: #fff1f0; border-color: #fda29b; color: #b42318; box-shadow: none; }
+.scenario-chips-exclude label:has(input:checked) span::before { content: "× "; font-weight: 700; }
+.scenario-presets-bar { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.scenario-preset-pill { min-height: 32px; padding: 5px 12px; border-radius: 999px; border: 1px dashed #b8d4f4; background: #f2f8ff; color: #0c58a6; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
+.scenario-preset-pill:hover { background: #e4f0ff; border-color: #8abbf2; }
+.scenario-preset-pill.is-active { border-style: solid; border-color: #087af5; background: #dbeafe; color: #07478a; }
+.scenario-preset-reset { border-style: solid; border-color: #e2e8f0; background: #fff; color: #64748b; }
+.scenario-preset-reset:hover { background: #f8fafc; border-color: #cbd5e1; color: #334155; }
+.scenario-chip-more { min-height: 36px; padding: 6px 14px; border-radius: 999px; border: 1px dashed #cbd5e1; background: #fff; color: #0d5bb5; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s, border-color .15s; }
+.scenario-chip-more:hover { background: #f1f6fd; border-color: #94a3b8; }
 .scenario-retained { margin: 22px 0; padding: 12px 16px; border-radius: 16px; background: #f8fafc; border: 1px solid #e9eef5; font-size: 14px; overflow-wrap: anywhere; }
 .scenario-retained summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; color: #145ca8; font-weight: 600; }
 .scenario-advanced { margin: 18px 0 8px; border-top: 1px solid #edf0f4; }
@@ -591,7 +605,7 @@ button { cursor: pointer; }
 @media (max-width: 480px) {
   .scenario-page { padding-right: max(14px, env(safe-area-inset-right)); padding-left: max(14px, env(safe-area-inset-left)); }
   .scenario-card { padding: 18px; }
-  .scenario-form .scenario-endpoints, .scenario-choices { grid-template-columns: 1fr; }
+  .scenario-form .scenario-endpoints { grid-template-columns: 1fr; }
 }
 .owner-route-actions { box-sizing: border-box; width: calc(100% - 32px); max-width: 760px; margin: 16px auto; padding: 22px 24px; border: 1px solid #e2e8f0; border-radius: 22px; background: #fff; color: #191c22; box-shadow: 0 4px 16px rgba(18, 28, 45, .04); }
 .owner-route-actions h2 { font-size: 20px; margin: 0 0 10px; letter-spacing: -.02em; color: #141c26; }

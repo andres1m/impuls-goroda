@@ -17,6 +17,12 @@ const presetNames = { vibe: 'Вайб', mood: 'Настроение', culture: '
 const modeNames = { live: 'Актуальные данные', prepared: 'Подготовленные данные', synthetic: 'Демонстрационные данные' };
 const profiles = [['relaxed', 'Спокойный'], ['moderate', 'Умеренный'], ['intense', 'Активный']];
 const budgetModes = [['none', 'Без ограничения'], ['advisory', 'Ориентир'], ['strict', 'Не превышать']];
+const popularInterests = new Set(['city_walk', 'classical_art', 'contemporary_art', 'gastro_coffee', 'excursions', 'performing_arts']);
+const interestPresets = [
+  ['culture', 'Культура и искусство', ['classical_art', 'contemporary_art', 'performing_arts', 'excursions']],
+  ['walk_coffee', 'Прогулки и кофе', ['city_walk', 'gastro_coffee', 'excursions']],
+  ['active', 'Актив и впечатления', ['running_park', 'street_workout', 'science_tech', 'lectures_workshops']],
+];
 const nameOf = (options, code) => options.find(([value]) => value === code)?.[1] || code;
 function instant(value, timezone) {
   if (!value) return 'Не задано';
@@ -52,6 +58,7 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
   const [saving, setSaving] = useState(false);
   const [savePending, setSavePending] = useState(false);
   const [extractionChoice, setExtractionChoice] = useState(null);
+  const [showAllInterests, setShowAllInterests] = useState(false);
   const draftRequest = useRef(null);
   const savingRef = useRef(false);
   const signature = JSON.stringify({ form, city, origin, destination });
@@ -218,6 +225,10 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
   const outcome = current.outcome;
   const earliestStart = cities[city] ? localDateTime(new Date(Math.ceil((Date.now() + 1) / 60000) * 60000).toISOString(), cities[city].timezone) : '';
   const today = earliestStart.slice(0, 10);
+  const visibleInterests = showAllInterests
+    ? interests
+    : interests.filter(([code]) => popularInterests.has(code) || form.interests.includes(code));
+  const hiddenInterestsCount = interests.length - visibleInterests.length;
   return <main className="scenario-page">
     <header className="scenario-topbar">
       <Brand className="entry-brand" />
@@ -249,14 +260,30 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
             <label>Конец<input type="time" value={form.end.slice(11)} min={form.start.slice(11)} disabled={!form.day} onChange={(e) => change('end', `${form.day}T${e.target.value}`)} required /></label>
           </div>
           <button type="button" className="scenario-option scenario-quick-conditions" onClick={() => { setForm((old) => ({ ...old, modes: ['walk'], profile: 'moderate', budgetMode: 'none', budget: '' })); setReview(null); setError(''); }}>Быстрый вариант: пешком · умеренно · без лимита</button>
-          <fieldset><legend>Передвижение</legend><div className="scenario-choices">{[...movementModes, ...form.modes.filter((code) => !movementModes.some(([value]) => value === code)).map((code) => [code, code])].map(([code, label]) => <label key={code}><input type="checkbox" checked={form.modes.includes(code)} onChange={() => toggle('modes', code)} />{label}</label>)}</div></fieldset>
-          <label>Темп<select value={form.profile} onChange={(e) => change('profile', e.target.value)} required><option value="">Выберите темп</option>{profiles.map(([code, label]) => <option key={code} value={code}>{label}</option>)}{form.profile && !profiles.some(([code]) => code === form.profile) && <option value={form.profile}>{form.profile}</option>}</select></label>
-          <label>Бюджет<select value={form.budgetMode} onChange={(e) => change('budgetMode', e.target.value)} required><option value="">Выберите условие</option>{budgetModes.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label>
+          <fieldset><legend>Передвижение</legend><div className="scenario-choices scenario-chips">{[...movementModes, ...form.modes.filter((code) => !movementModes.some(([value]) => value === code)).map((code) => [code, code])].map(([code, label]) => <label key={code}><input type="checkbox" checked={form.modes.includes(code)} onChange={() => toggle('modes', code)} /><span>{label}</span></label>)}</div></fieldset>
+          <div className="scenario-endpoints">
+            <label>Темп<select value={form.profile} onChange={(e) => change('profile', e.target.value)} required><option value="">Выберите темп</option>{profiles.map(([code, label]) => <option key={code} value={code}>{label}</option>)}{form.profile && !profiles.some(([code]) => code === form.profile) && <option value={form.profile}>{form.profile}</option>}</select></label>
+            <label>Бюджет<select value={form.budgetMode} onChange={(e) => change('budgetMode', e.target.value)} required><option value="">Выберите условие</option>{budgetModes.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label>
+          </div>
           {form.budgetMode && form.budgetMode !== 'none' && <label>Сумма, ₽<input inputMode="decimal" value={form.budget} onChange={(e) => change('budget', e.target.value)} required /></label>}
-          <details className="scenario-advanced" open={form.lunchEnabled ? true : undefined}><summary>Дополнительные условия{form.interests.length ? ` · ${form.interests.length} интересов` : ''}</summary>
-          <fieldset><legend>Интересы</legend><div className="scenario-choices">{interests.map(([code, label]) => <label key={code}><input type="checkbox" checked={form.interests.includes(code)} onChange={() => toggle('interests', code)} />{label}</label>)}</div></fieldset>
-          <fieldset><legend>Не включать</legend><div className="scenario-choices">{categories.map(([code, label]) => <label key={code}><input type="checkbox" checked={form.excluded.includes(code)} onChange={() => toggle('excluded', code)} />{label}</label>)}</div></fieldset>
-          <label className="scenario-check"><input type="checkbox" checked={form.pushkin} onChange={(e) => change('pushkin', e.target.checked)} />Только события по Пушкинской карте</label>
+          <fieldset className="scenario-interests-fieldset">
+            <legend>Интересы{form.interests.length ? ` · выбрано ${form.interests.length}` : ''}</legend>
+            <div className="scenario-presets-bar" role="group" aria-label="Быстрые наборы интересов">
+              {interestPresets.map(([id, title, codes]) => {
+                const active = codes.every((c) => form.interests.includes(c)) && form.interests.length === codes.length;
+                return <button key={id} type="button" className={`scenario-preset-pill${active ? ' is-active' : ''}`} onClick={() => change('interests', codes)}>{title}</button>;
+              })}
+              {form.interests.length > 0 && <button type="button" className="scenario-preset-pill scenario-preset-reset" onClick={() => change('interests', [])}>Сбросить</button>}
+            </div>
+            <div className="scenario-choices scenario-chips">
+              {visibleInterests.map(([code, label]) => <label key={code}><input type="checkbox" checked={form.interests.includes(code)} onChange={() => toggle('interests', code)} /><span>{label}</span></label>)}
+              {(hiddenInterestsCount > 0 || showAllInterests) && (
+                <button type="button" className="scenario-chip-more" onClick={() => setShowAllInterests((prev) => !prev)}>
+                  {showAllInterests ? 'Свернуть' : `+ Ещё ${hiddenInterestsCount} тем`}
+                </button>
+              )}
+            </div>
+          </fieldset>
           <fieldset><legend>Обед</legend>
             <label className="scenario-check"><input type="checkbox" checked={form.lunchEnabled} onChange={(e) => toggleLunch(e.target.checked)} />Запланировать обед</label>
             {form.lunchEnabled && <>
@@ -271,7 +298,10 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
               <p className="scenario-timezone">Если подходящего кафе нет, возможна свободная пауза. Если обед не поместится, расчёт покажет предупреждение.</p>
             </>}
           </fieldset>
-          <label>Пожелания<textarea value={form.wishes} onChange={(e) => change('wishes', e.target.value)} rows={3} /></label>
+          <details className="scenario-advanced"><summary>Дополнительные условия{form.excluded.length ? ` · исключено ${form.excluded.length}` : ''}</summary>
+          <fieldset><legend>Не включать</legend><div className="scenario-choices scenario-chips scenario-chips-exclude">{categories.map(([code, label]) => <label key={code}><input type="checkbox" checked={form.excluded.includes(code)} onChange={() => toggle('excluded', code)} /><span>{label}</span></label>)}</div></fieldset>
+          <label className="scenario-check"><input type="checkbox" checked={form.pushkin} onChange={(e) => change('pushkin', e.target.checked)} />Только события по Пушкинской карте</label>
+          <label>Пожелания<textarea value={form.wishes} onChange={(e) => change('wishes', e.target.value)} rows={3} placeholder="Например: больше видовых точек или спокойные улочки…" /></label>
           </details>
         </fieldset>
         <RetainedConditions input={{ ...current.input, constraints: { ...current.input.constraints, excluded_categories: form.excluded } }} />
