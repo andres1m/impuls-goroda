@@ -7,6 +7,8 @@ base_url: "https://impulsgoroda.duckdns.org"
 # TEST_ROUTE_REVISION come from a successful optimize response; TEST_SAVED_REVISION
 # comes from save. NEW_SHARE_TOKEN is a fresh 32-byte base64url token; the returned
 # share_token becomes TEST_SHARE_TOKEN. The route must be a draft for save.
+# TEST_RECIPIENT_TOKEN is a separate MAX session; TEST_SHARE_REVISION comes from
+# the anonymous shared-route response.
 checks:
   - id: "health_readiness_probe"
     summary: "Проверка эксплуатационной готовности сервиса и его зависимостей"
@@ -343,6 +345,56 @@ checks:
           route:
             type: "object"
             required: ["revision", "city", "timezone", "result", "steps", "legs"]
+
+  - id: "copy_shared_route"
+    summary: "Создание собственного приватного черновика из общей версии маршрута"
+    method: "POST"
+    path: "/api/v1/shared-routes/${TEST_SHARE_TOKEN}/copy"
+    auth:
+      role: "user"
+      token_variable: "TEST_RECIPIENT_TOKEN"
+    request:
+      headers:
+        Content-Type: "application/json"
+        Accept: "application/json"
+        Authorization: "Bearer ${TEST_RECIPIENT_TOKEN}"
+        Idempotency-Key: "11111111-1111-4111-8111-111111111104"
+        If-Match: '"${TEST_SHARE_REVISION}"'
+      path_parameters:
+        share_token: "${TEST_SHARE_TOKEN}"
+      body:
+        type: "object"
+        required: ["origin", "accepted_unknowns"]
+        properties:
+          origin:
+            type: "object"
+            required: ["latitude", "longitude"]
+            properties:
+              latitude:
+                type: "number"
+                example: 55.7558
+              longitude:
+                type: "number"
+                example: 37.6173
+          accepted_unknowns:
+            type: "array"
+            items:
+              type: "string"
+    response:
+      status: 200
+      content_type: "application/json"
+      body:
+        type: "object"
+        required: ["status", "request_id", "route"]
+        properties:
+          status:
+            type: "string"
+            enum: ["READY", "PARTIAL"]
+          request_id:
+            type: "string"
+          route:
+            type: "object"
+            required: ["route_id", "revision", "lifecycle", "plan"]
 
   - id: "search_nearby_lunch"
     summary: "Поиск кафе и заведений питания поблизости от текущей геопозиции пользователя через геосервис"

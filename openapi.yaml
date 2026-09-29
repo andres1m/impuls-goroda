@@ -1020,7 +1020,13 @@ paths:
         '409':
           $ref: '#/components/responses/CommandConflict'
         '422':
-          $ref: '#/components/responses/ValidationFailed'
+          description: Invalid copy request or no feasible copy of the shared visits
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ValidationErrorResponse'
+                  - $ref: '#/components/schemas/CopyRefusalResponse'
         '429':
           $ref: '#/components/responses/RateLimited'
         '503':
@@ -3197,6 +3203,20 @@ components:
           $ref: '#/components/schemas/RequestID'
         route:
           $ref: '#/components/schemas/OwnerRoute'
+    CopyRefusalResponse:
+      type: object
+      additionalProperties: false
+      required: [status, request_id, conflicts]
+      properties:
+        status:
+          type: string
+          enum: [CONFLICT, NO_FEASIBLE_ROUTE]
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        conflicts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Conflict'
     DeleteRouteRequest:
       type: object
       additionalProperties: false
