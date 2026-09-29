@@ -33,6 +33,7 @@ import (
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 	sdkworkflow "go.temporal.io/sdk/workflow"
+	"go.uber.org/zap"
 )
 
 const configPath = "config.yaml"
@@ -114,6 +115,13 @@ func run(ctx context.Context) error {
 		server.WithMetrics(),
 	)
 
+	materializeStore := postgres.NewMaterializeStore(func() *pgxpool.Pool { return infra.pool.Pool })
+	if models, aiErr := ai.New(infra.cfg.AI); aiErr != nil {
+		infra.log.Log.Warn("place resolution runs without vectors", zap.Error(aiErr))
+	} else {
+		materializeStore.WithEmbedder(models.Embedder())
+	}
+
 	temporalWorker, err := temporal.NewWorker(
 		infra.log.Log,
 		infra.temporal,
@@ -127,7 +135,7 @@ func run(ctx context.Context) error {
 			r.RegisterActivity(&activity.Activities{
 				Client: func() client.Client { return infra.temporal.TemporalClient },
 				Queue:  infra.temporal.TaskQueue(),
-				Store:  postgres.NewMaterializeStore(func() *pgxpool.Pool { return infra.pool.Pool }),
+				Store:  materializeStore,
 				Now:    time.Now,
 			})
 		},
