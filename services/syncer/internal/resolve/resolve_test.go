@@ -32,12 +32,17 @@ type fakeEmbedder struct {
 	calls   int
 	vectors func(text string) []float32
 	err     error
+	// failAfter makes every call after that many succeed calls fail.
+	failAfter int
 }
 
 func (e *fakeEmbedder) Embed(_ context.Context, texts []string) (ai.Embedding, error) {
 	e.calls++
 	if e.err != nil {
 		return ai.Embedding{}, e.err
+	}
+	if e.failAfter > 0 && e.calls > e.failAfter {
+		return ai.Embedding{}, errors.New("model down")
 	}
 	out := ai.Embedding{Space: ai.Space{Key: "fake", Version: "d2"}}
 	for _, s := range texts {
@@ -167,5 +172,53 @@ func TestPlacesOfOneBatchFromDifferentSourcesMerge(t *testing.T) {
 	}
 	if got[2].Kind == Merge && got[2].PlaceID == a.OwnID {
 		t.Fatalf("same-source places of a batch are never merged: %+v", got[2])
+	}
+}
+
+func TestSeveralRecordsOfOneVenueDoNotMakeItAmbiguous(t *testing.T) {
+	// Two events of one venue share the place key, hence the place; a record of another source joins it.
+	a1 := newPlace(domain.MkrfEvents, "venue", "Дом музыки")
+	a2 := a1
+	b := newPlace(domain.KudaGo, "p1", "Дом музыки")
+	got, err := (&Resolver{Data: &fakeData{}, Embedder: &fakeEmbedder{vectors: same}}).
+		Resolve(context.Background(), domain.Perm, []Place{a1, a2, b})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[2].Kind != Merge || got[2].PlaceID != a1.OwnID {
+		t.Fatalf("resolutions %+v", got)
+	}
+}
+
+func TestAPlaceFoundTwiceIsOneCandidate(t *testing.T) {
+	// The catalog already holds the place of the first record, so it comes back from the search and as a
+	// mate of the batch at once.
+	existing := newPlace(domain.OSM, "n1", "Кофейня Центральная")
+	b := newPlace(domain.KudaGo, "p1", "Кофейня Центральная")
+	d := &fakeData{
+		existing: map[uuid.UUID]bool{existing.OwnID: true},
+		nearby:   []Candidate{{PlaceID: existing.OwnID, Title: existing.Title, NormalizedTitle: existing.NormalizedTitle, Category: "gastro", Distance: 0}},
+	}
+	got, err := (&Resolver{Data: d, Embedder: &fakeEmbedder{vectors: same}}).
+		Resolve(context.Background(), domain.Perm, []Place{existing, b})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[1].Kind != Merge || got[1].PlaceID != existing.OwnID {
+		t.Fatalf("resolutions %+v", got)
+	}
+}
+
+func TestAVenueKeyIsDecidedOncePerBatch(t *testing.T) {
+	a := newPlace(domain.OSM, "n1", "Кофейня Центральная")
+	k1 := newPlace(domain.KudaGo, "p1", "Кофейня Центральная")
+	k2 := k1
+	e := &fakeEmbedder{vectors: same, failAfter: 1}
+	got, err := (&Resolver{Data: &fakeData{}, Embedder: e}).Resolve(context.Background(), domain.Perm, []Place{a, k1, k2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[1] != got[2] || got[1].Kind != Merge || e.calls != 1 {
+		t.Fatalf("resolutions %+v, embedder calls %d", got, e.calls)
 	}
 }
