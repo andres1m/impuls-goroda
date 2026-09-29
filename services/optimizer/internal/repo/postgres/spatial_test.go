@@ -36,7 +36,11 @@ func TestCityCoversRejectsInvalidInput(t *testing.T) {
 	if _, _, err := s.CityCovers(context.Background(), "", permCenter); err == nil {
 		t.Error("blank city accepted")
 	}
-	if _, _, err := s.CityCovers(context.Background(), "perm", domain.Coordinate{Longitude: 181, Latitude: 58}); err == nil {
+	if _, _, err := s.CityCovers(
+		context.Background(),
+		"perm",
+		domain.Coordinate{Longitude: 181, Latitude: 58},
+	); err == nil {
 		t.Error("bad point accepted")
 	}
 }

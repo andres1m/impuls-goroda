@@ -14,7 +14,7 @@ import (
 )
 
 func TestHookFailureReleasesPool(t *testing.T) {
-	c, err := NewDb(zap.NewNop(), config.Database{Host: "postgres://localhost/test", MaxConns: 2})
+	c, err := NewDB(zap.NewNop(), config.Database{Host: "postgres://localhost/test", MaxConns: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestHookFailureReleasesPool(t *testing.T) {
 	}
 }
 func TestStopBeforeInit(t *testing.T) {
-	c, err := NewDb(zap.NewNop(), config.Database{Host: "postgres://localhost/test", MaxConns: 2})
+	c, err := NewDB(zap.NewNop(), config.Database{Host: "postgres://localhost/test", MaxConns: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,9 +44,9 @@ func TestStopBeforeInit(t *testing.T) {
 }
 
 func TestStopHonorsDeadlineWithBorrowedConnection(t *testing.T) {
-	c, err := NewDb(zap.NewNop(), config.Database{Host: "postgres://localhost/test?sslmode=disable", MaxConns: 1})
-	if err != nil {
-		t.Fatal(err)
+	c, setupErr := NewDB(zap.NewNop(), config.Database{Host: "postgres://localhost/test?sslmode=disable", MaxConns: 1})
+	if setupErr != nil {
+		t.Fatal(setupErr)
 	}
 	c.cfg.ConnConfig.DialFunc = func(context.Context, string, string) (net.Conn, error) {
 		client, server := net.Pipe()

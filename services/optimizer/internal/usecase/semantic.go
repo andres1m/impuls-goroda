@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -36,7 +37,11 @@ func WithSemantic(m SemanticMatcher, timeout time.Duration) Option {
 
 // semanticPool fails only when the request itself is cancelled; any other failure is reported
 // by a warning, and the whole pool is planned.
-func (p *Planner) semanticPool(ctx context.Context, req domain.OptimizeRequest, pool []domain.Candidate) ([]domain.Candidate, *domain.Warning, error) {
+func (p *Planner) semanticPool(
+	ctx context.Context,
+	req *domain.OptimizeRequest,
+	pool []domain.Candidate,
+) ([]domain.Candidate, *domain.Warning, error) {
 	if req.Constraints.SemanticQuery == "" {
 		return pool, nil, nil
 	}
@@ -44,18 +49,27 @@ func (p *Planner) semanticPool(ctx context.Context, req domain.OptimizeRequest, 
 	if reason == "" {
 		return narrowed, nil, nil
 	}
-	if ctx.Err() != nil {
-		return nil, nil, ctx.Err()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, nil, fmt.Errorf("semantic match canceled: %w", ctxErr)
 	}
 	semanticFallbacks.WithLabelValues(reason).Inc()
-	p.log.Warn("free-text wishes are not applied", zap.String("city", req.City), zap.String("reason", reason), zap.Error(err))
+	p.log.Warn(
+		"free-text wishes are not applied",
+		zap.String("city", req.City),
+		zap.String("reason", reason),
+		zap.Error(err),
+	)
 	return pool, &domain.Warning{
 		Code: "SEMANTIC_UNAVAILABLE", Scope: domain.ScopeRoute,
 		Message: "Free-text wishes could not be applied (" + reason + "); the routes follow the selected interests",
 	}, nil
 }
 
-func (p *Planner) narrow(ctx context.Context, req domain.OptimizeRequest, pool []domain.Candidate) ([]domain.Candidate, string, error) {
+func (p *Planner) narrow(
+	ctx context.Context,
+	req *domain.OptimizeRequest,
+	pool []domain.Candidate,
+) (narrowed []domain.Candidate, reason string, err error) {
 	if p.semantic == nil {
 		return nil, "disabled", nil
 	}
@@ -68,7 +82,7 @@ func (p *Planner) narrow(ctx context.Context, req domain.OptimizeRequest, pool [
 	if err != nil {
 		return nil, fallbackReason(err), err
 	}
-	narrowed := slices.DeleteFunc(slices.Clone(pool), func(c domain.Candidate) bool { return !matches.Contains(c) })
+	narrowed = slices.DeleteFunc(slices.Clone(pool), func(c domain.Candidate) bool { return !matches.Contains(&c) })
 	if len(narrowed) == 0 {
 		return nil, "no_match", nil
 	}

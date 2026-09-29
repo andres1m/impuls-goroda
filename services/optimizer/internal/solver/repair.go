@@ -2,6 +2,7 @@ package solver
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"time"
 
@@ -39,16 +40,12 @@ type Repair struct {
 // Repair walks the planned steps in their order from the problem's start. A step that no longer
 // fits is shortened to its minimum when it has an open window, and otherwise left out, unless it is
 // an anchor: then the repair reports it instead of dropping a commitment. Pauses keep their length.
-func (s *Solver) Repair(ctx context.Context, p Problem, steps []RepairStep) (Repair, error) {
-	check := p
-	if !p.Start.IsZero() && !p.End.IsZero() && !p.End.After(p.Start) {
-		check.End = p.Start.Add(time.Minute)
-	}
-	if err := check.Validate(); err != nil {
+func (s *Solver) Repair(ctx context.Context, p *Problem, steps []RepairStep) (Repair, error) {
+	if err := validateRepairProblem(p); err != nil {
 		return Repair{}, err
 	}
 	if err := ctx.Err(); err != nil {
-		return Repair{}, err
+		return Repair{}, fmt.Errorf("repair canceled: %w", err)
 	}
 	run, err := s.newRun(p, nil)
 	if err != nil {
@@ -57,34 +54,11 @@ func (s *Solver) Repair(ctx context.Context, p Problem, steps []RepairStep) (Rep
 	var out Repair
 	b := run.root()
 	for i, step := range steps {
-		if step.Candidate == nil {
-			if next, ok := run.pause(b, step); ok {
-				out.Stops = append(out.Stops, RepairStop{Step: i, PauseStart: next.Now.Add(-step.Pause), PauseEnd: next.Now})
-				b = next
-			} else {
-				out.Dropped = append(out.Dropped, i)
-			}
-			continue
+		var unreachable *Anchor
+		b, unreachable = run.repairStep(b, i, step, &out)
+		if unreachable != nil {
+			return Repair{Unreachable: unreachable}, nil
 		}
-		// A commitment keeps its own window, which may carry a longer arrival buffer than the catalog's.
-		a := anchorFor(p.Anchors, step.Candidate)
-		if a != nil {
-			step.Candidate = &a.Candidate
-		}
-		if a == nil {
-			trimmed := p.Load.trimOne(*step.Candidate)
-			step.Candidate = &trimmed
-		}
-		next, ok := run.keep(b, step, a != nil)
-		if ok {
-			out.Stops = append(out.Stops, RepairStop{Step: i, Visit: &next.Visits[len(next.Visits)-1]})
-			b = next
-			continue
-		}
-		if a != nil {
-			return Repair{Unreachable: a}, nil
-		}
-		out.Dropped = append(out.Dropped, i)
 	}
 	for i := range p.Anchors {
 		if !done(b, &p.Anchors[i].Candidate) {
@@ -102,13 +76,54 @@ func (s *Solver) Repair(ctx context.Context, p Problem, steps []RepairStep) (Rep
 	return out, nil
 }
 
+func validateRepairProblem(p *Problem) error {
+	check := *p
+	if !p.Start.IsZero() && !p.End.IsZero() && !p.End.After(p.Start) {
+		check.End = p.Start.Add(time.Minute)
+	}
+	return check.Validate()
+}
+
+func (r *searchRun) repairStep(b *domain.Branch, i int, step RepairStep, out *Repair) (*domain.Branch, *Anchor) {
+	if step.Candidate == nil {
+		if next, ok := r.pause(b, step); ok {
+			out.Stops = append(
+				out.Stops,
+				RepairStop{Step: i, PauseStart: next.Now.Add(-step.Pause), PauseEnd: next.Now},
+			)
+			return next, nil
+		}
+		out.Dropped = append(out.Dropped, i)
+		return b, nil
+	}
+	// A commitment keeps its own window, which may carry a longer arrival buffer than the catalog's.
+	a := anchorFor(r.problem.Anchors, step.Candidate)
+	if a != nil {
+		step.Candidate = &a.Candidate
+	} else {
+		trimmed := r.problem.Load.trimOne(step.Candidate)
+		step.Candidate = &trimmed
+	}
+	next, ok := r.keep(b, step, a != nil)
+	if ok {
+		out.Stops = append(out.Stops, RepairStop{Step: i, Visit: &next.Visits[len(next.Visits)-1]})
+		return next, nil
+	}
+	if a != nil {
+		return b, a
+	}
+	out.Dropped = append(out.Dropped, i)
+	return b, nil
+}
+
 // keep places the step's visit next, at its usual length or else at its minimum.
-func (r searchRun) keep(b *domain.Branch, step RepairStep, anchor bool) (*domain.Branch, bool) {
+func (r *searchRun) keep(b *domain.Branch, step RepairStep, anchor bool) (*domain.Branch, bool) {
 	c := step.Candidate
 	if _, visited := b.VisitedPlaces[c.Place.ID]; visited {
 		return nil, false
 	}
-	if !anchor && slices.ContainsFunc(r.problem.Anchors, func(a Anchor) bool { return a.Candidate.Place.ID == c.Place.ID }) {
+	if !anchor &&
+		slices.ContainsFunc(r.problem.Anchors, func(a Anchor) bool { return a.Candidate.Place.ID == c.Place.ID }) {
 		return nil, false
 	}
 	leg, ok := r.transit.Estimate(b.Position, c.Place.Location, b.Now, r.problem.Modes)
@@ -126,16 +141,23 @@ func (r searchRun) keep(b *domain.Branch, step RepairStep, anchor bool) (*domain
 		return nil, false
 	}
 	attempt := func(deadline time.Time) (*domain.Branch, time.Time, bool) {
-		slot, finish, ok := r.placeBy(c, placeFrom, deadline)
-		if ok && !step.NotBefore.IsZero() && slot.StartAt.Before(step.NotBefore) {
+		slot, finish, placed := r.placeBy(c, placeFrom, deadline)
+		if placed && !step.NotBefore.IsZero() && slot.StartAt.Before(step.NotBefore) {
 			// Late entry needs no buffer, so the visit could start before its planned time.
-			slot, finish, ok = r.placeBy(c, step.NotBefore, deadline)
+			slot, finish, placed = r.placeBy(c, step.NotBefore, deadline)
 		}
-		if !ok {
+		if !placed {
 			return nil, time.Time{}, false
 		}
-		visit := domain.SearchVisit{Candidate: c, Transit: leg, ArrivalAt: arrival, Buffer: slot.Buffer, StartAt: slot.StartAt, EndAt: slot.EndAt}
-		child := r.extend(b, visit, finish, 0, quote, false)
+		visit := domain.SearchVisit{
+			Candidate: c,
+			Transit:   leg,
+			ArrivalAt: arrival,
+			Buffer:    slot.Buffer,
+			StartAt:   slot.StartAt,
+			EndAt:     slot.EndAt,
+		}
+		child := r.extend(b, &visit, finish, 0, quote, false)
 		return child, slot.StartAt, r.anchorsReachable(child)
 	}
 	child, start, ok := attempt(r.problem.End)
@@ -150,7 +172,7 @@ func (r searchRun) keep(b *domain.Branch, step RepairStep, anchor bool) (*domain
 }
 
 // pause keeps a pause of the same length where the user stands, from its planned time or now.
-func (r searchRun) pause(b *domain.Branch, step RepairStep) (*domain.Branch, bool) {
+func (r *searchRun) pause(b *domain.Branch, step RepairStep) (*domain.Branch, bool) {
 	end := later(b.Now, step.NotBefore).Add(step.Pause)
 	if step.Pause <= 0 || end.After(r.problem.End) {
 		return nil, false

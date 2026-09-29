@@ -134,7 +134,11 @@ func TestSubscriptionStaysUnhealthyWhenReconcilingFails(t *testing.T) {
 
 func TestLostConnectionTurnsUnhealthyUntilResubscribed(t *testing.T) {
 	c := newCache(t, &fakeLoader{revision: 3}, &fakeStore{})
-	health := run(t, c, &scriptedPubSub{replies: []reply{subscribed(), {err: errors.New("connection reset")}, subscribed()}})
+	health := run(
+		t,
+		c,
+		&scriptedPubSub{replies: []reply{subscribed(), {err: errors.New("connection reset")}, subscribed()}},
+	)
 	if len(health) != 3 || !health[0] || health[1] || !health[2] {
 		t.Fatalf("health %v", health)
 	}
@@ -226,7 +230,9 @@ func TestReadErrorOpensANewConnection(t *testing.T) {
 func TestSilentConnectionIsDropped(t *testing.T) {
 	clock := now
 	c := newClockedCache(t, &fakeLoader{revision: 3}, &clock)
-	first := &scriptedPubSub{replies: []reply{subscribed(), {err: timeoutError{}}, {err: timeoutError{}}, {err: timeoutError{}}}}
+	first := &scriptedPubSub{
+		replies: []reply{subscribed(), {err: timeoutError{}}, {err: timeoutError{}}, {err: timeoutError{}}},
+	}
 	second := &scriptedPubSub{replies: []reply{subscribed()}}
 	health := runLogged(t, c, zap.NewNop(), func() { clock = clock.Add(6 * time.Second) }, first, second)
 	// Pinged at 6 and 12 seconds without a reply; at 18 the connection has been silent too long.

@@ -54,11 +54,27 @@ func TestParamsValidate(t *testing.T) {
 }
 
 func TestDefaultParams(t *testing.T) {
-	transit := TransitParams{WalkThresholdMeters: 1800, WalkDetour: 1.25, WalkMetersPerMinute: 75, TransitWaitMinutes: 12, TransitDetour: 1.15, TransitMetersPerMinute: 300}
+	transit := TransitParams{
+		WalkThresholdMeters:    1800,
+		WalkDetour:             1.25,
+		WalkMetersPerMinute:    75,
+		TransitWaitMinutes:     12,
+		TransitDetour:          1.15,
+		TransitMetersPerMinute: 300,
+	}
 	if DefaultTransitParams() != transit {
 		t.Fatalf("transit defaults = %+v", DefaultTransitParams())
 	}
-	score := ScoreParams{VisitValue: 0.5, AffinityBase: 1, AffinityScale: 2, NoMatchFactor: 0.15, ArchetypeBonus: 1.5, WaitWeight: 0.3, TransitWeight: 0.2, CategoryWeight: 5}
+	score := ScoreParams{
+		VisitValue:     0.5,
+		AffinityBase:   1,
+		AffinityScale:  2,
+		NoMatchFactor:  0.15,
+		ArchetypeBonus: 1.5,
+		WaitWeight:     0.3,
+		TransitWeight:  0.2,
+		CategoryWeight: 5,
+	}
 	if DefaultScoreParams() != score {
 		t.Fatalf("score defaults = %+v", DefaultScoreParams())
 	}
@@ -87,7 +103,7 @@ func TestProblemValidate(t *testing.T) {
 	}
 	for name, change := range cases {
 		p := problem()
-		change(&p)
+		change(p)
 		if p.Validate() == nil {
 			t.Fatalf("%s accepted", name)
 		}

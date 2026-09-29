@@ -7,17 +7,17 @@ import (
 )
 
 type Place struct {
-	ID           PlaceID
-	City         string
-	Title        string
-	Category     *Category
-	InterestMask InterestMask
-	Location     Coordinate
-	DataMode     DataMode
-	Provenance   Provenance
+	ID           PlaceID      `json:"ID"`
+	City         string       `json:"City"`
+	Title        string       `json:"Title"`
+	Category     *Category    `json:"Category"`
+	InterestMask InterestMask `json:"InterestMask"`
+	Location     Coordinate   `json:"Location"`
+	DataMode     DataMode     `json:"DataMode"`
+	Provenance   Provenance   `json:"Provenance"`
 }
 
-func (p Place) Validate() error {
+func (p *Place) Validate() error {
 	if err := requireID(p.ID, "place"); err != nil {
 		return err
 	}
@@ -47,15 +47,15 @@ const (
 )
 
 type Entrance struct {
-	ID            EntranceID
-	PlaceID       PlaceID
-	Location      Coordinate
-	AllowedModes  []MovementMode
-	Accessibility Accessibility
-	Verification  VerificationStatus
+	ID            EntranceID         `json:"ID"`
+	PlaceID       PlaceID            `json:"PlaceID"`
+	Location      Coordinate         `json:"Location"`
+	AllowedModes  []MovementMode     `json:"AllowedModes"`
+	Accessibility Accessibility      `json:"Accessibility"`
+	Verification  VerificationStatus `json:"Verification"`
 }
 
-func (e Entrance) Validate() error {
+func (e *Entrance) Validate() error {
 	if err := requireID(e.ID, "entrance"); err != nil {
 		return err
 	}
@@ -79,18 +79,18 @@ func (e Entrance) Validate() error {
 }
 
 type Event struct {
-	ID           EventID
-	PlaceID      PlaceID
-	Title        string
-	Category     Category
-	InterestMask InterestMask
-	AgeMin       *int
-	AgeMax       *int
-	DataMode     DataMode
-	Provenance   Provenance
+	ID           EventID      `json:"ID"`
+	PlaceID      PlaceID      `json:"PlaceID"`
+	Title        string       `json:"Title"`
+	Category     Category     `json:"Category"`
+	InterestMask InterestMask `json:"InterestMask"`
+	AgeMin       *int         `json:"AgeMin"`
+	AgeMax       *int         `json:"AgeMax"`
+	DataMode     DataMode     `json:"DataMode"`
+	Provenance   Provenance   `json:"Provenance"`
 }
 
-func (e Event) Validate() error {
+func (e *Event) Validate() error {
 	if err := requireID(e.ID, "event"); err != nil {
 		return err
 	}
@@ -131,20 +131,20 @@ const (
 )
 
 type Session struct {
-	ID                     SessionID
-	EventID                EventID
-	Window                 VisitWindow
-	RegistrationDeadline   *time.Time
-	Access                 AccessType
-	Availability           Availability
-	AvailabilityObservedAt *time.Time
-	IsHard                 bool
-	Version                int64
-	DataMode               DataMode
-	Provenance             Provenance
+	ID                     SessionID    `json:"ID"`
+	EventID                EventID      `json:"EventID"`
+	Window                 VisitWindow  `json:"Window"`
+	RegistrationDeadline   *time.Time   `json:"RegistrationDeadline"`
+	Access                 AccessType   `json:"Access"`
+	Availability           Availability `json:"Availability"`
+	AvailabilityObservedAt *time.Time   `json:"AvailabilityObservedAt"`
+	IsHard                 bool         `json:"IsHard"`
+	Version                int64        `json:"Version"`
+	DataMode               DataMode     `json:"DataMode"`
+	Provenance             Provenance   `json:"Provenance"`
 }
 
-func (s Session) Validate() error {
+func (s *Session) Validate() error {
 	if err := requireID(s.ID, "session"); err != nil {
 		return err
 	}
@@ -194,19 +194,19 @@ func (a Audience) Validate() error {
 }
 
 type PriceOffer struct {
-	ID                PriceOfferID
-	SessionID         SessionID
-	Price             Price
-	Audience          Audience
-	EligibilityAgeMin *int
-	EligibilityAgeMax *int
+	ID                PriceOfferID `json:"ID"`
+	SessionID         SessionID    `json:"SessionID"`
+	Price             Price        `json:"Price"`
+	Audience          Audience     `json:"Audience"`
+	EligibilityAgeMin *int         `json:"EligibilityAgeMin"`
+	EligibilityAgeMax *int         `json:"EligibilityAgeMax"`
 	// Programs that may pay for the ticket; eligibility never implies a zero price.
-	BenefitPrograms []string
-	ValidUntil      *time.Time
-	Provenance      Provenance
+	BenefitPrograms []string   `json:"BenefitPrograms"`
+	ValidUntil      *time.Time `json:"ValidUntil"`
+	Provenance      Provenance `json:"Provenance"`
 }
 
-func (o PriceOffer) Validate() error {
+func (o *PriceOffer) Validate() error {
 	if err := requireID(o.ID, "price offer"); err != nil {
 		return err
 	}

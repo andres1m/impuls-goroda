@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 	"time"
 
@@ -13,12 +14,15 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+const defaultShutdownTimeout = 10 * time.Second
+
 type Options struct{ ShutdownTimeout time.Duration }
 
 func Run(ctx context.Context, log *zap.Logger, services []Service) error {
-	return RunWithOptions(ctx, log, services, Options{ShutdownTimeout: 10 * time.Second})
+	return RunWithOptions(ctx, log, services, Options{ShutdownTimeout: defaultShutdownTimeout})
 }
 
+//nolint:gocognit,cyclop,funlen // service lifecycle keeps startup and shutdown ordering in one place
 func RunWithOptions(ctx context.Context, log *zap.Logger, services []Service, opts Options) (result error) {
 	if opts.ShutdownTimeout <= 0 {
 		return errors.New("shutdown timeout must be positive")
@@ -46,8 +50,8 @@ func RunWithOptions(ctx context.Context, log *zap.Logger, services []Service, op
 		cleanup := make(chan error, 1)
 		go func() {
 			var errs error
-			for i := len(initialized) - 1; i >= 0; i-- {
-				s := initialized[i]
+			for _, s := range slices.Backward(initialized) {
+
 				if err := s.Stop(shutdownCtx); err != nil {
 					errs = errors.Join(errs, fmt.Errorf("stop %s: %w", s.Name(), err))
 				}
@@ -74,7 +78,7 @@ func RunWithOptions(ctx context.Context, log *zap.Logger, services []Service, op
 	}()
 	for _, s := range sorted {
 		if err := ctx.Err(); err != nil {
-			return err
+			return fmt.Errorf("run services: %w", err)
 		}
 		// Include a failed Init: it may have acquired only some of its resources.
 		initialized = append(initialized, s)
@@ -112,6 +116,7 @@ func RunWithOptions(ctx context.Context, log *zap.Logger, services []Service, op
 	return nil
 }
 
+//nolint:gocognit // dependency traversal handles cycle and missing service cases together
 func sortTopologically(services []Service) ([]Service, error) {
 	serviceMap := make(map[string]Service)
 	inDegree := make(map[string]int)
@@ -162,7 +167,7 @@ func sortTopologically(services []Service) ([]Service, error) {
 	}
 
 	if len(sorted) != len(services) {
-		return nil, fmt.Errorf("cyclic dependency detected among services")
+		return nil, errors.New("cyclic dependency detected among services")
 	}
 
 	return sorted, nil

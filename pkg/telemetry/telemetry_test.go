@@ -54,13 +54,16 @@ func TestLogFields(t *testing.T) {
 	if got := LogFields(context.Background()); len(got) != 0 {
 		t.Fatalf("empty context gave %v", got)
 	}
-	sc := trace.NewSpanContext(trace.SpanContextConfig{TraceID: trace.TraceID{1}, SpanID: trace.SpanID{2}, TraceFlags: trace.FlagsSampled})
+	sc := trace.NewSpanContext(
+		trace.SpanContextConfig{TraceID: trace.TraceID{1}, SpanID: trace.SpanID{2}, TraceFlags: trace.FlagsSampled},
+	)
 	ctx := WithRequestID(trace.ContextWithSpanContext(context.Background(), sc), "req-1")
 	enc := zapcore.NewMapObjectEncoder()
 	for _, f := range LogFields(ctx) {
 		f.AddTo(enc)
 	}
-	if enc.Fields["trace_id"] != sc.TraceID().String() || enc.Fields["span_id"] != sc.SpanID().String() || enc.Fields["request_id"] != "req-1" {
+	if enc.Fields["trace_id"] != sc.TraceID().String() || enc.Fields["span_id"] != sc.SpanID().String() ||
+		enc.Fields["request_id"] != "req-1" {
 		t.Fatalf("fields = %v", enc.Fields)
 	}
 	if len(TraceFields(ctx)) != 2 {

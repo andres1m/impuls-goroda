@@ -19,7 +19,11 @@ func cityConfig() CityConfig {
 }
 
 func config() Config {
-	return Config{RequestTimeout: 2 * time.Second, SnapRadiusMeters: 500, Cities: map[string]CityConfig{"perm": cityConfig()}}
+	return Config{
+		RequestTimeout:   2 * time.Second,
+		SnapRadiusMeters: 500,
+		Cities:           map[string]CityConfig{"perm": cityConfig()},
+	}
 }
 
 func TestConfigValidate(t *testing.T) {

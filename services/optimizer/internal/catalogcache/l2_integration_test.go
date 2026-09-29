@@ -15,6 +15,7 @@ import (
 
 type poolDB struct{ *pgxpool.Pool }
 
+//nolint:gocritic // pgx BeginTx interface requires TxOptions by value
 func (p poolDB) BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error) {
 	return p.Pool.BeginTx(ctx, opts)
 }

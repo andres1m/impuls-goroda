@@ -19,7 +19,7 @@ type dayStats struct {
 	withRest    int
 }
 
-func (s dayStats) perRoute() float64 {
+func perRoute(s *dayStats) float64 {
 	return float64(s.visits) / float64(s.routes)
 }
 
@@ -30,23 +30,30 @@ func measure(t *testing.T, profile string) dayStats {
 	for seed := range uint64(200) {
 		c := generate(seed)
 		c.req.Constraints.LoadProfile = profile
-		p, _ := plannerWithLog(t, c, 4)
-		res, err := p.Optimize(context.Background(), c.req)
+		p, _ := plannerWithLog(t, &c, 4)
+		res, err := p.Optimize(context.Background(), &c.req)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, route := range res.Routes {
+		for ri := range res.Routes {
+			route := &res.Routes[ri]
 			var busy time.Duration
 			var walk float64
 			visits, rested := 0, false
-			for _, st := range route.Steps {
+			for si := range route.Steps {
+				st := &route.Steps[si]
 				busy += st.VisitEndAt.Sub(st.VisitStartAt)
 				if st.Kind == domain.StepVisit {
 					visits++
 				}
-				rested = rested || slices.ContainsFunc(st.AppliedConstraints, func(a domain.AppliedConstraint) bool { return a.Code == "REST_BREAK" })
+				rested = rested ||
+					slices.ContainsFunc(
+						st.AppliedConstraints,
+						func(a domain.AppliedConstraint) bool { return a.Code == "REST_BREAK" },
+					)
 			}
-			for _, l := range route.Legs {
+			for li := range route.Legs {
+				l := &route.Legs[li]
 				busy += l.ArrivalAt.Sub(l.DepartureAt)
 				if l.Mode == domain.MovementWalk {
 					walk += l.ArrivalAt.Sub(l.DepartureAt).Minutes()
@@ -80,8 +87,17 @@ func TestObjectiveFillsTheDay(t *testing.T) {
 	for _, profile := range []string{"relaxed", "moderate", "intense"} {
 		s := measure(t, profile)
 		stats[profile] = s
-		t.Logf("%s: routes %d, median occupancy %.2f, single-visit %.1f%%, visits/route %.2f, median walk %.0f min, rests in %d of %d routes with 3+ visits",
-			profile, s.routes, median(s.occupancy), 100*float64(s.singleVisit)/float64(s.routes), s.perRoute(), median(s.walk), s.withRest, s.longRoutes)
+		t.Logf(
+			"%s: routes %d, median occupancy %.2f, single-visit %.1f%%, visits/route %.2f, median walk %.0f min, rests in %d of %d routes with 3+ visits",
+			profile,
+			s.routes,
+			median(s.occupancy),
+			100*float64(s.singleVisit)/float64(s.routes),
+			perRoute(&s),
+			median(s.walk),
+			s.withRest,
+			s.longRoutes,
+		)
 	}
 	m := stats["moderate"]
 	if median(m.occupancy) < 0.7 {
@@ -90,7 +106,8 @@ func TestObjectiveFillsTheDay(t *testing.T) {
 	if float64(m.singleVisit) >= 0.1*float64(m.routes) {
 		t.Errorf("moderate single-visit routes %d of %d, want under 10%%", m.singleVisit, m.routes)
 	}
-	if !(stats["relaxed"].perRoute() < m.perRoute() && m.perRoute() < stats["intense"].perRoute()) {
+	relaxed, intense := stats["relaxed"], stats["intense"]
+	if !(perRoute(&relaxed) < perRoute(&m) && perRoute(&m) < perRoute(&intense)) {
 		t.Errorf("visits per route do not follow the pace")
 	}
 	if median(stats["relaxed"].walk) > 45 {
@@ -107,8 +124,8 @@ func TestRecomputeKeepsTheVisitLengthsOfTheLoadProfile(t *testing.T) {
 	for seed := range uint64(200) {
 		c := generate(seed)
 		c.req.Constraints.LoadProfile = "intense"
-		p, _ := plannerWithLog(t, c, 4)
-		res, err := p.Optimize(context.Background(), c.req)
+		p, _ := plannerWithLog(t, &c, 4)
+		res, err := p.Optimize(context.Background(), &c.req)
 		if err != nil || len(res.Routes) == 0 {
 			continue
 		}
@@ -121,7 +138,7 @@ func TestRecomputeKeepsTheVisitLengthsOfTheLoadProfile(t *testing.T) {
 		if req.Validate() != nil {
 			continue
 		}
-		out, err := p.Recompute(context.Background(), req)
+		out, err := p.Recompute(context.Background(), &req)
 		if err != nil {
 			t.Fatalf("seed %d: %v", seed, err)
 		}

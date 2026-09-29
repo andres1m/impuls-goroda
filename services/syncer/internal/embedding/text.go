@@ -27,7 +27,7 @@ type Prepared struct {
 	Hash   []byte
 }
 
-func Text(e Entity) string {
+func Text(e *Entity) string {
 	parts := []string{strings.TrimSpace(e.Title)}
 	if e.Category != "" {
 		parts = append(parts, e.Category)
@@ -46,13 +46,14 @@ func Hash(text string) []byte {
 // Stale keeps the entities without a vector or whose text changed since theirs was made.
 func Stale(entities []Entity) []Prepared {
 	var out []Prepared
-	for _, e := range entities {
+	for i := range entities {
+		e := &entities[i]
 		text := Text(e)
 		hash := Hash(text)
 		if bytes.Equal(hash, e.StoredHash) {
 			continue
 		}
-		out = append(out, Prepared{Entity: e, Text: text, Hash: hash})
+		out = append(out, Prepared{Entity: *e, Text: text, Hash: hash})
 	}
 	return out
 }

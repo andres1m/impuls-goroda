@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-func int64Pointer(value int64) *int64 { return &value }
-
 func validProvenance() FactProvenance {
 	return FactProvenance{SourceName: "catalog", FetchedAt: instant}
 }
@@ -115,7 +113,12 @@ func TestPriceRepresentsZeroAndUnknownSeparately(t *testing.T) {
 	if unknown.Validate() == nil {
 		t.Fatal("unknown price with a numeric bound accepted")
 	}
-	rangePrice := Price{Status: PriceRange, Currency: "RUB", LowerMinor: int64Pointer(200), UpperMinor: int64Pointer(100)}
+	rangePrice := Price{
+		Status:     PriceRange,
+		Currency:   "RUB",
+		LowerMinor: new(int64(200)),
+		UpperMinor: new(int64(100)),
+	}
 	if rangePrice.Validate() == nil {
 		t.Fatal("reversed price range accepted")
 	}
@@ -194,7 +197,8 @@ func TestRoutePlanCloneDoesNotShareMutableCollections(t *testing.T) {
 	clone.Legs[0].Evidence.Limitations = append(clone.Legs[0].Evidence.Limitations, "stairs")
 	clone.Conflicts[0].VisitIDs[0] = VisitID([16]byte{2})
 
-	if original.Constraints.ExcludedCategories[0] != "sport" || original.Geometry[0].Longitude == 1 || original.Steps[0].Catalog.Title == "Changed" {
+	if original.Constraints.ExcludedCategories[0] != "sport" || original.Geometry[0].Longitude == 1 ||
+		original.Steps[0].Catalog.Title == "Changed" {
 		t.Fatal("snapshot clone shares mutable state")
 	}
 	if len(original.Legs[0].Evidence.Limitations) != 0 || original.Conflicts[0].VisitIDs[0] != VisitID(id()) {
@@ -215,7 +219,7 @@ func TestProposalAndIssueStateBoundaries(t *testing.T) {
 			Kind:             ChangeTimeShifted,
 			Scope:            ChangeVisitScope,
 			BeforeVisitID:    func() *VisitID { value := VisitID(id()); return &value }(),
-			TimeShiftSeconds: int64Pointer(600),
+			TimeShiftSeconds: new(int64(600)),
 			Message:          "Посещение сдвинуто",
 		}},
 		CreatedAt: instant,

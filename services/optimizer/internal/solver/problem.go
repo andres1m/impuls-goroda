@@ -33,7 +33,7 @@ type Problem struct {
 	VisitsSinceRest int
 }
 
-func (p Problem) Validate() error {
+func (p *Problem) Validate() error {
 	if p.Start.IsZero() || !p.End.After(p.Start) {
 		return errors.New("search interval is invalid")
 	}
@@ -51,6 +51,18 @@ func (p Problem) Validate() error {
 	if err := p.Load.Validate(); err != nil {
 		return err
 	}
+	if err := p.validateModesAndAnchors(); err != nil {
+		return err
+	}
+	if p.Lunch != nil {
+		if err := p.Lunch.Validate(); err != nil {
+			return err
+		}
+	}
+	return p.Pricing.Validate()
+}
+
+func (p *Problem) validateModesAndAnchors() error {
 	if len(p.Modes) == 0 {
 		return errors.New("at least one movement mode is required")
 	}
@@ -59,7 +71,8 @@ func (p Problem) Validate() error {
 			return err
 		}
 	}
-	for _, a := range p.Anchors {
+	for i := range p.Anchors {
+		a := &p.Anchors[i]
 		if err := a.Candidate.Validate(); err != nil {
 			return fmt.Errorf("anchor: %w", err)
 		}
@@ -67,10 +80,5 @@ func (p Problem) Validate() error {
 			return errors.New("anchor requires a session or a visit")
 		}
 	}
-	if p.Lunch != nil {
-		if err := p.Lunch.Validate(); err != nil {
-			return err
-		}
-	}
-	return p.Pricing.Validate()
+	return nil
 }

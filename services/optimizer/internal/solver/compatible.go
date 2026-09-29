@@ -8,7 +8,7 @@ import (
 
 // Compatible reports whether both visits fit into one route in some order, ignoring every
 // other visit, the way from the origin and the destination. A route visits a place once.
-func (s *Solver) Compatible(p Problem, a, b *domain.Candidate) (bool, error) {
+func (s *Solver) Compatible(p *Problem, a, b *domain.Candidate) (bool, error) {
 	if err := p.Validate(); err != nil {
 		return false, err
 	}
@@ -25,13 +25,13 @@ func (s *Solver) Compatible(p Problem, a, b *domain.Candidate) (bool, error) {
 
 // canFollow places first as early and as short as possible, which leaves next the most room
 // as long as a later departure never arrives earlier.
-func (s *Solver) canFollow(p Problem, first, next *domain.Candidate) bool {
+func (s *Solver) canFollow(p *Problem, first, next *domain.Candidate) bool {
 	arrival := later(p.Start, first.Window.Start.Add(-first.Window.ArrivalBuffer))
 	slot, ok := s.placement.Place(first, arrival, p.End)
 	if !ok {
 		return false
 	}
-	if shortest, ok := s.placement.Place(first, arrival, slot.StartAt.Add(first.Window.MinDuration)); ok {
+	if shortest, shortOK := s.placement.Place(first, arrival, slot.StartAt.Add(first.Window.MinDuration)); shortOK {
 		slot = shortest
 	}
 	leg, ok := s.transit.Estimate(first.Place.Location, next.Place.Location, slot.EndAt, p.Modes)

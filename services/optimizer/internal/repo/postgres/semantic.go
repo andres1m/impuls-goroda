@@ -37,7 +37,13 @@ WHERE e.city = $1 AND e.model_key = $2 AND e.model_version = $3
 ORDER BY (e.embedding <=> $4::vector) + 0
 LIMIT $5`
 
-func (c *Catalog) NearestEntities(ctx context.Context, city string, space ai.Space, vector []float32, limit int) ([]semantic.Match, error) {
+func (c *Catalog) NearestEntities(
+	ctx context.Context,
+	city string,
+	space ai.Space,
+	vector []float32,
+	limit int,
+) ([]semantic.Match, error) {
 	rows, err := c.db.Query(ctx, nearestEntitiesSQL, city, space.Key, space.Version, vectorLiteral(vector), limit)
 	if err != nil {
 		return nil, wrapDBError("query nearest entities", err)

@@ -29,7 +29,7 @@ func pingRouter() router.Router {
 	}}
 }
 
-func startServer(t *testing.T, opts ...Option) (*Server, string) {
+func startServer(t *testing.T, opts ...Option) string {
 	t.Helper()
 	s := New("test-http", config.HTTPServer{Port: 0, ReadTimeout: time.Second}, opts...)
 	ctx := context.Background()
@@ -51,10 +51,10 @@ func startServer(t *testing.T, opts ...Option) (*Server, string) {
 			t.Errorf("Run: %v", err)
 		}
 	})
-	return s, "http://" + s.Addr().String()
+	return "http://" + s.Addr().String()
 }
 
-func get(t *testing.T, url string) (int, string) {
+func get(t *testing.T, url string) (status int, responseBody string) {
 	t.Helper()
 	resp, err := http.Get(url)
 	if err != nil {
@@ -66,7 +66,7 @@ func get(t *testing.T, url string) (int, string) {
 }
 
 func TestRouterIsMountedUnderAPIVersion(t *testing.T) {
-	_, base := startServer(t, WithRouter(context.Background(), pingRouter()))
+	base := startServer(t, WithRouter(context.Background(), pingRouter()))
 
 	if code, body := get(t, base+"/api/v1/ping"); code != http.StatusOK || body != "pong" {
 		t.Fatalf("got %d %q", code, body)
@@ -77,7 +77,7 @@ func TestRouterIsMountedUnderAPIVersion(t *testing.T) {
 }
 
 func TestRouterGroupAddsPrefix(t *testing.T) {
-	_, base := startServer(t, WithRouterGroup(context.Background(), "/routes", pingRouter()))
+	base := startServer(t, WithRouterGroup(context.Background(), "/routes", pingRouter()))
 
 	if code, _ := get(t, base+"/api/v1/routes/ping"); code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", code)
@@ -85,7 +85,7 @@ func TestRouterGroupAddsPrefix(t *testing.T) {
 }
 
 func TestHealthWithoutMetrics(t *testing.T) {
-	_, base := startServer(t, WithHealth())
+	base := startServer(t, WithHealth())
 
 	if code, _ := get(t, base+"/healthz"); code != http.StatusOK {
 		t.Fatalf("healthz status = %d", code)
@@ -96,7 +96,7 @@ func TestHealthWithoutMetrics(t *testing.T) {
 }
 
 func TestOpsEndpoints(t *testing.T) {
-	_, base := startServer(t, WithHealth(), WithMetrics())
+	base := startServer(t, WithHealth(), WithMetrics())
 
 	code, body := get(t, base+"/healthz")
 	if code != http.StatusOK || !strings.Contains(body, `"status":"ok"`) {
@@ -115,7 +115,7 @@ func TestMiddlewareIsApplied(t *testing.T) {
 			return next(c)
 		}
 	}
-	_, base := startServer(t, WithMiddleware(header), WithHealth())
+	base := startServer(t, WithMiddleware(header), WithHealth())
 
 	resp, err := http.Get(base + "/healthz")
 	if err != nil {
@@ -139,7 +139,7 @@ func TestCustomHTTPErrorHandlerHandlesErrorsAndRecoveredPanics(t *testing.T) {
 	handler := func(c *echo.Context, _ error) {
 		_ = c.String(http.StatusTeapot, "safe error")
 	}
-	_, base := startServer(t,
+	base := startServer(t,
 		WithRouter(context.Background(), routes),
 		WithHTTPErrorHandler(handler),
 	)
@@ -158,7 +158,7 @@ func TestNilHTTPErrorHandlerKeepsDefault(t *testing.T) {
 			return func(*echo.Context) error { return echo.ErrBadRequest }
 		}),
 	}}
-	_, base := startServer(t,
+	base := startServer(t,
 		WithRouter(context.Background(), routes),
 		WithHTTPErrorHandler(nil),
 	)
@@ -170,7 +170,7 @@ func TestNilHTTPErrorHandlerKeepsDefault(t *testing.T) {
 }
 
 func TestProbe(t *testing.T) {
-	_, base := startServer(t, WithHealth())
+	base := startServer(t, WithHealth())
 	ctx := context.Background()
 
 	if err := Probe(ctx, base+"/healthz"); err != nil {

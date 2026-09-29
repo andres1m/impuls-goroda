@@ -58,7 +58,7 @@ func genPlace(r *rand.Rand, i int) domain.Candidate {
 		BaseScore: 1,
 	}
 	if r.IntN(4) == 0 {
-		c.Window.LastEntryAt = ptr(closes.Add(-minDuration - minutes(r.IntN(3)*15)))
+		c.Window.LastEntryAt = new(closes.Add(-minDuration - minutes(r.IntN(3)*15)))
 	}
 	return c
 }
@@ -67,13 +67,28 @@ func genPrice(r *rand.Rand) domain.Price {
 	amount := int64(r.IntN(20)) * 10000
 	switch r.IntN(5) {
 	case 0:
-		return domain.Price{Status: domain.PriceFree, Currency: "RUB", LowerMinor: ptr(int64(0)), UpperMinor: ptr(int64(0))}
+		return domain.Price{
+			Status:     domain.PriceFree,
+			Currency:   "RUB",
+			LowerMinor: new(int64(0)),
+			UpperMinor: new(int64(0)),
+		}
 	case 1:
 		return domain.Price{Status: domain.PriceUnknown, Currency: "RUB"}
 	case 2:
-		return domain.Price{Status: domain.PriceRange, Currency: "RUB", LowerMinor: ptr(amount), UpperMinor: ptr(amount + 50000)}
+		return domain.Price{
+			Status:     domain.PriceRange,
+			Currency:   "RUB",
+			LowerMinor: new(amount),
+			UpperMinor: new(amount + 50000),
+		}
 	default:
-		return domain.Price{Status: domain.PriceFixed, Currency: "RUB", LowerMinor: ptr(amount), UpperMinor: ptr(amount)}
+		return domain.Price{
+			Status:     domain.PriceFixed,
+			Currency:   "RUB",
+			LowerMinor: new(amount),
+			UpperMinor: new(amount),
+		}
 	}
 }
 
@@ -143,6 +158,8 @@ func genBudget(r *rand.Rand) domain.Budget {
 }
 
 // generate builds one planning problem from a seed, so a failing seed replays exactly.
+//
+//nolint:cyclop // deterministic generator handles all variant branches in one pass
 func generate(seed uint64) genCase {
 	r := rand.New(rand.NewPCG(seed, 0))
 	pool := genPool(r, 5+r.IntN(36))
@@ -160,7 +177,7 @@ func generate(seed uint64) genCase {
 		req.Constraints.InterestMask = domain.InterestMask(r.Uint64() & genInterests)
 	}
 	if r.IntN(2) == 0 {
-		req.Destination = ptr(genLocation(r, 0.5))
+		req.Destination = new(genLocation(r, 0.5))
 	}
 	if r.IntN(2) == 0 {
 		req.Constraints.AcceptedUnknowns = []string{domain.AcceptUnknownPrice}
@@ -174,11 +191,20 @@ func generate(seed uint64) genCase {
 	}
 	if r.IntN(4) == 0 {
 		lunch := req.Start.Add(minutes(60 + r.IntN(3)*30))
-		req.Constraints.LunchWindow = &domain.LunchWindow{Start: lunch, End: lunch.Add(minutes(90)), MinDuration: minutes(45)}
+		req.Constraints.LunchWindow = &domain.LunchWindow{
+			Start:       lunch,
+			End:         lunch.Add(minutes(90)),
+			MinDuration: minutes(45),
+		}
 	}
-	for _, c := range pool {
-		if c.Session != nil && c.Session.Availability == domain.AvailabilityAvailable && r.IntN(6) == 0 && len(req.Constraints.Obligations) < 2 {
-			req.Constraints.Obligations = append(req.Constraints.Obligations, domain.Obligation{SessionID: &c.Session.ID, Participation: domain.ParticipationUserReported})
+	for i := range pool {
+		c := &pool[i]
+		if c.Session != nil && c.Session.Availability == domain.AvailabilityAvailable && r.IntN(6) == 0 &&
+			len(req.Constraints.Obligations) < 2 {
+			req.Constraints.Obligations = append(
+				req.Constraints.Obligations,
+				domain.Obligation{SessionID: &c.Session.ID, Participation: domain.ParticipationUserReported},
+			)
 		}
 	}
 	provider := estimated()
@@ -189,10 +215,16 @@ func generate(seed uint64) genCase {
 	req.Constraints.LoadProfile = []string{"relaxed", "moderate", "intense"}[r.IntN(3)]
 	// A reported ticket holds a place even once the session sells out. Drawn after the pace for the same
 	// reason, and only a session the day can reach, so the ticket itself does not make the day infeasible.
-	for _, c := range pool {
-		reachable := c.Session != nil && !c.Window.Start.Before(req.Start.Add(time.Hour)) && !c.Window.End.After(req.End)
-		if reachable && c.Session.Availability == domain.AvailabilitySoldOut && len(req.Constraints.Obligations) == 0 && r.IntN(2) == 0 {
-			req.Constraints.Obligations = append(req.Constraints.Obligations, domain.Obligation{SessionID: &c.Session.ID, Participation: domain.ParticipationUserReported})
+	for i := range pool {
+		c := &pool[i]
+		reachable := c.Session != nil && !c.Window.Start.Before(req.Start.Add(time.Hour)) &&
+			!c.Window.End.After(req.End)
+		if reachable && c.Session.Availability == domain.AvailabilitySoldOut && len(req.Constraints.Obligations) == 0 &&
+			r.IntN(2) == 0 {
+			req.Constraints.Obligations = append(
+				req.Constraints.Obligations,
+				domain.Obligation{SessionID: &c.Session.ID, Participation: domain.ParticipationUserReported},
+			)
 		}
 	}
 	// Some sources let people in after the start: half the session is enough, sometimes only until a
@@ -231,7 +263,10 @@ func TestGeneratedCasesAreValidAndVaried(t *testing.T) {
 			strict++
 		}
 		if slices.ContainsFunc(c.pool, func(cand domain.Candidate) bool {
-			return slices.ContainsFunc(cand.Offers, func(o domain.PriceOffer) bool { return o.Price.Status == domain.PriceUnknown })
+			return slices.ContainsFunc(
+				cand.Offers,
+				func(o domain.PriceOffer) bool { return o.Price.Status == domain.PriceUnknown },
+			)
 		}) {
 			unknownPrice++
 		}
@@ -240,7 +275,8 @@ func TestGeneratedCasesAreValidAndVaried(t *testing.T) {
 		}
 		if slices.ContainsFunc(c.req.Constraints.Obligations, func(o domain.Obligation) bool {
 			return slices.ContainsFunc(c.pool, func(cand domain.Candidate) bool {
-				return cand.Session != nil && cand.Session.ID == *o.SessionID && cand.Session.Availability == domain.AvailabilitySoldOut
+				return cand.Session != nil && cand.Session.ID == *o.SessionID &&
+					cand.Session.Availability == domain.AvailabilitySoldOut
 			})
 		}) {
 			soldOutObligations++

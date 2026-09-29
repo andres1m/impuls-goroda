@@ -9,18 +9,19 @@ import (
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
 )
 
-func obligationFor(c domain.Candidate) domain.Obligation {
+func obligationFor(c *domain.Candidate) domain.Obligation {
 	id := c.Session.ID
 	return domain.Obligation{SessionID: &id, Participation: domain.ParticipationUserReported}
 }
 
-func anchor(c domain.Candidate) Anchor {
-	return Anchor{Candidate: c, Obligation: obligationFor(c)}
+func anchor(c *domain.Candidate) Anchor {
+	return Anchor{Candidate: *c, Obligation: obligationFor(c)}
 }
 
-func withAnchors(p Problem, anchors ...Anchor) Problem {
-	p.Anchors = anchors
-	return p
+func withAnchors(p *Problem, anchors ...Anchor) *Problem {
+	out := *p
+	out.Anchors = anchors
+	return &out
 }
 
 func requireInEveryRoute(t *testing.T, routes []*domain.Branch, ids ...byte) {
@@ -45,7 +46,7 @@ func TestSearchKeepsLowScoreAnchor(t *testing.T) {
 		place(2, domain.CategorySport, 0, north(origin, 200)),
 		place(3, domain.CategoryWalk, 0, north(origin, -200)),
 	}
-	requireInEveryRoute(t, search(t, wide, withAnchors(problem(), anchor(concert)), pool), 9)
+	requireInEveryRoute(t, search(t, wide, withAnchors(problem(), anchor(&concert)), pool), 9)
 }
 
 func TestSearchDropsVisitsThatMakeAnAnchorUnreachable(t *testing.T) {
@@ -53,7 +54,7 @@ func TestSearchDropsVisitsThatMakeAnAnchorUnreachable(t *testing.T) {
 	concert.BaseScore = 0.001
 	museum := place(1, domain.CategoryCulture, 0, north(origin, 100))
 	for _, cfg := range []Config{wide, greedy} {
-		routes := search(t, cfg, withAnchors(problem(), anchor(concert)), []domain.Candidate{museum})
+		routes := search(t, cfg, withAnchors(problem(), anchor(&concert)), []domain.Candidate{museum})
 		requireInEveryRoute(t, routes, 9)
 		for _, r := range routes {
 			ids := placeIDs(r)
@@ -68,7 +69,7 @@ func TestSearchVisitsAnchorsInOrder(t *testing.T) {
 	first := session(8, domain.CategoryCulture, north(origin, 500), at(11, 0), at(11, 30))
 	second := session(9, domain.CategorySport, north(origin, -500), at(13, 0), at(13, 30))
 	pool := []domain.Candidate{place(1, domain.CategoryWalk, 0, north(origin, 100))}
-	routes := search(t, wide, withAnchors(problem(), anchor(second), anchor(first)), pool)
+	routes := search(t, wide, withAnchors(problem(), anchor(&second), anchor(&first)), pool)
 	requireInEveryRoute(t, routes, 8, 9)
 	for _, r := range routes {
 		if ids := placeIDs(r); slices.Index(ids, 8) > slices.Index(ids, 9) {
@@ -79,8 +80,8 @@ func TestSearchVisitsAnchorsInOrder(t *testing.T) {
 
 func TestSearchAnchorReplacesPoolCandidate(t *testing.T) {
 	concert := session(9, domain.CategoryCulture, north(origin, 500), at(11, 0), at(12, 0))
-	buffered := withWindow(concert, func(w *domain.VisitWindow) { w.ArrivalBuffer = 20 * time.Minute })
-	routes := search(t, wide, withAnchors(problem(), anchor(buffered)), []domain.Candidate{concert})
+	buffered := withWindow(&concert, func(w *domain.VisitWindow) { w.ArrivalBuffer = 20 * time.Minute })
+	routes := search(t, wide, withAnchors(problem(), anchor(&buffered)), []domain.Candidate{concert})
 	requireInEveryRoute(t, routes, 9)
 	for _, r := range routes {
 		for _, v := range r.Visits {
@@ -111,7 +112,12 @@ func TestSearchSkipsVisitedPlaces(t *testing.T) {
 
 func TestSearchWithUnreachableAnchorFindsNothing(t *testing.T) {
 	concert := session(9, domain.CategoryCulture, north(origin, 3000), at(10, 5), at(11, 0))
-	routes := search(t, wide, withAnchors(problem(), anchor(concert)), []domain.Candidate{place(1, domain.CategoryWalk, 0, north(origin, 100))})
+	routes := search(
+		t,
+		wide,
+		withAnchors(problem(), anchor(&concert)),
+		[]domain.Candidate{place(1, domain.CategoryWalk, 0, north(origin, 100))},
+	)
 	if len(routes) != 0 {
 		t.Fatalf("routes without the anchor: %v", routeKeys(routes))
 	}
@@ -120,7 +126,7 @@ func TestSearchWithUnreachableAnchorFindsNothing(t *testing.T) {
 func TestProblemRejectsInvalidAnchor(t *testing.T) {
 	broken := session(9, domain.CategoryCulture, origin, at(11, 0), at(12, 0))
 	broken.Place.ID = domain.PlaceID{}
-	if err := withAnchors(problem(), anchor(broken)).Validate(); err == nil {
+	if err := withAnchors(problem(), anchor(&broken)).Validate(); err == nil {
 		t.Fatal("invalid anchor accepted")
 	}
 }
@@ -135,38 +141,44 @@ func conflictCodes(conflicts []domain.Conflict) []string {
 
 func TestAnchorsFor(t *testing.T) {
 	concert := session(9, domain.CategoryCulture, origin, at(11, 0), at(12, 0))
-	concert = withWindow(concert, func(w *domain.VisitWindow) { w.ArrivalBuffer = 5 * time.Minute })
+	concert = withWindow(&concert, func(w *domain.VisitWindow) { w.ArrivalBuffer = 5 * time.Minute })
 	cancelled := session(8, domain.CategoryCulture, origin, at(13, 0), at(14, 0))
 	cancelled.Session.Availability = domain.AvailabilityCancelled
 	soldOut := session(7, domain.CategoryCulture, origin, at(15, 0), at(16, 0))
 	soldOut.Session.Availability = domain.AvailabilitySoldOut
 	pool := []domain.Candidate{concert, cancelled, soldOut}
 
-	longer := obligationFor(concert)
+	longer := obligationFor(&concert)
 	longer.ArrivalBuffer = 15 * time.Minute
 	anchors, conflicts := AnchorsFor([]domain.Obligation{longer}, pool)
 	if len(conflicts) != 0 || len(anchors) != 1 {
 		t.Fatalf("anchors=%d conflicts=%v", len(anchors), conflictCodes(conflicts))
 	}
-	if a := anchors[0]; a.Candidate.Window.ArrivalBuffer != 15*time.Minute || a.Candidate.Session.Window.ArrivalBuffer != 15*time.Minute {
+	if a := anchors[0]; a.Candidate.Window.ArrivalBuffer != 15*time.Minute ||
+		a.Candidate.Session.Window.ArrivalBuffer != 15*time.Minute {
 		t.Fatalf("anchor buffer %s", a.Candidate.Window.ArrivalBuffer)
 	}
 	if pool[0].Window.ArrivalBuffer != 5*time.Minute {
 		t.Fatal("anchor changed the pool candidate")
 	}
-	anchors, conflicts = AnchorsFor([]domain.Obligation{obligationFor(concert)}, pool)
+	anchors, conflicts = AnchorsFor([]domain.Obligation{obligationFor(&concert)}, pool)
 	if len(conflicts) != 0 || len(anchors) != 1 || anchors[0].Candidate.Window.ArrivalBuffer != 5*time.Minute {
 		t.Fatalf("shorter obligation buffer: anchors=%v conflicts=%v", anchors, conflictCodes(conflicts))
 	}
-	if anchors, _ := AnchorsFor([]domain.Obligation{obligationFor(concert), obligationFor(concert)}, pool); len(anchors) != 1 {
+	if anchors, _ := AnchorsFor(
+		[]domain.Obligation{obligationFor(&concert), obligationFor(&concert)},
+		pool,
+	); len(
+		anchors,
+	) != 1 {
 		t.Fatalf("repeated obligation gave %d anchors", len(anchors))
 	}
 
 	visitOnly := domain.Obligation{VisitID: &domain.VisitID{4}, Participation: domain.ParticipationActionRequired}
 	missing := domain.Obligation{SessionID: &domain.SessionID{42}, Participation: domain.ParticipationActionRequired}
-	moved := obligationFor(concert)
-	moved.StartsAt = ptr(at(11, 30))
-	unconfirmedSoldOut := obligationFor(soldOut)
+	moved := obligationFor(&concert)
+	moved.StartsAt = new(at(11, 30))
+	unconfirmedSoldOut := obligationFor(&soldOut)
 	unconfirmedSoldOut.Participation = domain.ParticipationActionRequired
 	cases := map[string]struct {
 		obligation domain.Obligation
@@ -174,7 +186,7 @@ func TestAnchorsFor(t *testing.T) {
 	}{
 		"visit of another plan":       {visitOnly, "OBLIGATION_UNKNOWN"},
 		"session not in the catalog":  {missing, "OBLIGATION_UNAVAILABLE"},
-		"cancelled session":           {obligationFor(cancelled), "OBLIGATION_CANCELLED"},
+		"cancelled session":           {obligationFor(&cancelled), "OBLIGATION_CANCELLED"},
 		"sold out without a ticket":   {unconfirmedSoldOut, "OBLIGATION_SOLD_OUT"},
 		"session moved since pinning": {moved, "OBLIGATION_TIME_CHANGED"},
 	}
@@ -189,11 +201,15 @@ func TestAnchorsFor(t *testing.T) {
 			t.Errorf("%s: conflict %+v: %v", name, c, err)
 		}
 	}
-	if anchors, conflicts := AnchorsFor([]domain.Obligation{obligationFor(soldOut)}, pool); len(anchors) != 1 || len(conflicts) != 0 {
+	if anchors, conflicts := AnchorsFor(
+		[]domain.Obligation{obligationFor(&soldOut)},
+		pool,
+	); len(anchors) != 1 ||
+		len(conflicts) != 0 {
 		t.Errorf("sold out with a ticket: anchors=%d conflicts=%v", len(anchors), conflictCodes(conflicts))
 	}
-	same := obligationFor(concert)
-	same.StartsAt = ptr(at(11, 0))
+	same := obligationFor(&concert)
+	same.StartsAt = new(at(11, 0))
 	if anchors, conflicts := AnchorsFor([]domain.Obligation{same}, pool); len(anchors) != 1 || len(conflicts) != 0 {
 		t.Errorf("unchanged start: anchors=%d conflicts=%v", len(anchors), conflictCodes(conflicts))
 	}
@@ -211,10 +227,10 @@ func TestDiagnose(t *testing.T) {
 		anchors []Anchor
 		want    []string
 	}{
-		{"feasible anchor", []Anchor{anchor(fine)}, nil},
-		{"cannot arrive in time", []Anchor{anchor(tooSoon)}, []string{"OBLIGATION_UNREACHABLE"}},
-		{"ends after the day", []Anchor{anchor(tooLate)}, []string{"OBLIGATION_UNREACHABLE"}},
-		{"overlapping obligations", []Anchor{anchor(fine), anchor(overlap)}, []string{"OBLIGATIONS_OVERLAP"}},
+		{"feasible anchor", []Anchor{anchor(&fine)}, nil},
+		{"cannot arrive in time", []Anchor{anchor(&tooSoon)}, []string{"OBLIGATION_UNREACHABLE"}},
+		{"ends after the day", []Anchor{anchor(&tooLate)}, []string{"OBLIGATION_UNREACHABLE"}},
+		{"overlapping obligations", []Anchor{anchor(&fine), anchor(&overlap)}, []string{"OBLIGATIONS_OVERLAP"}},
 	}
 	for _, tc := range cases {
 		conflicts, err := s.Diagnose(context.Background(), withAnchors(problem(), tc.anchors...))
@@ -230,25 +246,35 @@ func TestDiagnose(t *testing.T) {
 			}
 		}
 	}
-	conflicts, _ := s.Diagnose(context.Background(), withAnchors(problem(), anchor(fine), anchor(overlap)))
+	conflicts, _ := s.Diagnose(context.Background(), withAnchors(problem(), anchor(&fine), anchor(&overlap)))
 	if len(conflicts) != 1 || len(conflicts[0].SessionIDs) != 2 {
 		t.Fatalf("overlap conflict %+v", conflicts)
 	}
-	expensive := priced(session(5, domain.CategoryCulture, north(origin, 500), at(15, 0), at(16, 0)), 90000)
-	p := withAnchors(problem(), anchor(expensive))
-	p.Pricing.Budget = domain.Budget{Mode: domain.BudgetStrict, Limit: &domain.Money{AmountMinor: 50000, Currency: "RUB"}}
-	if conflicts, _ := s.Diagnose(context.Background(), p); !slices.Equal(conflictCodes(conflicts), []string{"OBLIGATION_OVER_BUDGET"}) {
+	expensive := priced(new(session(5, domain.CategoryCulture, north(origin, 500), at(15, 0), at(16, 0))), 90000)
+	p := withAnchors(problem(), anchor(&expensive))
+	p.Pricing.Budget = domain.Budget{
+		Mode:  domain.BudgetStrict,
+		Limit: &domain.Money{AmountMinor: 50000, Currency: "RUB"},
+	}
+	if conflicts, _ := s.Diagnose(
+		context.Background(),
+		p,
+	); !slices.Equal(
+		conflictCodes(conflicts),
+		[]string{"OBLIGATION_OVER_BUDGET"},
+	) {
 		t.Fatalf("anchor over a strict budget: %v", conflictCodes(conflicts))
 	}
 }
 
 // atVenue moves a session to another venue, keeping the candidate consistent.
-func atVenue(c domain.Candidate, venue byte) domain.Candidate {
-	c.Place.ID = domain.PlaceID{venue}
+func atVenue(c *domain.Candidate, venue byte) domain.Candidate {
+	out := *c
+	out.Place.ID = domain.PlaceID{venue}
 	event := *c.Event
-	event.PlaceID = c.Place.ID
-	c.Event = &event
-	return c
+	event.PlaceID = out.Place.ID
+	out.Event = &event
+	return out
 }
 
 func requireSession(t *testing.T, routes []*domain.Branch, id byte) {
@@ -266,9 +292,9 @@ func requireSession(t *testing.T, routes []*domain.Branch, id byte) {
 func TestAnchorIsHonouredBySessionNotByVenue(t *testing.T) {
 	evening := session(9, domain.CategoryCulture, north(origin, 500), at(16, 0), at(17, 0))
 	evening.BaseScore = 0.001
-	morning := atVenue(session(7, domain.CategoryCulture, north(origin, 500), at(11, 0), at(12, 0)), 9)
+	morning := atVenue(new(session(7, domain.CategoryCulture, north(origin, 500), at(11, 0), at(12, 0))), 9)
 	for _, cfg := range []Config{wide, greedy} {
-		routes := search(t, cfg, withAnchors(problem(), anchor(evening)), []domain.Candidate{morning})
+		routes := search(t, cfg, withAnchors(problem(), anchor(&evening)), []domain.Candidate{morning})
 		requireSession(t, routes, 9)
 		for _, r := range routes {
 			if _, ok := r.UsedSessions[domain.SessionID{7}]; ok {
@@ -280,7 +306,7 @@ func TestAnchorIsHonouredBySessionNotByVenue(t *testing.T) {
 
 func TestAnchorAtPlaceVisitedEarlierToday(t *testing.T) {
 	lecture := session(9, domain.CategoryCulture, north(origin, 500), at(16, 0), at(17, 0))
-	p := withAnchors(problem(), anchor(lecture))
+	p := withAnchors(problem(), anchor(&lecture))
 	p.Visited = []domain.PlaceID{lecture.Place.ID}
 	requireSession(t, search(t, wide, p, nil), 9)
 	if conflicts, err := newSolver(t, wide).Diagnose(context.Background(), p); err != nil || len(conflicts) != 0 {
@@ -289,31 +315,52 @@ func TestAnchorAtPlaceVisitedEarlierToday(t *testing.T) {
 }
 
 func TestSearchWithAnOpenWindowAnchor(t *testing.T) {
-	exhibition := withWindow(session(8, domain.CategoryCulture, north(origin, 300), at(10, 0), at(18, 0)), func(w *domain.VisitWindow) {
-		w.Kind, w.MinDuration, w.RecommendedDuration = domain.WindowContinuous, time.Hour, 2*time.Hour
-	})
+	exhibition := withWindow(
+		new(session(8, domain.CategoryCulture, north(origin, 300), at(10, 0), at(18, 0))),
+		func(w *domain.VisitWindow) {
+			w.Kind, w.MinDuration, w.RecommendedDuration = domain.WindowContinuous, time.Hour, 2*time.Hour
+		},
+	)
 	lecture := session(9, domain.CategoryCulture, north(origin, 600), at(11, 0), at(12, 0))
 	film := session(7, domain.CategoryCulture, north(origin, -400), at(13, 0), at(14, 0))
-	routes := search(t, wide, withAnchors(problem(), anchor(exhibition), anchor(lecture), anchor(film)), nil)
+	routes := search(t, wide, withAnchors(problem(), anchor(&exhibition), anchor(&lecture), anchor(&film)), nil)
 	requireInEveryRoute(t, routes, 7, 8, 9)
 }
 
 func TestProblemRequiresAnchorSession(t *testing.T) {
-	if err := withAnchors(problem(), Anchor{Candidate: place(1, domain.CategoryCulture, 0, origin)}).Validate(); err == nil {
+	if err := withAnchors(
+		problem(),
+		Anchor{Candidate: place(1, domain.CategoryCulture, 0, origin)},
+	).Validate(); err == nil {
 		t.Fatal("anchor without a session accepted")
 	}
 }
 
 func TestAnchorWithinAStrictBudget(t *testing.T) {
-	concert := priced(session(99, domain.CategoryCulture, north(origin, 500), at(16, 0), at(17, 0)), 80000)
+	concert := priced(new(session(99, domain.CategoryCulture, north(origin, 500), at(16, 0), at(17, 0))), 80000)
 	concert.BaseScore = 0.001
 	var pool []domain.Candidate
 	for i := range 24 {
 		hour, minute := 10+i/4, (i%4)*15
-		pool = append(pool, priced(session(byte(i+1), domain.CategoryCulture, north(origin, float64(50+10*i)), at(hour, minute), at(hour, minute+10)), 30000))
+		pool = append(
+			pool,
+			priced(
+				new(session(
+					byte(i+1),
+					domain.CategoryCulture,
+					north(origin, float64(50+10*i)),
+					at(hour, minute),
+					at(hour, minute+10),
+				)),
+				30000,
+			),
+		)
 	}
-	p := withAnchors(problem(), anchor(concert))
-	p.Pricing.Budget = domain.Budget{Mode: domain.BudgetStrict, Limit: &domain.Money{AmountMinor: 100000, Currency: "RUB"}}
+	p := withAnchors(problem(), anchor(&concert))
+	p.Pricing.Budget = domain.Budget{
+		Mode:  domain.BudgetStrict,
+		Limit: &domain.Money{AmountMinor: 100000, Currency: "RUB"},
+	}
 	for _, cfg := range []Config{greedy, wide} {
 		requireSession(t, search(t, cfg, p, pool), 99)
 	}
@@ -321,15 +368,18 @@ func TestAnchorWithinAStrictBudget(t *testing.T) {
 
 func TestFlexibleAnchorMustFitBetweenFixedOnes(t *testing.T) {
 	lecture := session(90, domain.CategoryCulture, north(origin, 1500), at(11, 45), at(12, 30))
-	exhibition := withWindow(session(91, domain.CategoryCulture, north(origin, -1500), at(10, 0), at(18, 0)), func(w *domain.VisitWindow) {
-		w.Kind, w.MinDuration, w.RecommendedDuration = domain.WindowContinuous, 20*time.Minute, 30*time.Minute
-		w.LastEntryAt = ptr(at(11, 30))
-	})
+	exhibition := withWindow(
+		new(session(91, domain.CategoryCulture, north(origin, -1500), at(10, 0), at(18, 0))),
+		func(w *domain.VisitWindow) {
+			w.Kind, w.MinDuration, w.RecommendedDuration = domain.WindowContinuous, 20*time.Minute, 30*time.Minute
+			w.LastEntryAt = new(at(11, 30))
+		},
+	)
 	var pool []domain.Candidate
 	for i := range 20 {
 		pool = append(pool, place(byte(i+1), domain.CategoryCulture, 0, north(origin, float64(10+5*i))))
 	}
-	p := withAnchors(problem(), anchor(lecture), anchor(exhibition))
+	p := withAnchors(problem(), anchor(&lecture), anchor(&exhibition))
 	for _, cfg := range []Config{greedy, wide} {
 		routes := search(t, cfg, p, pool)
 		requireSession(t, routes, 90)
@@ -339,19 +389,25 @@ func TestFlexibleAnchorMustFitBetweenFixedOnes(t *testing.T) {
 
 func TestTwoAnchorsAtOnePlace(t *testing.T) {
 	morning := session(9, domain.CategoryCulture, north(origin, 500), at(11, 0), at(12, 0))
-	evening := atVenue(session(8, domain.CategoryCulture, north(origin, 500), at(16, 0), at(17, 0)), 9)
-	conflicts, err := newSolver(t, wide).Diagnose(context.Background(), withAnchors(problem(), anchor(morning), anchor(evening)))
+	evening := atVenue(new(session(8, domain.CategoryCulture, north(origin, 500), at(16, 0), at(17, 0))), 9)
+	conflicts, err := newSolver(
+		t,
+		wide,
+	).Diagnose(context.Background(), withAnchors(problem(), anchor(&morning), anchor(&evening)))
 	if err != nil || !slices.Equal(conflictCodes(conflicts), []string{"OBLIGATIONS_SAME_PLACE"}) {
 		t.Fatalf("conflicts=%v err=%v", conflictCodes(conflicts), err)
 	}
 }
 
 func TestOpenWindowVisitShortensToKeepAnAnchor(t *testing.T) {
-	exhibition := withWindow(session(8, domain.CategoryCulture, north(origin, 300), at(10, 0), at(18, 0)), func(w *domain.VisitWindow) {
-		w.Kind, w.MinDuration, w.RecommendedDuration = domain.WindowContinuous, time.Hour, 2*time.Hour
-	})
+	exhibition := withWindow(
+		new(session(8, domain.CategoryCulture, north(origin, 300), at(10, 0), at(18, 0))),
+		func(w *domain.VisitWindow) {
+			w.Kind, w.MinDuration, w.RecommendedDuration = domain.WindowContinuous, time.Hour, 2*time.Hour
+		},
+	)
 	concert := session(9, domain.CategoryCulture, north(origin, 600), at(12, 0), at(13, 30))
-	p := withAnchors(problem(), anchor(exhibition), anchor(concert))
+	p := withAnchors(problem(), anchor(&exhibition), anchor(&concert))
 	p.End = at(14, 0)
 	for _, cfg := range []Config{greedy, wide} {
 		routes := search(t, cfg, p, nil)

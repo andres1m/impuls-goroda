@@ -43,43 +43,45 @@ var kudagoCategories = []struct {
 	code string
 	interest
 }{
-	{"exhibition", interest{"culture", ""}},
-	{"theater", interest{"culture", "performing_arts"}},
-	{"concert", interest{"culture", "performing_arts"}},
-	{"education", interest{"culture", "lectures_workshops"}},
-	{"cinema", interest{"culture", "cinema"}},
-	{"tour", interest{"tourism", "excursions"}},
-	{"festival", interest{"culture", ""}},
+	{"exhibition", interest{categoryCulture, ""}},
+	{"theater", interest{categoryCulture, tagPerformingArts}},
+	{"concert", interest{categoryCulture, tagPerformingArts}},
+	{"education", interest{categoryCulture, tagLecturesWorkshops}},
+	{tagCinema, interest{categoryCulture, tagCinema}},
+	{"tour", interest{osmKeyTourism, tagExcursions}},
+	{"festival", interest{categoryCulture, ""}},
 }
 
 // KudaGoEvent turns a KudaGo event into an event at its place. Only dates with a stated start and end
 // become sessions: KudaGo gives most dates without an end, and a guessed end would pass for a fact.
+//
+//nolint:gocognit // source validation and session extraction form one normalization pass
 func KudaGoEvent(city domain.City, externalID string, payload []byte, now time.Time) (Draft, error) {
 	var rec kudagoRecord
 	if err := json.Unmarshal(payload, &rec); err != nil {
-		return Draft{}, &DataError{Code: "bad_payload"}
+		return Draft{}, &DataError{Code: codeBadPayload}
 	}
 	title := strings.TrimSpace(rec.ShortTitle)
 	if title == "" {
 		title = strings.TrimSpace(rec.Title)
 	}
 	if title == "" {
-		return Draft{}, &DataError{Code: "missing_name"}
+		return Draft{}, &DataError{Code: codeMissingName}
 	}
 	p := rec.Place
 	if p == nil || p.ID == 0 || p.IsClosed {
-		return Draft{}, &DataError{Code: "missing_place"}
+		return Draft{}, &DataError{Code: codeMissingPlace}
 	}
 	placeTitle := strings.TrimSpace(p.Title)
 	if placeTitle == "" {
-		return Draft{}, &DataError{Code: "missing_name"}
+		return Draft{}, &DataError{Code: codeMissingName}
 	}
 	if p.Coords.Lat == nil || p.Coords.Lon == nil {
-		return Draft{}, &DataError{Code: "bad_coordinates"}
+		return Draft{}, &DataError{Code: codeBadCoordinates}
 	}
 	lat, lon, ok := cityPoint(city, *p.Coords.Lat, *p.Coords.Lon)
 	if !ok {
-		return Draft{}, &DataError{Code: "bad_coordinates"}
+		return Draft{}, &DataError{Code: codeBadCoordinates}
 	}
 	category, tags := kudagoCategory(rec.Categories)
 	if category == "" {
@@ -87,8 +89,16 @@ func KudaGoEvent(city domain.City, externalID string, payload []byte, now time.T
 	}
 
 	place := PlaceDraft{
-		ExternalID: "place:" + strconv.FormatInt(p.ID, 10), Title: placeTitle, NormalizedTitle: NormalizedTitle(placeTitle),
-		Lat: lat, Lon: lon, Address: optional(strings.TrimSpace(p.Address)), OpeningRules: unknownHours,
+		ExternalID: "place:" + strconv.FormatInt(
+			p.ID,
+			10,
+		),
+		Title:           placeTitle,
+		NormalizedTitle: NormalizedTitle(placeTitle),
+		Lat:             lat,
+		Lon:             lon,
+		Address:         optional(strings.TrimSpace(p.Address)),
+		OpeningRules:    unknownHours,
 	}
 	event := &EventDraft{
 		ExternalID: externalID + "@" + place.ExternalID, Title: title, NormalizedTitle: NormalizedTitle(title),
@@ -108,7 +118,7 @@ func KudaGoEvent(city domain.City, externalID string, payload []byte, now time.T
 	return Draft{Place: place, Event: event}, nil
 }
 
-func kudagoCategory(categories []string) (string, []string) {
+func kudagoCategory(categories []string) (selectedCategory string, selectedTags []string) {
 	var category string
 	var tags []string
 	for _, row := range kudagoCategories {

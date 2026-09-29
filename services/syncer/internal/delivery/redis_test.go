@@ -22,7 +22,7 @@ const payload = `{"city":"perm","catalog_revision":2,"reason":"seed","published_
 func TestRedisSenderPublishesTheRevision(t *testing.T) {
 	p := &fakePublisher{}
 	sender := NewRedisSender(func() Publisher { return p })
-	if err := sender.Send(context.Background(), Item{Payload: []byte(payload)}); err != nil {
+	if err := sender.Send(context.Background(), &Item{Payload: []byte(payload)}); err != nil {
 		t.Fatal(err)
 	}
 	if p.channel != "catalog:revision" || string(p.message.([]byte)) != payload {
@@ -33,14 +33,14 @@ func TestRedisSenderPublishesTheRevision(t *testing.T) {
 func TestRedisSenderRefusesABrokenPayload(t *testing.T) {
 	p := &fakePublisher{}
 	sender := NewRedisSender(func() Publisher { return p })
-	if err := sender.Send(context.Background(), Item{Payload: []byte(`{"city":""}`)}); err == nil || p.channel != "" {
+	if err := sender.Send(context.Background(), &Item{Payload: []byte(`{"city":""}`)}); err == nil || p.channel != "" {
 		t.Fatalf("broken payload published: err %v, channel %q", err, p.channel)
 	}
 }
 
 func TestRedisSenderWithoutClient(t *testing.T) {
 	sender := NewRedisSender(func() Publisher { return nil })
-	if err := sender.Send(context.Background(), Item{Payload: []byte(payload)}); err == nil {
+	if err := sender.Send(context.Background(), &Item{Payload: []byte(payload)}); err == nil {
 		t.Fatal("sent without a client")
 	}
 }

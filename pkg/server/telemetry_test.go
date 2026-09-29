@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -40,10 +41,8 @@ func newTestServer(name string, opts ...Option) *Server {
 }
 
 func serve(s *Server, path string, header http.Header) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodGet, path, nil)
-	for k, v := range header {
-		req.Header[k] = v
-	}
+	req := httptest.NewRequest(http.MethodGet, path, http.NoBody)
+	maps.Copy(req.Header, header)
 	rec := httptest.NewRecorder()
 	s.api.ServeHTTP(rec, req)
 	return rec
@@ -152,7 +151,7 @@ func TestUnknownMethodsUseOneSeries(t *testing.T) {
 	s := newTestServer("method-test")
 	for _, method := range []string{"CUSTOMA", "CUSTOMB", "CUSTOMC"} {
 		response := httptest.NewRecorder()
-		s.api.ServeHTTP(response, httptest.NewRequest(method, "/unknown", nil))
+		s.api.ServeHTTP(response, httptest.NewRequest(method, "/unknown", http.NoBody))
 		if response.Code != http.StatusNotFound {
 			t.Fatalf("status = %d", response.Code)
 		}

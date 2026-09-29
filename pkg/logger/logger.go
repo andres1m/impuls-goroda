@@ -36,20 +36,28 @@ func New(opts ...Option) (*Log, error) {
 	encoder := zapcore.NewJSONEncoder(ec)
 	var cores []zapcore.Core
 	if l.stdout {
-		cores = append(cores,
-			zapcore.NewCore(encoder, zapcore.Lock(zapcore.AddSync(os.Stdout)), zap.LevelEnablerFunc(func(v zapcore.Level) bool { return v >= l.level && v < zapcore.WarnLevel })),
-			zapcore.NewCore(encoder, zapcore.Lock(zapcore.AddSync(os.Stderr)), zap.LevelEnablerFunc(func(v zapcore.Level) bool { return v >= l.level && v >= zapcore.WarnLevel })))
+		cores = append(
+			cores,
+			zapcore.NewCore(
+				encoder,
+				zapcore.Lock(zapcore.AddSync(os.Stdout)),
+				zap.LevelEnablerFunc(func(v zapcore.Level) bool { return v >= l.level && v < zapcore.WarnLevel }),
+			),
+			zapcore.NewCore(
+				encoder,
+				zapcore.Lock(zapcore.AddSync(os.Stderr)),
+				zap.LevelEnablerFunc(func(v zapcore.Level) bool { return v >= l.level && v >= zapcore.WarnLevel }),
+			),
+		)
 	}
-	for _, path := range l.paths {
-		path, err := checkOrCreatePath(path)
+	for _, configuredPath := range l.paths {
+		path, err := checkOrCreatePath(configuredPath)
 		if err != nil {
-			l.closeFiles()
-			return nil, err
+			return nil, errors.Join(err, l.closeFiles())
 		}
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 		if err != nil {
-			l.closeFiles()
-			return nil, fmt.Errorf("open log file: %w", err)
+			return nil, errors.Join(fmt.Errorf("open log file: %w", err), l.closeFiles())
 		}
 		l.files = append(l.files, f)
 		cores = append(cores, zapcore.NewCore(encoder, zapcore.Lock(zapcore.AddSync(f)), l.level))

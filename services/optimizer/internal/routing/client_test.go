@@ -61,13 +61,25 @@ func TestTableRejectsBadResponses(t *testing.T) {
 		body   string
 		want   string
 	}{
-		"router error":    {http.StatusBadRequest, `{"code":"InvalidQuery","message":"Query string malformed"}`, "InvalidQuery"},
-		"proxy error":     {http.StatusServiceUnavailable, `{}`, "503"},
-		"not ok":          {http.StatusOK, `{"code":"NoTable","message":"none"}`, "NoTable"},
-		"no data version": {http.StatusOK, strings.Replace(okTable, `"data_version":"20260926T202251Z-13fd215c",`, "", 1), "data version"},
-		"wrong size":      {http.StatusOK, strings.Replace(okTable, `[[0,120.5],[null,0]]`, `[[0,120.5]]`, 1), "size"},
-		"no sources":      {http.StatusOK, strings.Replace(okTable, `"sources":[{"distance":4.2},{"distance":620}]`, `"sources":[]`, 1), "size"},
-		"not json":        {http.StatusOK, `<html>`, "decode"},
+		"router error": {
+			http.StatusBadRequest,
+			`{"code":"InvalidQuery","message":"Query string malformed"}`,
+			"InvalidQuery",
+		},
+		"proxy error": {http.StatusServiceUnavailable, `{}`, "503"},
+		"not ok":      {http.StatusOK, `{"code":"NoTable","message":"none"}`, "NoTable"},
+		"no data version": {
+			http.StatusOK,
+			strings.Replace(okTable, `"data_version":"20260926T202251Z-13fd215c",`, "", 1),
+			"data version",
+		},
+		"wrong size": {http.StatusOK, strings.Replace(okTable, `[[0,120.5],[null,0]]`, `[[0,120.5]]`, 1), "size"},
+		"no sources": {
+			http.StatusOK,
+			strings.Replace(okTable, `"sources":[{"distance":4.2},{"distance":620}]`, `"sources":[]`, 1),
+			"size",
+		},
+		"not json": {http.StatusOK, `<html>`, "decode"},
 	}
 	for name, tc := range cases {
 		server := osrm(t, tc.status, tc.body, nil)

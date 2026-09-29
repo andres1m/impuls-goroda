@@ -69,7 +69,10 @@ type SessionAccount struct {
 	Account domain.UserAccount
 }
 
-func (q *Queries) UpsertMaxAccount(ctx context.Context, account domain.UserAccount) (domain.UserAccount, error) {
+func (q *Queries) UpsertMaxAccount(ctx context.Context, account *domain.UserAccount) (domain.UserAccount, error) {
+	if account == nil {
+		return domain.UserAccount{}, errors.New("MAX account is required")
+	}
 	if err := account.Validate(); err != nil {
 		return domain.UserAccount{}, fmt.Errorf("validate MAX account: %w", err)
 	}
@@ -93,7 +96,10 @@ func (q *Queries) UpsertMaxAccount(ctx context.Context, account domain.UserAccou
 	return stored, nil
 }
 
-func (q *Queries) UpsertTestAccount(ctx context.Context, account domain.UserAccount) (domain.UserAccount, error) {
+func (q *Queries) UpsertTestAccount(ctx context.Context, account *domain.UserAccount) (domain.UserAccount, error) {
+	if account == nil {
+		return domain.UserAccount{}, errors.New("test account is required")
+	}
 	if err := account.Validate(); err != nil {
 		return domain.UserAccount{}, fmt.Errorf("validate test account: %w", err)
 	}
@@ -117,7 +123,10 @@ func (q *Queries) UpsertTestAccount(ctx context.Context, account domain.UserAcco
 	return stored, nil
 }
 
-func (q *Queries) CreateSession(ctx context.Context, session domain.AuthSession) (domain.AuthSession, error) {
+func (q *Queries) CreateSession(ctx context.Context, session *domain.AuthSession) (domain.AuthSession, error) {
+	if session == nil {
+		return domain.AuthSession{}, errors.New("session is required")
+	}
 	if err := session.Validate(); err != nil {
 		return domain.AuthSession{}, fmt.Errorf("validate session: %w", err)
 	}

@@ -16,9 +16,9 @@ var envPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 // Load reads one YAML document into a service-owned configuration struct.
 // Only ${NAME} placeholders are expanded, after parsing, so values cannot inject YAML.
 func Load(path string, target any) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("read configuration: %w", err)
+	data, readErr := os.ReadFile(path)
+	if readErr != nil {
+		return fmt.Errorf("read configuration: %w", readErr)
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	var node yaml.Node
@@ -26,13 +26,13 @@ func Load(path string, target any) error {
 		return errors.New("invalid YAML configuration")
 	}
 	var extra yaml.Node
-	if err := decoder.Decode(&extra); err != io.EOF {
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		return errors.New("configuration must contain exactly one document")
 	}
 	if err := expand(&node); err != nil {
 		return err
 	}
-	data, err = yaml.Marshal(&node)
+	data, err := yaml.Marshal(&node)
 	if err != nil {
 		return errors.New("cannot normalize configuration")
 	}

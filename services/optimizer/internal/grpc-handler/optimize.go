@@ -13,20 +13,24 @@ func (h *Handler) Optimize(ctx context.Context, in *pb.OptimizeRequest) (*pb.Opt
 	if err != nil {
 		return nil, toStatus(h.log, method, err)
 	}
-	if err := req.Validate(); err != nil {
-		return nil, toStatus(h.log, method, invalidRequest("request", err))
+	if validationErr := req.Validate(); validationErr != nil {
+		return nil, toStatus(h.log, method, invalidRequest("request", validationErr))
 	}
-	res, err := h.planner.Optimize(ctx, req)
+	res, err := h.planner.Optimize(ctx, &req)
 	if err != nil {
 		return nil, toStatus(h.log, method, err)
 	}
 	if err := res.Validate(); err != nil {
 		return nil, toStatus(h.log, method, fmt.Errorf("planner returned an invalid result: %w", err))
 	}
-	for i, route := range res.Routes {
-		if err := route.ValidateBudget(req.Constraints.Budget); err != nil {
-			return nil, toStatus(h.log, method, fmt.Errorf("planner returned route %d with an invalid budget: %w", i+1, err))
+	for i := range res.Routes {
+		if err := res.Routes[i].ValidateBudget(req.Constraints.Budget); err != nil {
+			return nil, toStatus(
+				h.log,
+				method,
+				fmt.Errorf("planner returned route %d with an invalid budget: %w", i+1, err),
+			)
 		}
 	}
-	return optimizeResponseToProto(res), nil
+	return optimizeResponseToProto(&res), nil
 }

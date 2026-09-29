@@ -29,26 +29,35 @@ func (q *Queries) FindRouteAccess(
 	if routeID == (domain.RouteID{}) || userID == (domain.UserID{}) {
 		return RouteAccess{}, errors.New("route and user identifiers are required")
 	}
+	return q.queryRouteAccess(ctx, findRouteAccessSQL, "find route access", routeID, userID)
+}
 
+func (q *Queries) queryRouteAccess(
+	ctx context.Context,
+	query string,
+	operation string,
+	routeID domain.RouteID,
+	userID domain.UserID,
+) (RouteAccess, error) {
 	var routeUUID, ownerUUID pgtype.UUID
 	var access RouteAccess
 	err := q.db.QueryRow(
 		ctx,
-		findRouteAccessSQL,
+		query,
 		encodeUUID([16]byte(routeID)),
 		encodeUUID([16]byte(userID)),
 	).Scan(&routeUUID, &ownerUUID, &access.Lifecycle, &access.Revision)
 	if err != nil {
-		return RouteAccess{}, mapQueryError("find route access", err)
+		return RouteAccess{}, mapQueryError(operation, err)
 	}
 
 	decodedRouteID, err := decodeUUID(routeUUID)
 	if err != nil {
-		return RouteAccess{}, fmt.Errorf("decode route access: %w", err)
+		return RouteAccess{}, fmt.Errorf("%s: decode route: %w", operation, err)
 	}
 	decodedOwnerID, err := decodeUUID(ownerUUID)
 	if err != nil {
-		return RouteAccess{}, fmt.Errorf("decode route access: %w", err)
+		return RouteAccess{}, fmt.Errorf("%s: decode owner: %w", operation, err)
 	}
 	access.RouteID = domain.RouteID(decodedRouteID)
 	access.OwnerID = domain.UserID(decodedOwnerID)

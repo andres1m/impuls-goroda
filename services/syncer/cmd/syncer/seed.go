@@ -36,7 +36,7 @@ func parseSeedArgs(args []string) (string, error) {
 	return *from, nil
 }
 
-func runSeed(ctx context.Context, args []string) error {
+func runSeed(ctx context.Context, args []string) (retErr error) {
 	from, err := parseSeedArgs(args)
 	if err != nil {
 		return err
@@ -53,30 +53,47 @@ func runSeed(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer database.Stop(context.Background())
+	defer func() {
+		retErr = errors.Join(retErr, database.Stop(context.Background()))
+	}()
 
 	now := time.Now()
 	for _, city := range cities {
-		err := pgx.BeginFunc(ctx, database.Pool, func(tx pgx.Tx) error {
-			ref, err := postgres.LoadSeedReference(ctx, tx)
-			if err != nil {
-				return err
-			}
-			rows, err := seed.Expand(datasets[city], ref, from, now)
-			if err != nil {
-				return err
-			}
-			result, err := postgres.ApplySeed(ctx, tx, rows, now)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("%s: places %d, events %d, sessions %d, prices %d, catalog revision %d\n",
-				city, result.Places, result.Events, result.Sessions, result.Prices, result.CatalogRevision)
-			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("seed %s: %w", city, err)
+		ds := datasets[city]
+		if seedErr := seedCity(ctx, database, city, &ds, from, now); seedErr != nil {
+			return seedErr
 		}
+	}
+	return nil
+}
+
+func seedCity(
+	ctx context.Context,
+	database *db.PostgresClient,
+	city domain.City,
+	ds *seed.Dataset,
+	from string,
+	now time.Time,
+) error {
+	err := pgx.BeginFunc(ctx, database.Pool, func(tx pgx.Tx) error {
+		ref, err := postgres.LoadSeedReference(ctx, tx)
+		if err != nil {
+			return err
+		}
+		rows, err := seed.Expand(ds, ref, from, now)
+		if err != nil {
+			return err
+		}
+		result, err := postgres.ApplySeed(ctx, tx, &rows, now)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%s: places %d, events %d, sessions %d, prices %d, catalog revision %d\n",
+			city, result.Places, result.Events, result.Sessions, result.Prices, result.CatalogRevision)
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("seed %s: %w", city, err)
 	}
 	return nil
 }
@@ -90,7 +107,7 @@ func openDatabase(ctx context.Context) (*db.PostgresClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create logger: %w", err)
 	}
-	database, err := db.NewDb(zapLog.Log, cfg.Database)
+	database, err := db.NewDB(zapLog.Log, cfg.Database)
 	if err != nil {
 		return nil, fmt.Errorf("create db: %w", err)
 	}

@@ -31,7 +31,7 @@ type Execution struct {
 	UpdatedAt         time.Time
 }
 
-func (e Execution) Validate() error {
+func (e *Execution) Validate() error {
 	if err := requiredID([16]byte(e.RouteID)); err != nil {
 		return err
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/andres1m/impuls-goroda/pkg/config"
@@ -13,24 +14,27 @@ import (
 	"go.uber.org/zap"
 )
 
+const redisModeCluster = "cluster"
+const defaultConnectionTimeout = 5 * time.Second
+const defaultCommandTimeout = 3 * time.Second
+
 type RedisClient struct {
 	cfg  config.Redis
 	Pool r.UniversalClient
 }
 
+//nolint:gocritic // service stores and normalizes its own configuration copy
 func NewRedis(_ *zap.Logger, cfg config.Redis) (*RedisClient, error) {
-	if cfg.Mode != "cluster" && cfg.Mode != "standalone" {
+	if cfg.Mode != redisModeCluster && cfg.Mode != "standalone" {
 		return nil, errors.New("redis mode must be cluster or standalone")
 	}
 	if len(cfg.Addresses) == 0 {
 		return nil, errors.New("redis addresses are required")
 	}
-	for _, a := range cfg.Addresses {
-		if a == "" {
-			return nil, errors.New("empty redis address")
-		}
+	if slices.Contains(cfg.Addresses, "") {
+		return nil, errors.New("empty redis address")
 	}
-	if cfg.Mode == "cluster" && cfg.DB != 0 {
+	if cfg.Mode == redisModeCluster && cfg.DB != 0 {
 		return nil, errors.New("redis cluster requires database zero")
 	}
 	if cfg.Mode == "standalone" && len(cfg.Addresses) != 1 {
@@ -40,13 +44,13 @@ func NewRedis(_ *zap.Logger, cfg config.Redis) (*RedisClient, error) {
 		return nil, errors.New("invalid redis database or timeout")
 	}
 	if cfg.ConnectionTimeout == 0 {
-		cfg.ConnectionTimeout = 5 * time.Second
+		cfg.ConnectionTimeout = defaultConnectionTimeout
 	}
 	if cfg.ReadTimeout == 0 {
-		cfg.ReadTimeout = 3 * time.Second
+		cfg.ReadTimeout = defaultCommandTimeout
 	}
 	if cfg.WriteTimeout == 0 {
-		cfg.WriteTimeout = 3 * time.Second
+		cfg.WriteTimeout = defaultCommandTimeout
 	}
 	cfg.Addresses = append([]string(nil), cfg.Addresses...)
 	return &RedisClient{cfg: cfg}, nil
@@ -57,8 +61,16 @@ func (c *RedisClient) Init(context.Context) error {
 	if c.Pool != nil {
 		return errors.New("redis already initialized")
 	}
-	o := &r.UniversalOptions{Addrs: c.cfg.Addresses, Username: c.cfg.Username, Password: c.cfg.Password, DB: c.cfg.DB, DialTimeout: c.cfg.ConnectionTimeout, ReadTimeout: c.cfg.ReadTimeout, WriteTimeout: c.cfg.WriteTimeout}
-	if c.cfg.Mode == "cluster" {
+	o := &r.UniversalOptions{
+		Addrs:        c.cfg.Addresses,
+		Username:     c.cfg.Username,
+		Password:     c.cfg.Password,
+		DB:           c.cfg.DB,
+		DialTimeout:  c.cfg.ConnectionTimeout,
+		ReadTimeout:  c.cfg.ReadTimeout,
+		WriteTimeout: c.cfg.WriteTimeout,
+	}
+	if c.cfg.Mode == redisModeCluster {
 		cfg := o.Cluster()
 		cfg.ContextTimeoutEnabled = true
 		c.Pool = r.NewClusterClient(cfg)
@@ -91,7 +103,10 @@ func (c *RedisClient) Stop(context.Context) error {
 	}
 	err := c.Pool.Close()
 	c.Pool = nil
-	return err
+	if err != nil {
+		return fmt.Errorf("close redis: %w", err)
+	}
+	return nil
 }
 
 var _ svc.Service = (*RedisClient)(nil)

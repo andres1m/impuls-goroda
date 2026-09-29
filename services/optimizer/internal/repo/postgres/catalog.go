@@ -90,12 +90,15 @@ const sessionPriceOffersSQL = `
 
 // Candidates reads the candidate pool of the request straight from the database. The day comes from
 // one snapshot; commitments to sessions that ended before it are read afterwards.
-func (c *Catalog) Candidates(ctx context.Context, req domain.OptimizeRequest) ([]domain.Candidate, domain.DataFreshness, error) {
+func (c *Catalog) Candidates(
+	ctx context.Context,
+	req *domain.OptimizeRequest,
+) ([]domain.Candidate, domain.DataFreshness, error) {
 	if err := req.Validate(); err != nil {
-		return nil, domain.DataFreshness{}, fmt.Errorf("%w: %v", usecase.ErrInvalidRequest, err)
+		return nil, domain.DataFreshness{}, fmt.Errorf("%w: %w", usecase.ErrInvalidRequest, err)
 	}
 	if _, err := time.LoadLocation(req.Timezone); err != nil {
-		return nil, domain.DataFreshness{}, fmt.Errorf("%w: %v", usecase.ErrInvalidRequest, err)
+		return nil, domain.DataFreshness{}, fmt.Errorf("%w: %w", usecase.ErrInvalidRequest, err)
 	}
 	slice, err := c.LoadSlice(ctx, req.City, req.Start)
 	if err != nil {
@@ -138,7 +141,10 @@ func (c *Catalog) LoadSlice(ctx context.Context, city string, horizon time.Time)
 	if err != nil {
 		return nil, wrapDBError("begin catalog snapshot", err)
 	}
-	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	defer func() {
+		// Rollback also runs after a successful commit; ErrTxClosed needs no action.
+		_ = tx.Rollback(context.WithoutCancel(ctx)) //nolint:errcheck // best-effort cleanup after commit
+	}()
 
 	slice := &catalogslice.Slice{City: city, Horizon: horizon.UTC(), BuiltAt: time.Now().UTC()}
 	var revision int64
@@ -172,7 +178,11 @@ func (c *Catalog) LoadSlice(ctx context.Context, city string, horizon time.Time)
 
 // SessionsByID reads sessions the slice does not hold, such as a commitment to one that already ended,
 // with the places the slice knows.
-func (c *Catalog) SessionsByID(ctx context.Context, slice *catalogslice.Slice, ids []domain.SessionID) ([]domain.Candidate, error) {
+func (c *Catalog) SessionsByID(
+	ctx context.Context,
+	slice *catalogslice.Slice,
+	ids []domain.SessionID,
+) ([]domain.Candidate, error) {
 	if c.db == nil {
 		return nil, usecase.ErrUnavailable
 	}
@@ -204,7 +214,19 @@ func loadPlaces(ctx context.Context, q Querier, city string) ([]catalogslice.Pla
 			updatedAt time.Time
 			baseScore float64
 		)
-		if err := rows.Scan(&id, &title, &category, &tagMask, &lon, &lat, &rawRules, &dataMode, &recordID, &updatedAt, &baseScore); err != nil {
+		if err := rows.Scan(
+			&id,
+			&title,
+			&category,
+			&tagMask,
+			&lon,
+			&lat,
+			&rawRules,
+			&dataMode,
+			&recordID,
+			&updatedAt,
+			&baseScore,
+		); err != nil {
 			return nil, wrapDBError("scan place", err)
 		}
 		rules, err := domain.ParseOpeningRules(rawRules)
@@ -222,7 +244,7 @@ func loadPlaces(ctx context.Context, q Querier, city string) ([]catalogslice.Pla
 				City:         city,
 				Title:        title,
 				Category:     cat,
-				InterestMask: domain.InterestMask(uint64(tagMask)),
+				InterestMask: reinterpretMask(tagMask),
 				Location:     domain.Coordinate{Longitude: lon, Latitude: lat},
 				DataMode:     domain.DataMode(dataMode),
 				Provenance: domain.Provenance{
@@ -282,16 +304,24 @@ func loadEntrances(ctx context.Context, q Querier, city string) (map[domain.Plac
 
 // loadSessions reads session candidates by one of the session queries; sessions of places the slice
 // does not hold are left out.
-func loadSessions(ctx context.Context, q Querier, slice *catalogslice.Slice, sql string, filter any) ([]domain.Candidate, error) {
-	rows, err := q.Query(ctx, sql, slice.City, filter)
-	if err != nil {
-		return nil, wrapDBError("query active sessions", err)
+//
+//nolint:funlen // one row scan must keep the session and offer fields aligned
+func loadSessions(
+	ctx context.Context,
+	q Querier,
+	slice *catalogslice.Slice,
+	sql string,
+	filter any,
+) ([]domain.Candidate, error) {
+	rows, queryErr := q.Query(ctx, sql, slice.City, filter)
+	if queryErr != nil {
+		return nil, wrapDBError("query active sessions", queryErr)
 	}
 	defer rows.Close()
 
 	places := make(map[domain.PlaceID]catalogslice.Place, len(slice.Places))
-	for _, p := range slice.Places {
-		places[p.Place.ID] = p
+	for i := range slice.Places {
+		places[slice.Places[i].Place.ID] = slice.Places[i]
 	}
 	var candidates []domain.Candidate
 	var sessionUUIDs []string
@@ -362,7 +392,7 @@ func loadSessions(ctx context.Context, q Querier, slice *catalogslice.Slice, sql
 			PlaceID:      placeID,
 			Title:        eventTitle,
 			Category:     domain.Category(eventCategory),
-			InterestMask: domain.InterestMask(uint64(eventTagMask)),
+			InterestMask: reinterpretMask(eventTagMask),
 			AgeMin:       ageMin,
 			AgeMax:       ageMax,
 			DataMode:     domain.DataMode(eventDataMode),
@@ -421,7 +451,12 @@ func loadSessions(ctx context.Context, q Querier, slice *catalogslice.Slice, sql
 	return candidates, nil
 }
 
-func loadPriceOffers(ctx context.Context, q Querier, city string, sessionUUIDs []string) (map[domain.SessionID][]domain.PriceOffer, error) {
+func loadPriceOffers(
+	ctx context.Context,
+	q Querier,
+	city string,
+	sessionUUIDs []string,
+) (map[domain.SessionID][]domain.PriceOffer, error) {
 	rows, err := q.Query(ctx, sessionPriceOffersSQL, city, sessionUUIDs)
 	if err != nil {
 		return nil, wrapDBError("query session price offers", err)
@@ -529,5 +564,10 @@ func wrapDBError(op string, err error) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
-	return fmt.Errorf("%s: %w: %v", op, usecase.ErrUnavailable, err)
+	return fmt.Errorf("%s: %w: %w", op, usecase.ErrUnavailable, err)
+}
+
+// reinterpretMask preserves the 64-bit bit pattern stored in a signed PostgreSQL bigint.
+func reinterpretMask(mask int64) domain.InterestMask {
+	return domain.InterestMask(uint64(mask)) //nolint:gosec // the signed representation is intentional
 }

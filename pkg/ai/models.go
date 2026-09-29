@@ -29,11 +29,14 @@ type backend struct {
 	keySet bool
 }
 
-func newBackend(cfg Config, provider string) backend {
+func newBackend(cfg *Config, provider string) backend {
 	switch provider {
 	case ProviderOpenRouter:
 		c := cfg.OpenRouter
-		return backend{client: openrouter.New(c.BaseURL, c.APIKey, &http.Client{Timeout: c.Timeout}), keySet: c.APIKey != ""}
+		return backend{
+			client: openrouter.New(c.BaseURL, c.APIKey, &http.Client{Timeout: c.Timeout}),
+			keySet: c.APIKey != "",
+		}
 	case ProviderPolza:
 		c := cfg.Polza
 		return backend{client: polza.New(c.BaseURL, c.APIKey, &http.Client{Timeout: c.Timeout}), keySet: c.APIKey != ""}
@@ -51,11 +54,16 @@ type Models struct {
 	text             atomic.Pointer[string]
 }
 
+//nolint:gocritic // public constructor stores a configuration snapshot
 func New(cfg Config) (*Models, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	m := &Models{cfg: cfg, embeddingBackend: newBackend(cfg, cfg.Embedding.Provider), textBackend: newBackend(cfg, cfg.Text.Provider)}
+	m := &Models{
+		cfg:              cfg,
+		embeddingBackend: newBackend(&cfg, cfg.Embedding.Provider),
+		textBackend:      newBackend(&cfg, cfg.Text.Provider),
+	}
 	embedding, text := strings.TrimSpace(cfg.Embedding.Model), strings.TrimSpace(cfg.Text.Model)
 	m.embedding.Store(&embedding)
 	m.text.Store(&text)
@@ -158,7 +166,13 @@ func (m *Models) embedHosted(ctx context.Context, model string, texts []string) 
 	}
 	for _, v := range vectors {
 		if len(v) != m.cfg.Embedding.Dimensions {
-			return nil, fmt.Errorf("%w: model %s returned %d, want %d", ErrDimensions, model, len(v), m.cfg.Embedding.Dimensions)
+			return nil, fmt.Errorf(
+				"%w: model %s returned %d, want %d",
+				ErrDimensions,
+				model,
+				len(v),
+				m.cfg.Embedding.Dimensions,
+			)
 		}
 	}
 	return vectors, nil

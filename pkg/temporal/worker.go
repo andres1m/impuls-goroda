@@ -3,6 +3,7 @@ package temporal
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -11,6 +12,9 @@ import (
 	"go.temporal.io/sdk/worker"
 	"go.uber.org/zap"
 )
+
+const minWorkflowTasks = 2
+const workerStopTimeout = 5 * time.Second
 
 type Worker struct {
 	client         *Client
@@ -26,9 +30,17 @@ type Worker struct {
 
 func NewWorker(_ *zap.Logger, c *Client, cfg *config.Temporal, register func(worker.Registry)) (*Worker, error) {
 	if c == nil || cfg == nil || cfg.QueueName == "" || cfg.WorkerCount <= 0 || register == nil {
-		return nil, errors.New("temporal worker requires a client, queue, positive concurrency and registration callback")
+		return nil, errors.New(
+			"temporal worker requires a client, queue, positive concurrency and registration callback",
+		)
 	}
-	return &Worker{client: c, cfg: *cfg, register: register, stopped: make(chan struct{}), fatalErrors: make(chan error, 1)}, nil
+	return &Worker{
+		client:      c,
+		cfg:         *cfg,
+		register:    register,
+		stopped:     make(chan struct{}),
+		fatalErrors: make(chan error, 1),
+	}, nil
 }
 func (w *Worker) Name() string        { return "temporal-worker" }
 func (w *Worker) DependsOn() []string { return []string{"logger", "temporal-client"} }
@@ -41,8 +53,8 @@ func (w *Worker) Init(context.Context) error {
 	}
 	w.TemporalWorker = worker.New(w.client.TemporalClient, w.cfg.QueueName, worker.Options{
 		MaxConcurrentActivityExecutionSize:     w.cfg.WorkerCount,
-		MaxConcurrentWorkflowTaskExecutionSize: max(2, w.cfg.WorkerCount),
-		WorkerStopTimeout:                      5 * time.Second,
+		MaxConcurrentWorkflowTaskExecutionSize: max(minWorkflowTasks, w.cfg.WorkerCount),
+		WorkerStopTimeout:                      workerStopTimeout,
 		OnFatalError: func(err error) {
 			select {
 			case w.fatalErrors <- err:
@@ -65,7 +77,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	w.mu.Lock()
 	if err := ctx.Err(); err != nil {
 		w.mu.Unlock()
-		return err
+		return fmt.Errorf("run temporal worker: %w", err)
 	}
 	if w.TemporalWorker == nil {
 		w.mu.Unlock()
@@ -77,7 +89,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	}
 	if err := w.TemporalWorker.Start(); err != nil {
 		w.mu.Unlock()
-		return err
+		return fmt.Errorf("start temporal worker: %w", err)
 	}
 	w.started = true
 	w.mu.Unlock()
@@ -105,7 +117,7 @@ func (w *Worker) Stop(ctx context.Context) error {
 	case <-w.stopped:
 		return nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("stop temporal worker: %w", ctx.Err())
 	}
 }
 

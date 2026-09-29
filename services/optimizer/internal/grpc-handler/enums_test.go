@@ -18,12 +18,18 @@ func checkEnum[P interface {
 	values := zero.Descriptor().Values()
 	prefix := strings.TrimSuffix(string(values.ByNumber(0).Name()), "UNSPECIFIED")
 	if len(m.toDomain) != values.Len()-1 || len(m.toProto) != len(m.toDomain) {
-		t.Errorf("%s: table has %d/%d entries, want %d", zero.Descriptor().Name(), len(m.toDomain), len(m.toProto), values.Len()-1)
+		t.Errorf(
+			"%s: table has %d/%d entries, want %d",
+			zero.Descriptor().Name(),
+			len(m.toDomain),
+			len(m.toProto),
+			values.Len()-1,
+		)
 	}
 	if _, ok := m.toDomain[zero]; ok {
 		t.Errorf("%s: UNSPECIFIED must not map to a domain value", zero.Descriptor().Name())
 	}
-	for i := 0; i < values.Len(); i++ {
+	for i := range values.Len() {
 		v := values.Get(i)
 		if v.Number() == 0 {
 			continue
@@ -31,7 +37,7 @@ func checkEnum[P interface {
 		p := P(v.Number())
 		d, ok := m.toDomain[p]
 		want := strings.ToLower(strings.TrimPrefix(string(v.Name()), prefix))
-		if !ok || strings.ToLower(string(d)) != want {
+		if !ok || !strings.EqualFold(string(d), want) {
 			t.Errorf("%s maps to %q, want %q", v.Name(), d, want)
 		}
 		if m.toProto[d] != p {

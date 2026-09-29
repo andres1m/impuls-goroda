@@ -12,14 +12,24 @@ func TestText(t *testing.T) {
 		e    Entity
 		want string
 	}{
-		"full":          {Entity{Title: "Эрмитаж", Category: "Культура", Interests: []string{"Классические музеи и история", "Архитектура"}}, "Эрмитаж. Культура. Интересы: Классические музеи и история, Архитектура"},
-		"no interests":  {Entity{Title: "Парк", Category: "Прогулки"}, "Парк. Прогулки"},
-		"no category":   {Entity{Title: "Площадь", Interests: []string{"Архитектура"}}, "Площадь. Интересы: Архитектура"},
+		"full": {
+			Entity{
+				Title:     "Эрмитаж",
+				Category:  "Культура",
+				Interests: []string{"Классические музеи и история", "Архитектура"},
+			},
+			"Эрмитаж. Культура. Интересы: Классические музеи и история, Архитектура",
+		},
+		"no interests": {Entity{Title: "Парк", Category: "Прогулки"}, "Парк. Прогулки"},
+		"no category": {
+			Entity{Title: "Площадь", Interests: []string{"Архитектура"}},
+			"Площадь. Интересы: Архитектура",
+		},
 		"trimmed title": {Entity{Title: "  Сад  ", Category: "Прогулки"}, "Сад. Прогулки"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := Text(tc.e); got != tc.want {
+			if got := Text(&tc.e); got != tc.want {
 				t.Fatalf("Text = %q", got)
 			}
 		})
@@ -29,7 +39,7 @@ func TestText(t *testing.T) {
 func TestStaleComparesStoredHash(t *testing.T) {
 	id := uuid.New()
 	fresh := Entity{Place: &id, Title: "Парк", Category: "Прогулки"}
-	fresh.StoredHash = Hash(Text(fresh))
+	fresh.StoredHash = Hash(Text(&fresh))
 	changed := fresh
 	changed.Title = "Новый парк"
 	missing := Entity{Event: &id, Title: "Концерт"}

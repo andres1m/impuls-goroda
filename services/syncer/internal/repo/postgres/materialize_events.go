@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -12,6 +13,20 @@ import (
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/materialize"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/normalize"
 )
+
+const placeResolution = 8
+const fineResolution = 11
+
+func durationSeconds(d time.Duration) int32 {
+	seconds := int64(d / time.Second)
+	if seconds < 0 {
+		return 0
+	}
+	if seconds > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(seconds)
+}
 
 func interestMask(tags []string, bits map[string]int, owner string) (int64, error) {
 	var mask int64
@@ -29,17 +44,31 @@ func returnedIDs(rows pgx.Rows, err error) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, pgx.RowTo[string])
+	ids, collectErr := pgx.CollectRows(rows, pgx.RowTo[string])
+	if collectErr != nil {
+		return nil, fmt.Errorf("collect returned IDs: %w", collectErr)
+	}
+	return ids, nil
 }
 
 // writeEvent writes the event with its sessions and prices, retires the event rows the record had at other
 // places and withdraws future sessions the source no longer lists. It returns the places whose projection
 // the change affects.
-func writeEvent(ctx context.Context, tx pgx.Tx, city domain.City, n materialize.Normalized, placeID string, bits map[string]int, at time.Time) ([]string, error) {
+//
+//nolint:gocognit,funlen // event and session updates share one catalog transaction
+func writeEvent(
+	ctx context.Context,
+	tx pgx.Tx,
+	city domain.City,
+	n *materialize.Normalized,
+	placeID string,
+	bits map[string]int,
+	at time.Time,
+) ([]string, error) {
 	e := n.Event
-	mask, err := interestMask(e.Tags, bits, "event "+e.ExternalID)
-	if err != nil {
-		return nil, err
+	mask, maskErr := interestMask(e.Tags, bits, "event "+e.ExternalID)
+	if maskErr != nil {
+		return nil, maskErr
 	}
 	eventID := normalize.EntityID(string(n.Raw.Source) + ":" + e.ExternalID)
 	record := n.Raw.SourceRecordID
@@ -80,10 +109,11 @@ func writeEvent(ctx context.Context, tx pgx.Tx, city domain.City, n materialize.
 	touched = append(touched, moved...)
 
 	listed := make([]string, 0, len(e.Sessions))
-	for _, s := range e.Sessions {
+	for i := range e.Sessions {
+		s := &e.Sessions[i]
 		sessionID := normalize.SessionID(eventID, s.StartsAt)
 		listed = append(listed, sessionID.String())
-		changed, err := returnedIDs(tx.Query(ctx, `
+		changed, sessionErr := returnedIDs(tx.Query(ctx, `
 			INSERT INTO catalog.session AS t (id, city, event_id, slot_type, starts_at, ends_at, min_duration_s,
 				recommended_duration_s, buffer_s, access_type, availability_status, is_hard_constraint, booking_url,
 				data_mode, card_source_record_id, version, updated_at)
@@ -102,11 +132,16 @@ func writeEvent(ctx context.Context, tx pgx.Tx, city domain.City, n materialize.
 					EXCLUDED.recommended_duration_s, EXCLUDED.access_type, 'unknown'::text, NULL::text,
 					EXCLUDED.is_hard_constraint, EXCLUDED.booking_url, EXCLUDED.data_mode, EXCLUDED.card_source_record_id)
 			RETURNING id::text`,
-			sessionID, city, eventID, s.SlotType, s.StartsAt, s.EndsAt, int32(s.MinDuration/time.Second),
-			int32(s.RecommendedDuration/time.Second), s.AccessType, s.SlotType == "FIXED_SESSION", s.BookingURL,
+			sessionID, city, eventID, s.SlotType, s.StartsAt, s.EndsAt, durationSeconds(s.MinDuration),
+			durationSeconds(s.RecommendedDuration), s.AccessType, s.SlotType == "FIXED_SESSION", s.BookingURL,
 			n.Raw.DataMode, record, at))
-		if err != nil {
-			return nil, fmt.Errorf("upsert session %s of %s: %w", s.StartsAt.Format(time.RFC3339), e.ExternalID, err)
+		if sessionErr != nil {
+			return nil, fmt.Errorf(
+				"upsert session %s of %s: %w",
+				s.StartsAt.Format(time.RFC3339),
+				e.ExternalID,
+				sessionErr,
+			)
 		}
 		touch(changed, placeID)
 
@@ -172,18 +207,25 @@ func projectPlaces(ctx context.Context, tx pgx.Tx, city domain.City, ids []strin
 			return fmt.Errorf("read place %s: %w", id, err)
 		}
 		if !searchable {
-			if _, err := tx.Exec(ctx, `UPDATE catalog.leisure_poi SET is_active = false, catalog_revision = $3, updated_at = $4
-				WHERE id = $1 AND city = $2`, id, city, revision, at); err != nil {
+			if _, err := tx.Exec(
+				ctx,
+				`UPDATE catalog.leisure_poi SET is_active = false, catalog_revision = $3, updated_at = $4
+				WHERE id = $1 AND city = $2`,
+				id,
+				city,
+				revision,
+				at,
+			); err != nil {
 				return fmt.Errorf("hide place %s: %w", id, err)
 			}
 			continue
 		}
 		point := h3.NewLatLng(lat, lon)
-		cell8, err := h3.LatLngToCell(point, 8)
+		cell8, err := h3.LatLngToCell(point, placeResolution)
 		if err != nil {
 			return fmt.Errorf("place %s: h3 cell: %w", id, err)
 		}
-		cell11, err := h3.LatLngToCell(point, 11)
+		cell11, err := h3.LatLngToCell(point, fineResolution)
 		if err != nil {
 			return fmt.Errorf("place %s: h3 cell: %w", id, err)
 		}

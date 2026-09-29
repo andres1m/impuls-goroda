@@ -17,7 +17,7 @@ type OptimizeRequest struct {
 	Constraints RouteConstraints
 }
 
-func (r OptimizeRequest) Validate() error {
+func (r *OptimizeRequest) Validate() error {
 	if err := validateCityZone(r.City, r.Timezone); err != nil {
 		return err
 	}
@@ -94,7 +94,7 @@ type RecomputeRequest struct {
 	Trigger     Trigger
 }
 
-func (r RecomputeRequest) Validate() error {
+func (r *RecomputeRequest) Validate() error {
 	if err := validateCityZone(r.City, r.Timezone); err != nil {
 		return err
 	}
@@ -118,12 +118,12 @@ func (r RecomputeRequest) Validate() error {
 	if r.Trigger == nil {
 		return errors.New("recompute trigger is required")
 	}
-	return r.Trigger.validate(r.Base)
+	return r.Trigger.validate(&r.Base)
 }
 
 // Trigger is the reason for a recompute; the set of triggers is closed.
 type Trigger interface {
-	validate(base Plan) error
+	validate(base *Plan) error
 }
 
 type DelayMode string
@@ -148,7 +148,7 @@ type DelayTrigger struct {
 	PositionSource PositionSource
 }
 
-func (t DelayTrigger) validate(Plan) error {
+func (t DelayTrigger) validate(*Plan) error {
 	if t.Mode != DelayAlreadyDelayed && t.Mode != DelayFutureWait {
 		return errors.New("invalid delay mode")
 	}
@@ -167,7 +167,7 @@ type CancellationTrigger struct {
 	MinCatalogRevision CatalogRevision
 }
 
-func (t CancellationTrigger) validate(base Plan) error {
+func (t CancellationTrigger) validate(base *Plan) error {
 	if len(t.VisitIDs) == 0 {
 		return errors.New("cancellation requires affected visits")
 	}
@@ -191,7 +191,7 @@ type RemovalTrigger struct {
 	Mode    RemovalMode
 }
 
-func (t RemovalTrigger) validate(base Plan) error {
+func (t RemovalTrigger) validate(base *Plan) error {
 	if t.Mode != RemovalRebuild && t.Mode != RemovalFreeTime {
 		return errors.New("invalid removal mode")
 	}
@@ -211,7 +211,7 @@ type PinTrigger struct {
 	Kind    PinKind
 }
 
-func (t PinTrigger) validate(base Plan) error {
+func (t PinTrigger) validate(base *Plan) error {
 	switch t.Kind {
 	case PinPreferred, PinObligation, PinNone:
 	default:
@@ -220,7 +220,7 @@ func (t PinTrigger) validate(base Plan) error {
 	return requireBaseVisit(base, t.VisitID)
 }
 
-func requireBaseVisit(base Plan, id VisitID) error {
+func requireBaseVisit(base *Plan, id VisitID) error {
 	if err := requireID(id, "visit"); err != nil {
 		return err
 	}

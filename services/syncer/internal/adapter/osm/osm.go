@@ -73,7 +73,12 @@ type element struct {
 func (a *Adapter) Fetch(ctx context.Context, city domain.City, _ json.RawMessage) (ingest.Batch, error) {
 	snapshotAt := a.now().UTC()
 	form := url.Values{"data": {query(city)}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL+interpreterPath, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		a.baseURL+interpreterPath,
+		strings.NewReader(form.Encode()),
+	)
 	if err != nil {
 		return ingest.Batch{}, &ingest.FetchError{Code: "request", Err: err}
 	}
@@ -85,12 +90,15 @@ func (a *Adapter) Fetch(ctx context.Context, city domain.City, _ json.RawMessage
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return ingest.Batch{}, &ingest.FetchError{Code: fmt.Sprintf("http_status_%d", resp.StatusCode), Err: errors.New(resp.Status)}
+		return ingest.Batch{}, &ingest.FetchError{
+			Code: fmt.Sprintf("http_status_%d", resp.StatusCode),
+			Err:  errors.New(resp.Status),
+		}
 	}
 
 	var body response
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return ingest.Batch{}, &ingest.FetchError{Code: "decode", Err: err}
+	if decodeErr := json.NewDecoder(resp.Body).Decode(&body); decodeErr != nil {
+		return ingest.Batch{}, &ingest.FetchError{Code: "decode", Err: decodeErr}
 	}
 	// A remark means the query failed on the server and the element list may be partial.
 	if body.Remark != "" {

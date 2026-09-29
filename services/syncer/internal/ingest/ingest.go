@@ -36,10 +36,17 @@ type Run struct {
 }
 
 type Landing interface {
-	EnsureSource(ctx context.Context, source domain.Source) (SourceID, error)
+	EnsureSource(ctx context.Context, source *domain.Source) (SourceID, error)
 	Cursor(ctx context.Context, source SourceID, city domain.City) (json.RawMessage, error)
-	SaveRecord(ctx context.Context, source SourceID, city domain.City, mode domain.DataMode, record domain.RawRecord, fetchedAt time.Time) (inserted bool, err error)
-	FinishRun(ctx context.Context, run Run) error
+	SaveRecord(
+		ctx context.Context,
+		source SourceID,
+		city domain.City,
+		mode domain.DataMode,
+		record *domain.RawRecord,
+		fetchedAt time.Time,
+	) (inserted bool, err error)
+	FinishRun(ctx context.Context, run *Run) error
 	Unpublished(ctx context.Context, source SourceID, city domain.City) ([]Envelope, error)
 	AdvancePublished(ctx context.Context, source SourceID, city domain.City, at time.Time) error
 }
@@ -77,7 +84,7 @@ func NewService(landing Landing, publisher Publisher, now func() time.Time) *Ser
 
 func (s *Service) Ingest(ctx context.Context, adapter Adapter, city domain.City) (Result, error) {
 	source := adapter.Source()
-	sourceID, err := s.landing.EnsureSource(ctx, source)
+	sourceID, err := s.landing.EnsureSource(ctx, &source)
 	if err != nil {
 		return Result{}, fmt.Errorf("ensure source %s: %w", source.Key, err)
 	}
@@ -93,10 +100,11 @@ func (s *Service) Ingest(ctx context.Context, adapter Adapter, city domain.City)
 	}
 
 	result := Result{Received: len(batch.Records), Skipped: batch.Skipped}
-	for _, record := range batch.Records {
-		inserted, err := s.landing.SaveRecord(ctx, sourceID, city, source.DataMode, record, attemptAt)
-		if err != nil {
-			return result, s.fail(ctx, sourceID, city, attemptAt, fmt.Errorf("save %s: %w", record.ExternalID, err))
+	for i := range batch.Records {
+		record := &batch.Records[i]
+		inserted, saveErr := s.landing.SaveRecord(ctx, sourceID, city, source.DataMode, record, attemptAt)
+		if saveErr != nil {
+			return result, s.fail(ctx, sourceID, city, attemptAt, fmt.Errorf("save %s: %w", record.ExternalID, saveErr))
 		}
 		if inserted {
 			result.Inserted++
@@ -106,7 +114,7 @@ func (s *Service) Ingest(ctx context.Context, adapter Adapter, city domain.City)
 	published, err := s.publish(ctx, sourceID, city, attemptAt)
 	if err != nil {
 		run := Run{SourceID: sourceID, City: city, AttemptAt: attemptAt, Cursor: batch.Cursor, ErrorCode: "publish"}
-		if finishErr := s.landing.FinishRun(ctx, run); finishErr != nil {
+		if finishErr := s.landing.FinishRun(ctx, &run); finishErr != nil {
 			err = errors.Join(err, fmt.Errorf("record failed run: %w", finishErr))
 		}
 		return result, fmt.Errorf("publish %s: %w", source.Key, err)
@@ -114,8 +122,8 @@ func (s *Service) Ingest(ctx context.Context, adapter Adapter, city domain.City)
 	result.Published = published
 
 	run := Run{SourceID: sourceID, City: city, AttemptAt: attemptAt, Cursor: batch.Cursor}
-	if err := s.landing.FinishRun(ctx, run); err != nil {
-		return result, fmt.Errorf("finish run: %w", err)
+	if finishErr := s.landing.FinishRun(ctx, &run); finishErr != nil {
+		return result, fmt.Errorf("finish run: %w", finishErr)
 	}
 	return result, nil
 }
@@ -127,27 +135,32 @@ func (s *Service) publish(ctx context.Context, sourceID SourceID, city domain.Ci
 		return 0, fmt.Errorf("read unpublished: %w", err)
 	}
 	if len(pending) > 0 {
-		if err := s.publisher.Publish(ctx, pending); err != nil {
-			return 0, err
+		if pubErr := s.publisher.Publish(ctx, pending); pubErr != nil {
+			return 0, pubErr
 		}
 	}
-	if err := s.landing.AdvancePublished(ctx, sourceID, city, attemptAt); err != nil {
-		return 0, err
+	if advErr := s.landing.AdvancePublished(ctx, sourceID, city, attemptAt); advErr != nil {
+		return 0, advErr
 	}
 	return len(pending), nil
 }
 
-func (s *Service) fail(ctx context.Context, sourceID SourceID, city domain.City, attemptAt time.Time, cause error) error {
+func (s *Service) fail(
+	ctx context.Context,
+	sourceID SourceID,
+	city domain.City,
+	attemptAt time.Time,
+	cause error,
+) error {
 	run := Run{SourceID: sourceID, City: city, AttemptAt: attemptAt, ErrorCode: errorCode(cause)}
-	if err := s.landing.FinishRun(ctx, run); err != nil {
+	if err := s.landing.FinishRun(ctx, &run); err != nil {
 		return errors.Join(cause, fmt.Errorf("record failed run: %w", err))
 	}
 	return cause
 }
 
 func errorCode(err error) string {
-	var fetchErr *FetchError
-	if errors.As(err, &fetchErr) {
+	if fetchErr, ok := errors.AsType[*FetchError](err); ok {
 		return fetchErr.Code
 	}
 	return "internal"

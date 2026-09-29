@@ -20,8 +20,16 @@ type SessionAccount struct {
 }
 
 type SessionIssuer interface {
-	IssueMaxSession(context.Context, domain.UserAccount, domain.AuthSession) (domain.UserAccount, domain.AuthSession, error)
-	IssueTestSession(context.Context, domain.UserAccount, domain.AuthSession) (domain.UserAccount, domain.AuthSession, error)
+	IssueMaxSession(
+		context.Context,
+		*domain.UserAccount,
+		*domain.AuthSession,
+	) (domain.UserAccount, domain.AuthSession, error)
+	IssueTestSession(
+		context.Context,
+		*domain.UserAccount,
+		*domain.AuthSession,
+	) (domain.UserAccount, domain.AuthSession, error)
 }
 
 type SessionReader interface {
@@ -117,7 +125,7 @@ func (s *Service) ExchangeMax(ctx context.Context, rawInitData string) (IssuedSe
 		CreatedAt: now,
 		ExpiresAt: now.Add(s.ttl),
 	}
-	storedAccount, storedSession, err := s.issuer.IssueMaxSession(ctx, account, session)
+	storedAccount, storedSession, err := s.issuer.IssueMaxSession(ctx, &account, &session)
 	if err != nil {
 		return IssuedSession{}, fmt.Errorf("issue MAX session: %w", err)
 	}
@@ -164,7 +172,7 @@ func (s *Service) IssueTest(
 		CreatedAt: now,
 		ExpiresAt: expiresAt.UTC(),
 	}
-	storedAccount, storedSession, err := s.issuer.IssueTestSession(ctx, account, session)
+	storedAccount, storedSession, err := s.issuer.IssueTestSession(ctx, &account, &session)
 	if err != nil {
 		return IssuedSession{}, fmt.Errorf("issue test session: %w", err)
 	}
@@ -178,7 +186,7 @@ func (s *Service) Authenticate(ctx context.Context, token string) (SessionAccoun
 	}
 	now := s.clock().UTC()
 	if cached, ok := s.cache.Get(hash); ok {
-		if cached.Session.ValidFor(cached.Account, now) {
+		if cached.Session.ValidFor(&cached.Account, now) {
 			return cached, nil
 		}
 		s.cache.Delete(hash)
@@ -188,12 +196,12 @@ func (s *Service) Authenticate(ctx context.Context, token string) (SessionAccoun
 	if err != nil {
 		return SessionAccount{}, err
 	}
-	if !pair.Session.ValidFor(pair.Account, now) {
+	if !pair.Session.ValidFor(&pair.Account, now) {
 		return SessionAccount{}, ErrAuthRequired
 	}
 	ttl := min(s.cacheTTL, pair.Session.ExpiresAt.Sub(now))
 	if ttl > 0 {
-		s.cache.Set(hash, pair, ttl)
+		s.cache.Set(hash, &pair, ttl)
 	}
 	return pair, nil
 }

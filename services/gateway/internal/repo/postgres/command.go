@@ -45,11 +45,20 @@ func NewCommandExecutor(transactor *Transactor) (*CommandExecutor, error) {
 	return &CommandExecutor{transactor: transactor, clock: time.Now}, nil
 }
 
+const (
+	uuidByteLen = 16
+	int16Bits   = 16
+	lockKeySize = 4
+)
+
 func (e *CommandExecutor) Execute(
 	ctx context.Context,
-	envelope command.Envelope,
+	envelope *command.Envelope,
 	mutate func(*Queries) (command.Result, error),
 ) (command.Result, error) {
+	if envelope == nil {
+		return command.Result{}, errors.New("command envelope is required")
+	}
 	if err := envelope.Validate(); err != nil {
 		return command.Result{}, err
 	}
@@ -57,34 +66,11 @@ func (e *CommandExecutor) Execute(
 		return command.Result{}, errors.New("mutation callback is required")
 	}
 	var result command.Result
-	err := e.transactor.WithinTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(queries *Queries) error {
-		if err := queries.lockCommandKey(ctx, envelope); err != nil {
-			return err
-		}
-		stored, storedHash, err := queries.findCommandResult(ctx, envelope)
-		if err == nil {
-			if storedHash != envelope.RequestHash {
-				return command.ErrIdempotencyKeyReused
-			}
-			stored.Replayed = true
-			result = stored
-			return nil
-		}
-		if !errors.Is(err, ErrNotFound) {
-			return err
-		}
-		result, err = mutate(queries)
-		if err != nil {
-			return err
-		}
-		if err := result.Validate(); err != nil {
-			return fmt.Errorf("validate command result: %w", err)
-		}
-		result.CreatedAt = e.clock().UTC()
-		if err := queries.insertCommandResult(ctx, envelope, result); err != nil {
-			return err
-		}
-		return nil
+	txOpts := pgx.TxOptions{IsoLevel: pgx.ReadCommitted}
+	err := e.transactor.WithinTx(ctx, &txOpts, func(queries *Queries) error {
+		var txErr error
+		result, txErr = e.executeInTx(ctx, queries, envelope, mutate)
+		return txErr
 	})
 	if err != nil {
 		return command.Result{}, err
@@ -92,21 +78,61 @@ func (e *CommandExecutor) Execute(
 	return result, nil
 }
 
-func (q *Queries) lockCommandKey(ctx context.Context, envelope command.Envelope) error {
-	material := make([]byte, 0, 16+len(envelope.Operation)+16)
+func (e *CommandExecutor) executeInTx(
+	ctx context.Context,
+	queries *Queries,
+	envelope *command.Envelope,
+	mutate func(*Queries) (command.Result, error),
+) (command.Result, error) {
+	if err := queries.lockCommandKey(ctx, envelope); err != nil {
+		return command.Result{}, err
+	}
+	stored, storedHash, err := queries.findCommandResult(ctx, envelope)
+	if err == nil {
+		if storedHash != envelope.RequestHash {
+			return command.Result{}, command.ErrIdempotencyKeyReused
+		}
+		stored.Replayed = true
+		return stored, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return command.Result{}, err
+	}
+	result, err := mutate(queries)
+	if err != nil {
+		return command.Result{}, err
+	}
+	if err := result.Validate(); err != nil {
+		return command.Result{}, fmt.Errorf("validate command result: %w", err)
+	}
+	result.CreatedAt = e.clock().UTC()
+	if err := queries.insertCommandResult(ctx, envelope, &result); err != nil {
+		return command.Result{}, err
+	}
+	return result, nil
+}
+
+func (q *Queries) lockCommandKey(ctx context.Context, envelope *command.Envelope) error {
+	material := make([]byte, 0, uuidByteLen+len(envelope.Operation)+uuidByteLen)
 	material = append(material, envelope.ActorID[:]...)
 	material = append(material, []byte(envelope.Operation)...)
 	material = append(material, envelope.Key[:]...)
 	digest := sha256.Sum256(material)
-	first := int32(binary.BigEndian.Uint32(digest[:4]))
-	second := int32(binary.BigEndian.Uint32(digest[4:8]))
+	first := beInt32(digest[:lockKeySize])
+	second := beInt32(digest[lockKeySize : lockKeySize*2])
 	if _, err := q.db.Exec(ctx, `SELECT pg_advisory_xact_lock($1::integer, $2::integer)`, first, second); err != nil {
 		return fmt.Errorf("lock command key: %w", err)
 	}
 	return nil
 }
 
-func (q *Queries) findCommandResult(ctx context.Context, envelope command.Envelope) (command.Result, [32]byte, error) {
+func beInt32(b []byte) int32 {
+	hi := int32(binary.BigEndian.Uint16(b[:2]))
+	lo := int32(binary.BigEndian.Uint16(b[2:lockKeySize]))
+	return (hi << int16Bits) | lo
+}
+
+func (q *Queries) findCommandResult(ctx context.Context, envelope *command.Envelope) (command.Result, [32]byte, error) {
 	var result command.Result
 	var hash []byte
 	var routeID pgtype.UUID
@@ -139,7 +165,11 @@ func (q *Queries) findCommandResult(ctx context.Context, envelope command.Envelo
 	return result, requestHash, nil
 }
 
-func (q *Queries) insertCommandResult(ctx context.Context, envelope command.Envelope, result command.Result) error {
+func (q *Queries) insertCommandResult(
+	ctx context.Context,
+	envelope *command.Envelope,
+	result *command.Result,
+) error {
 	var routeID any
 	var revision any
 	if result.RouteID != nil {
@@ -158,41 +188,22 @@ func (q *Queries) insertCommandResult(ctx context.Context, envelope command.Enve
 	return nil
 }
 
-func (q *Queries) LockOwnedRoute(ctx context.Context, routeID domain.RouteID, actorID domain.UserID) (RouteAccess, error) {
+func (q *Queries) LockOwnedRoute(
+	ctx context.Context,
+	routeID domain.RouteID,
+	actorID domain.UserID,
+) (RouteAccess, error) {
 	if routeID == (domain.RouteID{}) || actorID == (domain.UserID{}) {
 		return RouteAccess{}, errors.New("route and actor identifiers are required")
 	}
-	var storedRoute, storedOwner pgtype.UUID
-	var access RouteAccess
-	err := q.db.QueryRow(ctx, lockOwnedRouteSQL,
-		encodeUUID([16]byte(routeID)), encodeUUID([16]byte(actorID)),
-	).Scan(&storedRoute, &storedOwner, &access.Lifecycle, &access.Revision)
-	if err != nil {
-		return RouteAccess{}, mapQueryError("lock owned route", err)
-	}
-	decodedRoute, err := decodeUUID(storedRoute)
-	if err != nil {
-		return RouteAccess{}, fmt.Errorf("decode locked route: %w", err)
-	}
-	decodedOwner, err := decodeUUID(storedOwner)
-	if err != nil {
-		return RouteAccess{}, fmt.Errorf("decode locked owner: %w", err)
-	}
-	access.RouteID = domain.RouteID(decodedRoute)
-	access.OwnerID = domain.UserID(decodedOwner)
-	if access.RouteID != routeID || access.OwnerID != actorID {
-		return RouteAccess{}, errors.New("locked route disagrees with lookup")
-	}
-	if access.Lifecycle != domain.RouteDraft && access.Lifecycle != domain.RouteSaved {
-		return RouteAccess{}, errors.New("locked route has invalid lifecycle")
-	}
-	if err := access.Revision.Validate(); err != nil {
-		return RouteAccess{}, fmt.Errorf("locked route has invalid revision: %w", err)
-	}
-	return access, nil
+	return q.queryRouteAccess(ctx, lockOwnedRouteSQL, "lock owned route", routeID, actorID)
 }
 
-func (q *Queries) LockOwnedRoutes(ctx context.Context, routeIDs []domain.RouteID, actorID domain.UserID) ([]RouteAccess, error) {
+func (q *Queries) LockOwnedRoutes(
+	ctx context.Context,
+	routeIDs []domain.RouteID,
+	actorID domain.UserID,
+) ([]RouteAccess, error) {
 	ordered := append([]domain.RouteID(nil), routeIDs...)
 	sort.Slice(ordered, func(i, j int) bool { return bytes.Compare(ordered[i][:], ordered[j][:]) < 0 })
 	accesses := make([]RouteAccess, 0, len(ordered))
@@ -214,7 +225,7 @@ func RequireRevision(access RouteAccess, expected domain.RouteRevisionNumber) er
 		return err
 	}
 	if access.Revision != expected {
-		return &command.RevisionConflict{Current: access.Revision}
+		return &command.RevisionConflictError{Current: access.Revision}
 	}
 	return nil
 }

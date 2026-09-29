@@ -72,7 +72,11 @@ type scenicProvider struct {
 	source *scenic.Source
 }
 
-func (p scenicProvider) Scenic(ctx context.Context, city string, revision domain.CatalogRevision) (solver.Scenic, error) {
+func (p scenicProvider) Scenic(
+	ctx context.Context,
+	city string,
+	revision domain.CatalogRevision,
+) (solver.Scenic, error) {
 	grid, err := p.source.Grid(ctx, city, revision)
 	if err != nil {
 		return nil, err
@@ -81,16 +85,16 @@ func (p scenicProvider) Scenic(ctx context.Context, city string, revision domain
 }
 
 // loadScenicLayers never stops the service: without layers, walks are scored by the catalog alone.
-func loadScenicLayers(cfg appConfig, log *zap.Logger) map[string]scenic.Shares {
+func loadScenicLayers(cfg *appConfig, zlog *zap.Logger) map[string]scenic.Shares {
 	layers, err := scenic.LoadLayers(cfg.Scenic.LayerDir)
 	if err != nil {
-		log.Warn("scenic layers are not loaded", zap.Error(err))
+		zlog.Warn("scenic layers are not loaded", zap.Error(err))
 		layers = nil
 	}
 	for city := range cfg.Planner.ScenicWeights {
 		scenicLayerCells.WithLabelValues(city).Set(float64(len(layers[city])))
 		if _, ok := layers[city]; !ok {
-			log.Warn("city has no scenic layer; walks are scored by the catalog alone", zap.String("city", city))
+			zlog.Warn("city has no scenic layer; walks are scored by the catalog alone", zap.String("city", city))
 		}
 	}
 	return layers
@@ -112,7 +116,11 @@ func (q poolQuerier) Query(ctx context.Context, sql string, args ...any) (pgx.Ro
 	if q.client == nil || q.client.Pool == nil {
 		return nil, usecase.ErrUnavailable
 	}
-	return q.client.Pool.Query(ctx, sql, args...)
+	rows, err := q.client.Pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("pool query: %w", err)
+	}
+	return rows, nil
 }
 
 func (q poolQuerier) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
@@ -122,11 +130,16 @@ func (q poolQuerier) QueryRow(ctx context.Context, sql string, args ...any) pgx.
 	return q.client.Pool.QueryRow(ctx, sql, args...)
 }
 
+//nolint:gocritic // pgx BeginTx interface requires TxOptions by value
 func (q poolQuerier) BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error) {
 	if q.client == nil || q.client.Pool == nil {
 		return nil, usecase.ErrUnavailable
 	}
-	return q.client.Pool.BeginTx(ctx, opts)
+	tx, err := q.client.Pool.BeginTx(ctx, opts)
+	if err != nil {
+		return nil, fmt.Errorf("pool begin tx: %w", err)
+	}
+	return tx, nil
 }
 
 // redisHandle hands out the Redis client between its start and its stop; it stops before the client
@@ -191,7 +204,7 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("init routing error: %w", err)
 	}
 	catalog := postgres.NewCatalog(poolQuerier{client: infra.pool})
-	scenicSource := scenic.NewSource(catalog, loadScenicLayers(*infra.cfg, infra.log.Log))
+	scenicSource := scenic.NewSource(catalog, loadScenicLayers(infra.cfg, infra.log.Log))
 	models, err := ai.New(infra.cfg.AI)
 	if err != nil {
 		return fmt.Errorf("init ai models error: %w", err)
@@ -255,7 +268,7 @@ func initInfrastructure() (*infrastructureComponents, error) {
 		return nil, fmt.Errorf("create logger error: %w", err)
 	}
 
-	pool, err := db.NewDb(zapLog.Log, cfg.Database)
+	pool, err := db.NewDB(zapLog.Log, cfg.Database)
 	if err != nil {
 		return nil, fmt.Errorf("create db error: %w", err)
 	}
@@ -290,13 +303,15 @@ func newLogger(cfg config.Logger) (*logger.Log, error) {
 	return logger.New(opts...)
 }
 
+const healthcheckTimeout = 3 * time.Second
+
 func healthcheck(ctx context.Context) error {
 	var cfg appConfig
 	if err := config.Load(configPath, &cfg); err != nil {
 		return fmt.Errorf("load config error: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, healthcheckTimeout)
 	defer cancel()
 
 	return server.Probe(ctx, fmt.Sprintf("http://127.0.0.1:%d/healthz", cfg.OpsServer.Port))

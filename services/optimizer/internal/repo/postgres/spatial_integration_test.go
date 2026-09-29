@@ -49,7 +49,15 @@ func newPlaceID(t *testing.T) domain.PlaceID {
 }
 
 // insertPOI places a point exactly meters away from center along the azimuth, measured on the spheroid.
-func insertPOI(ctx context.Context, t *testing.T, tx pgx.Tx, city string, center domain.Coordinate, meters, azimuth float64, active bool) domain.PlaceID {
+func insertPOI(
+	ctx context.Context,
+	t *testing.T,
+	tx pgx.Tx,
+	city string,
+	center domain.Coordinate,
+	meters, azimuth float64,
+	active bool,
+) domain.PlaceID {
 	t.Helper()
 	id := newPlaceID(t)
 	_, err := tx.Exec(ctx, `
@@ -83,7 +91,10 @@ func TestNearbyPOIsRadiiIntegration(t *testing.T) {
 	for i, r := range []float64{300, 500, 800, 1000} {
 		azimuth := float64(i * 90)
 		for _, meters := range []float64{r - 1, r + 1} {
-			fixtures = append(fixtures, fixture{insertPOI(ctx, t, tx, "perm", permCenter, meters, azimuth, true), meters})
+			fixtures = append(
+				fixtures,
+				fixture{insertPOI(ctx, t, tx, "perm", permCenter, meters, azimuth, true), meters},
+			)
 		}
 	}
 	inactive := insertPOI(ctx, t, tx, "perm", permCenter, 10, 0, false)
@@ -114,7 +125,10 @@ func TestNearbyPOIsRadiiIntegration(t *testing.T) {
 		if _, ok := byID[moscow]; ok {
 			t.Errorf("radius %.0f: point of another city returned", r)
 		}
-		if !slices.IsSortedFunc(found, func(a, b NearbyPOI) int { return compareFloat(a.DistanceMeters, b.DistanceMeters) }) {
+		if !slices.IsSortedFunc(
+			found,
+			func(a, b NearbyPOI) int { return compareFloat(a.DistanceMeters, b.DistanceMeters) },
+		) {
 			t.Errorf("radius %.0f: not ordered by distance", r)
 		}
 	}
@@ -138,6 +152,7 @@ type planNode struct {
 	Plans        []planNode `json:"Plans"`
 }
 
+//nolint:gocritic // test tree visitor owns each plan node value
 func (n planNode) walk(visit func(planNode)) {
 	visit(n)
 	for _, child := range n.Plans {
@@ -152,7 +167,8 @@ func TestNearbyPOIsUsesGeographyIndexIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	var raw []byte
-	err := tx.QueryRow(ctx, "EXPLAIN (FORMAT JSON) "+nearbyPOIsSQL, "perm", permCenter.Longitude, permCenter.Latitude, 500.0).Scan(&raw)
+	err := tx.QueryRow(ctx, "EXPLAIN (FORMAT JSON) "+nearbyPOIsSQL, "perm", permCenter.Longitude, permCenter.Latitude, 500.0).
+		Scan(&raw)
 	if err != nil {
 		t.Fatal(err)
 	}

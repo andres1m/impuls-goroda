@@ -26,7 +26,7 @@ type RouteVisit struct {
 	CreatedAt         time.Time
 }
 
-func (v RouteVisit) Validate() error {
+func (v *RouteVisit) Validate() error {
 	if err := requiredID([16]byte(v.RouteID)); err != nil {
 		return err
 	}
@@ -39,9 +39,16 @@ func (v RouteVisit) Validate() error {
 	if err := v.CreatedInRevision.Validate(); err != nil {
 		return err
 	}
+	if err := v.validateKind(); err != nil {
+		return err
+	}
+	return v.validateCatalogReferences()
+}
+
+func (v *RouteVisit) validateKind() error {
 	switch v.Kind {
 	case VisitFreeTime:
-		if v.PlaceID != nil || v.EntranceID != nil || v.EventID != nil || v.SessionID != nil || v.PriceOfferID != nil {
+		if v.hasAnyCatalogRef() {
 			return errors.New("free time cannot reference catalog entities")
 		}
 	case VisitPlace:
@@ -51,13 +58,38 @@ func (v RouteVisit) Validate() error {
 	default:
 		return errors.New("invalid visit kind")
 	}
-	if v.EntranceID != nil && v.PlaceID == nil || v.EventID != nil && v.PlaceID == nil ||
-		v.SessionID != nil && v.EventID == nil || v.PriceOfferID != nil && v.SessionID == nil {
+	return nil
+}
+
+func (v *RouteVisit) hasAnyCatalogRef() bool {
+	return v.PlaceID != nil || v.EntranceID != nil || v.EventID != nil || v.SessionID != nil || v.PriceOfferID != nil
+}
+
+func (v *RouteVisit) validateCatalogReferences() error {
+	if err := v.validateCatalogChain(); err != nil {
+		return err
+	}
+	return v.validateCatalogIDsNonEmpty()
+}
+
+func (v *RouteVisit) validateCatalogChain() error {
+	if (v.EntranceID != nil || v.EventID != nil) && v.PlaceID == nil {
 		return errors.New("incomplete catalog reference chain")
 	}
-	if v.PlaceID != nil && *v.PlaceID == (PlaceID{}) || v.EntranceID != nil && *v.EntranceID == (EntranceID{}) ||
-		v.EventID != nil && *v.EventID == (EventID{}) || v.SessionID != nil && *v.SessionID == (EventSessionID{}) ||
-		v.PriceOfferID != nil && *v.PriceOfferID == (PriceOfferID{}) {
+	if (v.SessionID != nil && v.EventID == nil) || (v.PriceOfferID != nil && v.SessionID == nil) {
+		return errors.New("incomplete catalog reference chain")
+	}
+	return nil
+}
+
+func (v *RouteVisit) validateCatalogIDsNonEmpty() error {
+	if (v.PlaceID != nil && *v.PlaceID == (PlaceID{})) ||
+		(v.EntranceID != nil && *v.EntranceID == (EntranceID{})) {
+		return errors.New("catalog reference cannot be empty")
+	}
+	if (v.EventID != nil && *v.EventID == (EventID{})) ||
+		(v.SessionID != nil && *v.SessionID == (EventSessionID{})) ||
+		(v.PriceOfferID != nil && *v.PriceOfferID == (PriceOfferID{})) {
 		return errors.New("catalog reference cannot be empty")
 	}
 	return nil

@@ -30,25 +30,36 @@ var expectedErrors = []struct {
 	{context.DeadlineExceeded, codes.DeadlineExceeded},
 }
 
+type grpcStatusError struct {
+	st *status.Status
+}
+
+func (e grpcStatusError) Error() string {
+	return e.st.Message()
+}
+
+func (e grpcStatusError) GRPCStatus() *status.Status {
+	return e.st
+}
+
 // toStatus turns an error into the gRPC status the caller sees. Unexpected errors are
 // logged here and reach the caller only as a generic internal error.
 func toStatus(log *zap.Logger, method string, err error) error {
-	var fe *fieldError
-	if errors.As(err, &fe) {
+	if fe, ok := errors.AsType[*fieldError](err); ok {
 		st := status.New(codes.InvalidArgument, "invalid request")
 		detailed, detailErr := st.WithDetails(&errdetails.BadRequest{
 			FieldViolations: []*errdetails.BadRequest_FieldViolation{{Field: fe.Field, Description: fe.Reason}},
 		})
 		if detailErr != nil {
-			return st.Err()
+			return grpcStatusError{st: st}
 		}
-		return detailed.Err()
+		return grpcStatusError{st: detailed}
 	}
 	for _, expected := range expectedErrors {
 		if errors.Is(err, expected.err) {
-			return status.Error(expected.code, expected.err.Error())
+			return grpcStatusError{st: status.New(expected.code, expected.err.Error())}
 		}
 	}
 	log.Error("request failed", zap.String("method", method), zap.Error(err))
-	return status.Error(codes.Internal, "internal error")
+	return grpcStatusError{st: status.New(codes.Internal, "internal error")}
 }

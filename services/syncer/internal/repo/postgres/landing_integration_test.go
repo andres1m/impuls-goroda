@@ -35,13 +35,13 @@ func TestLandingIntegration(t *testing.T) {
 		SchemaVersion: "1",
 		DataMode:      domain.Live,
 	}
-	sourceID, err := landing.EnsureSource(ctx, source)
+	sourceID, err := landing.EnsureSource(ctx, &source)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { deleteSource(t, pool, sourceID) })
 
-	again, err := landing.EnsureSource(ctx, source)
+	again, err := landing.EnsureSource(ctx, &source)
 	if err != nil || again != sourceID {
 		t.Fatalf("EnsureSource is not idempotent: %x, %v", again, err)
 	}
@@ -61,16 +61,16 @@ func TestLandingIntegration(t *testing.T) {
 		SourceUpdatedAt: &updatedAt,
 	}
 
-	saveExpect(ctx, t, landing, sourceID, record, first, true)
-	saveExpect(ctx, t, landing, sourceID, record, first.Add(time.Minute), false)
+	saveExpect(ctx, t, landing, sourceID, &record, first, true)
+	saveExpect(ctx, t, landing, sourceID, &record, first.Add(time.Minute), false)
 	record.Payload = []byte(`{"id": 1, "title": "changed"}`)
 	last := first.Add(2 * time.Minute)
-	saveExpect(ctx, t, landing, sourceID, record, last, true)
+	saveExpect(ctx, t, landing, sourceID, &record, last, true)
 	record.ContentHash = []byte("adapter-hash")
-	saveExpect(ctx, t, landing, sourceID, record, last.Add(time.Minute), true)
+	saveExpect(ctx, t, landing, sourceID, &record, last.Add(time.Minute), true)
 	record.Payload = []byte(`{"id": 1, "title": "changed", "tags": ["reordered"]}`)
 	last = last.Add(2 * time.Minute)
-	saveExpect(ctx, t, landing, sourceID, record, last, false)
+	saveExpect(ctx, t, landing, sourceID, &record, last, false)
 
 	var rawCount int
 	var lastSeen time.Time
@@ -88,22 +88,45 @@ func TestLandingIntegration(t *testing.T) {
 		t.Fatalf("raw rows = %d, last_seen_at = %s, state = %s, mode = %s", rawCount, lastSeen, state, mode)
 	}
 
-	success := ingest.Run{SourceID: sourceID, City: domain.Perm, AttemptAt: last, Cursor: json.RawMessage(`{"snapshot_at":"2026-09-27T10:00:00Z"}`)}
-	if err := landing.FinishRun(ctx, success); err != nil {
+	checkFinishRunsAndCursor(ctx, t, pool, landing, sourceID, last)
+}
+
+func checkFinishRunsAndCursor(
+	ctx context.Context,
+	t *testing.T,
+	pool *pgxpool.Pool,
+	landing *Landing,
+	sourceID ingest.SourceID,
+	last time.Time,
+) {
+	t.Helper()
+	success := ingest.Run{
+		SourceID:  sourceID,
+		City:      domain.Perm,
+		AttemptAt: last,
+		Cursor:    json.RawMessage(`{"snapshot_at":"2026-09-27T10:00:00Z"}`),
+	}
+	if err := landing.FinishRun(ctx, &success); err != nil {
 		t.Fatal(err)
 	}
-	failure := ingest.Run{SourceID: sourceID, City: domain.Perm, AttemptAt: last.Add(time.Hour), ErrorCode: "http_status_503"}
-	if err := landing.FinishRun(ctx, failure); err != nil {
+	failure := ingest.Run{
+		SourceID:  sourceID,
+		City:      domain.Perm,
+		AttemptAt: last.Add(time.Hour),
+		ErrorCode: "http_status_503",
+	}
+	if err := landing.FinishRun(ctx, &failure); err != nil {
 		t.Fatal(err)
 	}
 
-	cursor, err = landing.Cursor(ctx, sourceID, domain.Perm)
+	cursor, err := landing.Cursor(ctx, sourceID, domain.Perm)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var stored map[string]string
-	if err := json.Unmarshal(cursor, &stored); err != nil || stored["snapshot_at"] != "2026-09-27T10:00:00Z" {
-		t.Fatalf("cursor after failed run = %s, %v", cursor, err)
+	if unmarshalErr := json.Unmarshal(cursor, &stored); unmarshalErr != nil ||
+		stored["snapshot_at"] != "2026-09-27T10:00:00Z" {
+		t.Fatalf("cursor after failed run = %s, %v", cursor, unmarshalErr)
 	}
 	var lastAttempt, lastSuccess time.Time
 	var errorCode string
@@ -114,12 +137,21 @@ func TestLandingIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !lastAttempt.Equal(failure.AttemptAt) || !lastSuccess.Equal(success.AttemptAt) || errorCode != "http_status_503" {
+	if !lastAttempt.Equal(failure.AttemptAt) || !lastSuccess.Equal(success.AttemptAt) ||
+		errorCode != "http_status_503" {
 		t.Fatalf("sync_cursor = %s, %s, %q", lastAttempt, lastSuccess, errorCode)
 	}
 }
 
-func saveExpect(ctx context.Context, t *testing.T, landing *Landing, sourceID ingest.SourceID, record domain.RawRecord, at time.Time, want bool) {
+func saveExpect(
+	ctx context.Context,
+	t *testing.T,
+	landing *Landing,
+	sourceID ingest.SourceID,
+	record *domain.RawRecord,
+	at time.Time,
+	want bool,
+) {
 	t.Helper()
 	inserted, err := landing.SaveRecord(ctx, sourceID, domain.Perm, domain.Live, record, at)
 	if err != nil {
@@ -173,7 +205,7 @@ func TestPublishedWatermarkIntegration(t *testing.T) {
 		SchemaVersion: "schema-7",
 		DataMode:      domain.Live,
 	}
-	sourceID, err := landing.EnsureSource(ctx, source)
+	sourceID, err := landing.EnsureSource(ctx, &source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,9 +213,14 @@ func TestPublishedWatermarkIntegration(t *testing.T) {
 
 	save := func(city domain.City, externalID, payload string, at time.Time) {
 		t.Helper()
-		record := domain.RawRecord{ExternalID: externalID, SourceURL: "https://example.test/" + externalID, Payload: []byte(payload), ContentType: "application/json"}
-		if _, err := landing.SaveRecord(ctx, sourceID, city, domain.Live, record, at); err != nil {
-			t.Fatal(err)
+		record := domain.RawRecord{
+			ExternalID:  externalID,
+			SourceURL:   "https://example.test/" + externalID,
+			Payload:     []byte(payload),
+			ContentType: "application/json",
+		}
+		if _, saveErr := landing.SaveRecord(ctx, sourceID, city, domain.Live, &record, at); saveErr != nil {
+			t.Fatal(saveErr)
 		}
 	}
 	first := time.Now().UTC().Truncate(time.Microsecond)
@@ -195,21 +232,10 @@ func TestPublishedWatermarkIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pending) != 2 {
-		t.Fatalf("perm unpublished = %+v", pending)
-	}
-	for _, e := range pending {
-		if err := e.Validate(); err != nil {
-			t.Fatalf("invalid envelope %+v: %v", e, err)
-		}
-		if e.Source != source.Key || e.City != domain.Perm || e.SchemaVersion != "schema-7" || e.DataMode != domain.Live ||
-			!e.FetchedAt.Equal(first) || len(e.ContentHash) != 64 {
-			t.Fatalf("envelope = %+v", e)
-		}
-	}
+	checkInitialUnpublished(t, pending, source.Key, first)
 
-	if err := landing.AdvancePublished(ctx, sourceID, domain.Perm, first); err != nil {
-		t.Fatal(err)
+	if advErr := landing.AdvancePublished(ctx, sourceID, domain.Perm, first); advErr != nil {
+		t.Fatal(advErr)
 	}
 	if pending, err = landing.Unpublished(ctx, sourceID, domain.Perm); err != nil || len(pending) != 0 {
 		t.Fatalf("after advance: %+v, %v", pending, err)
@@ -223,6 +249,30 @@ func TestPublishedWatermarkIntegration(t *testing.T) {
 	pending, err = landing.Unpublished(ctx, sourceID, domain.Perm)
 	if err != nil || len(pending) != 1 || pending[0].ExternalID != "event:1" || !pending[0].FetchedAt.Equal(second) {
 		t.Fatalf("after change: %+v, %v", pending, err)
+	}
+}
+
+func checkInitialUnpublished(
+	t *testing.T,
+	pending []ingest.Envelope,
+	sourceKey domain.SourceKey,
+	first time.Time,
+) {
+	t.Helper()
+	if len(pending) != 2 {
+		t.Fatalf("perm unpublished = %+v", pending)
+	}
+	for i := range pending {
+		e := &pending[i]
+		if err := e.Validate(); err != nil {
+			t.Fatalf("invalid envelope %+v: %v", *e, err)
+		}
+		if e.Source != sourceKey || e.City != domain.Perm || e.SchemaVersion != "schema-7" ||
+			e.DataMode != domain.Live ||
+			!e.FetchedAt.Equal(first) ||
+			len(e.ContentHash) != 64 {
+			t.Fatalf("envelope = %+v", *e)
+		}
 	}
 }
 
@@ -240,8 +290,14 @@ func TestFailedRunKeepsFetchedCursorIntegration(t *testing.T) {
 	t.Cleanup(pool.Close)
 
 	landing := NewLanding(pool)
-	sourceID, err := landing.EnsureSource(ctx, domain.Source{
-		Key: domain.SourceKey("test_" + randomSuffix(t)), Name: "Cursor test source", AccessMode: domain.AccessAPI, SchemaVersion: "1", DataMode: domain.Live,
+	sourceID, err := landing.EnsureSource(ctx, &domain.Source{
+		Key: domain.SourceKey(
+			"test_" + randomSuffix(t),
+		),
+		Name:          "Cursor test source",
+		AccessMode:    domain.AccessAPI,
+		SchemaVersion: "1",
+		DataMode:      domain.Live,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -249,17 +305,25 @@ func TestFailedRunKeepsFetchedCursorIntegration(t *testing.T) {
 	t.Cleanup(func() { deleteSource(t, pool, sourceID) })
 
 	at := time.Now().UTC().Truncate(time.Microsecond)
-	run := ingest.Run{SourceID: sourceID, City: domain.Perm, AttemptAt: at, Cursor: json.RawMessage(`{"snapshot_at":"x"}`), ErrorCode: "publish"}
-	if err := landing.FinishRun(ctx, run); err != nil {
-		t.Fatal(err)
+	run := ingest.Run{
+		SourceID:  sourceID,
+		City:      domain.Perm,
+		AttemptAt: at,
+		Cursor:    json.RawMessage(`{"snapshot_at":"x"}`),
+		ErrorCode: "publish",
+	}
+	if finishErr := landing.FinishRun(ctx, &run); finishErr != nil {
+		t.Fatal(finishErr)
 	}
 	cursor, err := landing.Cursor(ctx, sourceID, domain.Perm)
 	if err != nil || string(cursor) != `{"snapshot_at": "x"}` {
 		t.Fatalf("cursor = %s, %v", cursor, err)
 	}
 	var lastSuccess *time.Time
-	if err := pool.QueryRow(ctx, `SELECT last_success_at FROM integration.sync_cursor WHERE source_id = $1 AND city = 'perm'`,
-		uuidParam(sourceID)).Scan(&lastSuccess); err != nil || lastSuccess != nil {
-		t.Fatalf("last_success_at = %v, %v", lastSuccess, err)
+	if scanErr := pool.QueryRow(ctx, `SELECT last_success_at FROM integration.sync_cursor WHERE source_id = $1 AND city = 'perm'`,
+		uuidParam(sourceID)).
+		Scan(&lastSuccess); scanErr != nil ||
+		lastSuccess != nil {
+		t.Fatalf("last_success_at = %v, %v", lastSuccess, scanErr)
 	}
 }

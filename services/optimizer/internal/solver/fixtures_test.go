@@ -23,8 +23,8 @@ func north(from domain.Coordinate, meters float64) domain.Coordinate {
 	return domain.Coordinate{Longitude: from.Longitude, Latitude: from.Latitude + meters/earthRadiusMeters*180/math.Pi}
 }
 
-func problem() Problem {
-	return Problem{
+func problem() *Problem {
+	return &Problem{
 		Start:     at(10, 0),
 		End:       at(18, 0),
 		Origin:    origin,
@@ -50,8 +50,21 @@ func place(id byte, category domain.Category, mask domain.InterestMask, location
 
 func session(id byte, category domain.Category, location domain.Coordinate, start, end time.Time) domain.Candidate {
 	c := place(id, category, 0, location)
-	window := domain.VisitWindow{Kind: domain.WindowFixed, Start: start, End: end, MinDuration: end.Sub(start), RecommendedDuration: end.Sub(start)}
-	c.Event = &domain.Event{ID: domain.EventID{id}, PlaceID: c.Place.ID, Title: "Event", Category: category, DataMode: domain.DataSynthetic, Provenance: source}
+	window := domain.VisitWindow{
+		Kind:                domain.WindowFixed,
+		Start:               start,
+		End:                 end,
+		MinDuration:         end.Sub(start),
+		RecommendedDuration: end.Sub(start),
+	}
+	c.Event = &domain.Event{
+		ID:         domain.EventID{id},
+		PlaceID:    c.Place.ID,
+		Title:      "Event",
+		Category:   category,
+		DataMode:   domain.DataSynthetic,
+		Provenance: source,
+	}
 	c.Session = &domain.Session{
 		ID: domain.SessionID{id}, EventID: c.Event.ID, Window: window, Access: domain.AccessFree,
 		Availability: domain.AvailabilityAvailable, Version: 1, DataMode: domain.DataSynthetic, Provenance: source,
@@ -60,11 +73,22 @@ func session(id byte, category domain.Category, location domain.Coordinate, star
 	return c
 }
 
-func priced(c domain.Candidate, amount int64, programs ...string) domain.Candidate {
-	c.Offers = []domain.PriceOffer{{
-		ID: domain.PriceOfferID{c.Place.ID[0]}, SessionID: c.Session.ID, Audience: domain.AudienceGeneral,
-		Price:           domain.Price{Status: domain.PriceFixed, Currency: "RUB", LowerMinor: &amount, UpperMinor: &amount},
-		BenefitPrograms: programs, Provenance: source,
-	}}
-	return c
+func priced(c *domain.Candidate, amount int64, programs ...string) domain.Candidate {
+	out := *c
+	out.Offers = []domain.PriceOffer{
+		{
+			ID:        domain.PriceOfferID{c.Place.ID[0]},
+			SessionID: c.Session.ID,
+			Audience:  domain.AudienceGeneral,
+			Price: domain.Price{
+				Status:     domain.PriceFixed,
+				Currency:   "RUB",
+				LowerMinor: &amount,
+				UpperMinor: &amount,
+			},
+			BenefitPrograms: programs,
+			Provenance:      source,
+		},
+	}
+	return out
 }

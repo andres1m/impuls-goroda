@@ -16,8 +16,8 @@ func TestLevelAppliesRegardlessOfOptionOrder(t *testing.T) {
 	}
 	l.Log.Info("must-not-appear")
 	l.Log.Error("must-appear")
-	if err := l.Stop(context.Background()); err != nil {
-		t.Fatal(err)
+	if stopErr := l.Stop(context.Background()); stopErr != nil {
+		t.Fatal(stopErr)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

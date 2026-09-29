@@ -37,7 +37,7 @@ type Invalidation struct {
 	PublishedAt time.Time `json:"published_at"`
 }
 
-func (m Invalidation) Validate() error {
+func (m *Invalidation) Validate() error {
 	if m.City == "" {
 		return errors.New("city is required")
 	}
@@ -56,6 +56,7 @@ func (m Invalidation) Validate() error {
 	return nil
 }
 
+//nolint:gocritic // encoding normalizes a local copy without changing the caller
 func Encode(m Invalidation) ([]byte, error) {
 	if err := m.Validate(); err != nil {
 		return nil, err

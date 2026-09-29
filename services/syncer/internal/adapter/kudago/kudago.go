@@ -21,9 +21,11 @@ import (
 const (
 	DefaultBaseURL = "https://kudago.com"
 	eventsPath     = "/public-api/v1.4/events/"
-	eventFields    = "id,publication_date,dates,title,short_title,slug,place,description,body_text,location,categories,tagline,age_restriction,price,is_free,site_url,tags"
-	pageSize       = 100
-	maxPages       = 100
+	eventFields    = "id,publication_date,dates,title,short_title,slug,place," +
+		"description,body_text,location,categories,tagline,age_restriction,price,is_free,site_url,tags"
+	pageSize      = 100
+	maxPages      = 100
+	errCodeDecode = "decode"
 )
 
 type Adapter struct {
@@ -80,32 +82,17 @@ func (a *Adapter) Fetch(ctx context.Context, city domain.City, _ json.RawMessage
 	next := a.baseURL + eventsPath + "?" + query.Encode()
 	for pages := 0; next != ""; pages++ {
 		if pages == maxPages {
-			return ingest.Batch{}, &ingest.FetchError{Code: "too_many_pages", Err: fmt.Errorf("more than %d pages", maxPages)}
+			return ingest.Batch{}, &ingest.FetchError{
+				Code: "too_many_pages",
+				Err:  fmt.Errorf("more than %d pages", maxPages),
+			}
 		}
-		p, err := a.page(ctx, next)
-		if err != nil {
-			return ingest.Batch{}, err
+		p, pageErr := a.page(ctx, next)
+		if pageErr != nil {
+			return ingest.Batch{}, pageErr
 		}
-		for _, raw := range p.Results {
-			var it item
-			if err := json.Unmarshal(raw, &it); err != nil {
-				return ingest.Batch{}, &ingest.FetchError{Code: "decode", Err: err}
-			}
-			if it.ID == 0 || it.SiteURL == "" {
-				batch.Skipped++
-				continue
-			}
-			hash, err := contentHash(raw)
-			if err != nil {
-				return ingest.Batch{}, &ingest.FetchError{Code: "decode", Err: err}
-			}
-			batch.Records = append(batch.Records, domain.RawRecord{
-				ExternalID:  "event:" + strconv.FormatInt(it.ID, 10),
-				SourceURL:   it.SiteURL,
-				Payload:     raw,
-				ContentType: "application/json",
-				ContentHash: hash,
-			})
+		if appendErr := appendPageResults(&batch, p.Results); appendErr != nil {
+			return ingest.Batch{}, appendErr
 		}
 		next = ""
 		if p.Next != nil {
@@ -113,6 +100,31 @@ func (a *Adapter) Fetch(ctx context.Context, city domain.City, _ json.RawMessage
 		}
 	}
 	return batch, nil
+}
+
+func appendPageResults(batch *ingest.Batch, results []json.RawMessage) error {
+	for _, raw := range results {
+		var it item
+		if err := json.Unmarshal(raw, &it); err != nil {
+			return &ingest.FetchError{Code: errCodeDecode, Err: err}
+		}
+		if it.ID == 0 || it.SiteURL == "" {
+			batch.Skipped++
+			continue
+		}
+		hash, err := contentHash(raw)
+		if err != nil {
+			return &ingest.FetchError{Code: errCodeDecode, Err: err}
+		}
+		batch.Records = append(batch.Records, domain.RawRecord{
+			ExternalID:  "event:" + strconv.FormatInt(it.ID, 10),
+			SourceURL:   it.SiteURL,
+			Payload:     raw,
+			ContentType: "application/json",
+			ContentHash: hash,
+		})
+	}
+	return nil
 }
 
 // contentHash ignores the order of tags: KudaGo returns them shuffled on every
@@ -136,7 +148,7 @@ func contentHash(raw json.RawMessage) ([]byte, error) {
 }
 
 func (a *Adapter) page(ctx context.Context, pageURL string) (page, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, http.NoBody)
 	if err != nil {
 		return page{}, &ingest.FetchError{Code: "request", Err: err}
 	}
@@ -148,11 +160,14 @@ func (a *Adapter) page(ctx context.Context, pageURL string) (page, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return page{}, &ingest.FetchError{Code: fmt.Sprintf("http_status_%d", resp.StatusCode), Err: errors.New(resp.Status)}
+		return page{}, &ingest.FetchError{
+			Code: fmt.Sprintf("http_status_%d", resp.StatusCode),
+			Err:  errors.New(resp.Status),
+		}
 	}
 	var p page
 	if err := json.NewDecoder(resp.Body).Decode(&p); err != nil {
-		return page{}, &ingest.FetchError{Code: "decode", Err: err}
+		return page{}, &ingest.FetchError{Code: errCodeDecode, Err: err}
 	}
 	return p, nil
 }

@@ -75,7 +75,14 @@ events:
 
 func testReference() Reference {
 	return Reference{
-		Categories: map[string]bool{"culture": true, "sport": true, "volunteer": true, "walk": true, "tourism": true, "gastro": true},
+		Categories: map[string]bool{
+			"culture":   true,
+			"sport":     true,
+			"volunteer": true,
+			"walk":      true,
+			"tourism":   true,
+			"gastro":    true,
+		},
 		TagBits: map[string]int{
 			"contemporary_art": 0, "classical_art": 1, "science_tech": 2, "street_workout": 3, "running_park": 4,
 			"eco_volunteer": 5, "social_volunteer": 6, "gastro_coffee": 7, "performing_arts": 8, "excursions": 9,
@@ -84,9 +91,9 @@ func testReference() Reference {
 	}
 }
 
-func mustParse(t *testing.T, raw string) Dataset {
+func mustParse(t *testing.T) Dataset {
 	t.Helper()
-	ds, err := parse([]byte(raw))
+	ds, err := parse([]byte(testDataset))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +107,8 @@ func TestParseRejectsUnknownFields(t *testing.T) {
 }
 
 func TestValidDatasetAccepted(t *testing.T) {
-	if err := mustParse(t, testDataset).validate(testReference()); err != nil {
+	ds := mustParse(t)
+	if err := ds.validate(testReference()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -156,7 +164,7 @@ func TestInvalidDatasetRejected(t *testing.T) {
 		"unknown program":        func(d *Dataset) { d.Events[0].Sessions[0].Prices[0].BenefitPrograms = []string{"troika"} },
 	}
 	for name, mutate := range cases {
-		ds := mustParse(t, testDataset)
+		ds := mustParse(t)
 		mutate(&ds)
 		if err := ds.validate(testReference()); err == nil {
 			t.Errorf("%s: accepted", name)

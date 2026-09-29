@@ -6,23 +6,45 @@ import (
 	"time"
 )
 
-func i64(v int64) *int64 { return &v }
-
 func TestPriceValidate(t *testing.T) {
 	tests := []struct {
 		name  string
 		price Price
 		ok    bool
 	}{
-		{"free", Price{Status: PriceFree, Currency: "RUB", LowerMinor: i64(0), UpperMinor: i64(0)}, true},
-		{"free with amount", Price{Status: PriceFree, Currency: "RUB", LowerMinor: i64(0), UpperMinor: i64(1)}, false},
-		{"fixed", Price{Status: PriceFixed, Currency: "RUB", LowerMinor: i64(5), UpperMinor: i64(5)}, true},
-		{"fixed unequal", Price{Status: PriceFixed, Currency: "RUB", LowerMinor: i64(5), UpperMinor: i64(6)}, false},
-		{"range", Price{Status: PriceRange, Currency: "RUB", LowerMinor: i64(3), UpperMinor: i64(7)}, true},
-		{"range inverted", Price{Status: PriceRange, Currency: "RUB", LowerMinor: i64(7), UpperMinor: i64(3)}, false},
-		{"negative", Price{Status: PriceFixed, Currency: "RUB", LowerMinor: i64(-1), UpperMinor: i64(-1)}, false},
+		{"free", Price{Status: PriceFree, Currency: "RUB", LowerMinor: new(int64(0)), UpperMinor: new(int64(0))}, true},
+		{
+			"free with amount",
+			Price{Status: PriceFree, Currency: "RUB", LowerMinor: new(int64(0)), UpperMinor: new(int64(1))},
+			false,
+		},
+		{
+			"fixed",
+			Price{Status: PriceFixed, Currency: "RUB", LowerMinor: new(int64(5)), UpperMinor: new(int64(5))},
+			true,
+		},
+		{
+			"fixed unequal",
+			Price{Status: PriceFixed, Currency: "RUB", LowerMinor: new(int64(5)), UpperMinor: new(int64(6))},
+			false,
+		},
+		{
+			"range",
+			Price{Status: PriceRange, Currency: "RUB", LowerMinor: new(int64(3)), UpperMinor: new(int64(7))},
+			true,
+		},
+		{
+			"range inverted",
+			Price{Status: PriceRange, Currency: "RUB", LowerMinor: new(int64(7)), UpperMinor: new(int64(3))},
+			false,
+		},
+		{
+			"negative",
+			Price{Status: PriceFixed, Currency: "RUB", LowerMinor: new(int64(-1)), UpperMinor: new(int64(-1))},
+			false,
+		},
 		{"unknown", Price{Status: PriceUnknown, Currency: "RUB"}, true},
-		{"unknown with bound", Price{Status: PriceUnknown, Currency: "RUB", UpperMinor: i64(1)}, false},
+		{"unknown with bound", Price{Status: PriceUnknown, Currency: "RUB", UpperMinor: new(int64(1))}, false},
 		{"missing currency", Price{Status: PriceUnknown}, false},
 		{"lowercase currency", Price{Status: PriceUnknown, Currency: "rub"}, false},
 		{"invalid status", Price{Status: "cheap", Currency: "RUB"}, false},
@@ -43,9 +65,24 @@ func TestPriceUpperBound(t *testing.T) {
 		want  int64
 		known bool
 	}{
-		{"fixed", Price{Status: PriceFixed, Currency: "RUB", LowerMinor: i64(5), UpperMinor: i64(5)}, 5, true},
-		{"range", Price{Status: PriceRange, Currency: "RUB", LowerMinor: i64(3), UpperMinor: i64(7)}, 7, true},
-		{"free", Price{Status: PriceFree, Currency: "RUB", LowerMinor: i64(0), UpperMinor: i64(0)}, 0, true},
+		{
+			"fixed",
+			Price{Status: PriceFixed, Currency: "RUB", LowerMinor: new(int64(5)), UpperMinor: new(int64(5))},
+			5,
+			true,
+		},
+		{
+			"range",
+			Price{Status: PriceRange, Currency: "RUB", LowerMinor: new(int64(3)), UpperMinor: new(int64(7))},
+			7,
+			true,
+		},
+		{
+			"free",
+			Price{Status: PriceFree, Currency: "RUB", LowerMinor: new(int64(0)), UpperMinor: new(int64(0))},
+			0,
+			true,
+		},
 		{"unknown", Price{Status: PriceUnknown, Currency: "RUB"}, 0, false},
 	}
 	for _, tt := range tests {
@@ -78,9 +115,22 @@ func TestArchetypeMasks(t *testing.T) {
 		archetype Archetype
 		want      InterestMask
 	}{
-		{ArchetypeUrbanAvantgarde, Interests(InterestContemporaryArt, InterestStreetWorkout, InterestGastroCoffee, InterestCinema)},
+		{
+			ArchetypeUrbanAvantgarde,
+			Interests(InterestContemporaryArt, InterestStreetWorkout, InterestGastroCoffee, InterestCinema),
+		},
 		{ArchetypeHistoryHeritage, Interests(InterestClassicalArt, InterestPerformingArts, InterestExcursions)},
-		{ArchetypeActionSocial, Interests(InterestScienceTech, InterestRunningPark, InterestEcoVolunteer, InterestSocialVolunteer, InterestCityWalk, InterestLecturesWorkshops)},
+		{
+			ArchetypeActionSocial,
+			Interests(
+				InterestScienceTech,
+				InterestRunningPark,
+				InterestEcoVolunteer,
+				InterestSocialVolunteer,
+				InterestCityWalk,
+				InterestLecturesWorkshops,
+			),
+		},
 	}
 	for _, tt := range tests {
 		if got := tt.archetype.Mask(); got != tt.want {
@@ -186,15 +236,15 @@ func TestRequireID(t *testing.T) {
 
 func TestPriceValidateMissingBounds(t *testing.T) {
 	bad := []Price{
-		{Status: PriceFree, Currency: "RUB", UpperMinor: i64(0)},
-		{Status: PriceFree, Currency: "RUB", LowerMinor: i64(0)},
-		{Status: PriceFree, Currency: "RUB", LowerMinor: i64(1), UpperMinor: i64(0)},
-		{Status: PriceFixed, Currency: "RUB", UpperMinor: i64(5)},
-		{Status: PriceFixed, Currency: "RUB", LowerMinor: i64(5)},
-		{Status: PriceRange, Currency: "RUB", UpperMinor: i64(5)},
-		{Status: PriceRange, Currency: "RUB", LowerMinor: i64(5)},
-		{Status: PriceRange, Currency: "RUB", LowerMinor: i64(-1), UpperMinor: i64(5)},
-		{Status: PriceUnknown, Currency: "RUB", LowerMinor: i64(0)},
+		{Status: PriceFree, Currency: "RUB", UpperMinor: new(int64(0))},
+		{Status: PriceFree, Currency: "RUB", LowerMinor: new(int64(0))},
+		{Status: PriceFree, Currency: "RUB", LowerMinor: new(int64(1)), UpperMinor: new(int64(0))},
+		{Status: PriceFixed, Currency: "RUB", UpperMinor: new(int64(5))},
+		{Status: PriceFixed, Currency: "RUB", LowerMinor: new(int64(5))},
+		{Status: PriceRange, Currency: "RUB", UpperMinor: new(int64(5))},
+		{Status: PriceRange, Currency: "RUB", LowerMinor: new(int64(5))},
+		{Status: PriceRange, Currency: "RUB", LowerMinor: new(int64(-1)), UpperMinor: new(int64(5))},
+		{Status: PriceUnknown, Currency: "RUB", LowerMinor: new(int64(0))},
 		{Status: PriceUnknown, Currency: "R1B"},
 	}
 	for _, p := range bad {
@@ -205,10 +255,10 @@ func TestPriceValidateMissingBounds(t *testing.T) {
 }
 
 func TestPriceUpperBoundOfMalformedPrice(t *testing.T) {
-	if _, known := (Price{Status: PriceUnknown, Currency: "RUB", UpperMinor: i64(5)}).UpperBound(); known {
+	if _, known := (Price{Status: PriceUnknown, Currency: "RUB", UpperMinor: new(int64(5))}).UpperBound(); known {
 		t.Fatal("unknown price reported a bound")
 	}
-	if _, known := (Price{Status: PriceFixed, Currency: "RUB", LowerMinor: i64(5)}).UpperBound(); known {
+	if _, known := (Price{Status: PriceFixed, Currency: "RUB", LowerMinor: new(int64(5))}).UpperBound(); known {
 		t.Fatal("price without an upper bound reported one")
 	}
 }

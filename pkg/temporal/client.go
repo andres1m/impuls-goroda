@@ -47,7 +47,7 @@ func (c *Client) Init(ctx context.Context) error {
 	}
 	cl, err := client.DialContext(ctx, opts)
 	if err != nil {
-		return err
+		return fmt.Errorf("dial temporal: %w", err)
 	}
 
 	c.TemporalClient = cl

@@ -52,14 +52,24 @@ func newTestRouter(t *testing.T, foot, car *fakeRouter) *Router {
 func TestRouterUsesTheCityRouters(t *testing.T) {
 	footRouter := newFakeRouter(t, http.StatusOK, threePointTable)
 	carRouter := newFakeRouter(t, http.StatusOK, threePointTable)
-	rule, degraded, err := newTestRouter(t, footRouter, carRouter).Transit(context.Background(), "perm", points, modes(walk, transit))
+	rule, degraded, err := newTestRouter(
+		t,
+		footRouter,
+		carRouter,
+	).Transit(context.Background(), "perm", points, modes(walk, transit))
 	if err != nil || degraded {
 		t.Fatalf("degraded=%v err=%v", degraded, err)
 	}
 	if _, ok := rule.(*MatrixTransit); !ok {
 		t.Fatalf("transit is %T", rule)
 	}
-	if got, ok := rule.Estimate(origin, far, graphTime, modes(walk, transit)); !ok || got.Verification != domain.VerificationEstimated {
+	if got, ok := rule.Estimate(
+		origin,
+		far,
+		graphTime,
+		modes(walk, transit),
+	); !ok ||
+		got.Verification != domain.VerificationEstimated {
 		t.Fatalf("estimate %+v %v", got, ok)
 	}
 	if footRouter.calls.Load() != 1 || carRouter.calls.Load() != 1 {
@@ -86,7 +96,11 @@ func TestRouterFallsBackToStraightLines(t *testing.T) {
 	footRouter := newFakeRouter(t, http.StatusOK, threePointTable)
 	carRouter := newFakeRouter(t, http.StatusInternalServerError, `{"code":"InternalError","message":"down"}`)
 	before := degradations(t)
-	rule, degraded, err := newTestRouter(t, footRouter, carRouter).Transit(context.Background(), "perm", points, modes(walk, transit, car))
+	rule, degraded, err := newTestRouter(
+		t,
+		footRouter,
+		carRouter,
+	).Transit(context.Background(), "perm", points, modes(walk, transit, car))
 	if err != nil || !degraded {
 		t.Fatalf("degraded=%v err=%v", degraded, err)
 	}
@@ -108,7 +122,11 @@ func TestRouterFallsBackToStraightLines(t *testing.T) {
 func TestRouterRejectsUnknownCity(t *testing.T) {
 	footRouter := newFakeRouter(t, http.StatusOK, threePointTable)
 	carRouter := newFakeRouter(t, http.StatusOK, threePointTable)
-	if _, _, err := newTestRouter(t, footRouter, carRouter).Transit(context.Background(), "kazan", points, modes(walk)); err == nil {
+	if _, _, err := newTestRouter(
+		t,
+		footRouter,
+		carRouter,
+	).Transit(context.Background(), "kazan", points, modes(walk)); err == nil {
 		t.Fatal("unknown city accepted")
 	}
 }

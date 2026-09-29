@@ -18,7 +18,10 @@ import (
 )
 
 // keyPrefix names the slice format; a change that old instances cannot read needs a new version.
-const keyPrefix = "optimizer:slice:v2:"
+const (
+	keyPrefix     = "optimizer:slice:v2:"
+	maxSliceBytes = 256 << 20
+)
 
 func key(city string, revision domain.CatalogRevision) string {
 	return keyPrefix + city + ":" + strconv.FormatInt(int64(revision), 10)
@@ -37,7 +40,11 @@ func NewRedisStore(client func() goredis.UniversalClient, ttl time.Duration) *Re
 
 var errRedisNotConnected = errors.New("redis is not connected")
 
-func (r *RedisStore) Get(ctx context.Context, city string, revision domain.CatalogRevision) (*catalogslice.Slice, bool, error) {
+func (r *RedisStore) Get(
+	ctx context.Context,
+	city string,
+	revision domain.CatalogRevision,
+) (*catalogslice.Slice, bool, error) {
 	client := r.client()
 	if client == nil {
 		return nil, false, errRedisNotConnected
@@ -47,7 +54,7 @@ func (r *RedisStore) Get(ctx context.Context, city string, revision domain.Catal
 		return nil, false, nil
 	}
 	if err != nil {
-		return nil, false, err
+		return nil, false, fmt.Errorf("get catalog slice from redis: %w", err)
 	}
 	s, err := decode(data)
 	if err != nil {
@@ -65,7 +72,10 @@ func (r *RedisStore) Put(ctx context.Context, s *catalogslice.Slice) error {
 	if err != nil {
 		return err
 	}
-	return client.Set(ctx, key(s.City, s.Revision), data, r.ttl).Err()
+	if err := client.Set(ctx, key(s.City, s.Revision), data, r.ttl).Err(); err != nil {
+		return fmt.Errorf("set catalog slice in redis: %w", err)
+	}
+	return nil
 }
 
 // JSON keeps what gob loses: a pointer to zero and an empty list stay as they were, not nil.
@@ -86,11 +96,12 @@ func decode(data []byte) (*catalogslice.Slice, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decompress catalog slice: %w", err)
 	}
+	limited := io.LimitReader(zr, maxSliceBytes)
 	var s catalogslice.Slice
-	if err := json.NewDecoder(zr).Decode(&s); err != nil {
+	if err := json.NewDecoder(limited).Decode(&s); err != nil {
 		return nil, fmt.Errorf("decode catalog slice: %w", err)
 	}
-	if _, err := io.Copy(io.Discard, zr); err != nil {
+	if _, err := io.Copy(io.Discard, limited); err != nil {
 		return nil, fmt.Errorf("decompress catalog slice: %w", err)
 	}
 	return &s, nil

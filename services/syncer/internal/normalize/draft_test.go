@@ -32,12 +32,15 @@ func TestInHorizon(t *testing.T) {
 func TestNewSessionSplitsPerformancesFromWindows(t *testing.T) {
 	url := "https://example.test/buy"
 	fixed := newSession(now, now.Add(4*time.Hour), fixedPrice(500), &url)
-	if fixed.SlotType != "FIXED_SESSION" || fixed.MinDuration != 4*time.Hour || fixed.RecommendedDuration != 4*time.Hour ||
-		fixed.AccessType != "ticket" || fixed.BookingURL != &url {
+	if fixed.SlotType != "FIXED_SESSION" || fixed.MinDuration != 4*time.Hour ||
+		fixed.RecommendedDuration != 4*time.Hour ||
+		fixed.AccessType != "ticket" ||
+		fixed.BookingURL != &url {
 		t.Fatalf("fixed %+v", fixed)
 	}
 	window := newSession(now, now.Add(4*time.Hour+time.Minute), freePrice(), nil)
-	if window.SlotType != "CONTINUOUS_WINDOW" || window.MinDuration != 30*time.Minute || window.RecommendedDuration != time.Hour ||
+	if window.SlotType != "CONTINUOUS_WINDOW" || window.MinDuration != 30*time.Minute ||
+		window.RecommendedDuration != time.Hour ||
 		window.AccessType != "free" {
 		t.Fatalf("window %+v", window)
 	}
@@ -86,7 +89,8 @@ func TestIDsAreStable(t *testing.T) {
 	if session != SessionID(event, now) || PriceID(session) != PriceID(SessionID(event, now)) {
 		t.Fatal("ids depend on the zone of the start")
 	}
-	if SessionID(event, now) == SessionID(event, now.Add(time.Second)) || event == EntityID("mkrf_events:event:1@place:3") {
+	if SessionID(event, now) == SessionID(event, now.Add(time.Second)) ||
+		event == EntityID("mkrf_events:event:1@place:3") {
 		t.Fatal("different entities share an id")
 	}
 }

@@ -44,9 +44,14 @@ type Runtime struct {
 	stopOnce      sync.Once
 }
 
-func NewRuntime(database *db.PostgresClient, log *zap.Logger, cfg Config) (*Runtime, error) {
+const limiterCleanupDivisor = 2
+
+func NewRuntime(database *db.PostgresClient, log *zap.Logger, cfg *Config) (*Runtime, error) {
 	if database == nil {
 		return nil, errors.New("database client is required")
+	}
+	if cfg == nil {
+		return nil, errors.New("gateway auth configuration is required")
 	}
 	if log == nil {
 		log = zap.NewNop()
@@ -54,7 +59,7 @@ func NewRuntime(database *db.PostgresClient, log *zap.Logger, cfg Config) (*Runt
 	if cfg.CleanupInterval <= 0 || cfg.CleanupBatchSize <= 0 {
 		return nil, errors.New("invalid session cleanup configuration")
 	}
-	return &Runtime{db: database, log: log, cfg: cfg, clock: time.Now}, nil
+	return &Runtime{db: database, log: log, cfg: *cfg, clock: time.Now}, nil
 }
 
 func (r *Runtime) Name() string { return "gateway-auth" }
@@ -131,7 +136,8 @@ func (r *Runtime) Init(context.Context) error {
 }
 
 func (r *Runtime) HealthCheck(context.Context) error {
-	if r.service == nil || r.queries == nil || r.commands == nil || r.webhook == nil || r.anonymous == nil || r.authenticated == nil {
+	if r.service == nil || r.queries == nil || r.commands == nil || r.webhook == nil || r.anonymous == nil ||
+		r.authenticated == nil {
 		return errors.New("gateway auth is not initialized")
 	}
 	return nil
@@ -139,7 +145,8 @@ func (r *Runtime) HealthCheck(context.Context) error {
 
 func (r *Runtime) Run(ctx context.Context) error {
 	cleanupSessions := time.NewTicker(r.cfg.CleanupInterval)
-	cleanupLimiters := time.NewTicker(min(r.cfg.AnonymousLimit.IdleTTL, r.cfg.AuthenticatedLimit.IdleTTL) / 2)
+	limiterInterval := min(r.cfg.AnonymousLimit.IdleTTL, r.cfg.AuthenticatedLimit.IdleTTL) / limiterCleanupDivisor
+	cleanupLimiters := time.NewTicker(limiterInterval)
 	defer cleanupSessions.Stop()
 	defer cleanupLimiters.Stop()
 	for {
@@ -147,7 +154,12 @@ func (r *Runtime) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case now := <-cleanupSessions.C:
-			if _, err := r.queries.DeleteExpiredSessions(ctx, now.UTC(), r.cfg.CleanupBatchSize); err != nil && ctx.Err() == nil {
+			if _, err := r.queries.DeleteExpiredSessions(
+				ctx,
+				now.UTC(),
+				r.cfg.CleanupBatchSize,
+			); err != nil &&
+				ctx.Err() == nil {
 				r.log.Error("failed to delete expired sessions", zap.Error(err))
 			}
 		case now := <-cleanupLimiters.C:
@@ -209,7 +221,11 @@ func (r *Runtime) WebhookValid(candidate string) bool {
 	return r.webhook != nil && r.webhook.Valid(candidate)
 }
 
-func (r *Runtime) FindRouteAccess(ctx context.Context, routeID domain.RouteID, userID domain.UserID) (postgres.RouteAccess, error) {
+func (r *Runtime) FindRouteAccess(
+	ctx context.Context,
+	routeID domain.RouteID,
+	userID domain.UserID,
+) (postgres.RouteAccess, error) {
 	if r.queries == nil {
 		return postgres.RouteAccess{}, errors.New("gateway auth is not initialized")
 	}

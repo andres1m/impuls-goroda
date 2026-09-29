@@ -38,14 +38,14 @@ func Cover(features io.Reader, rules Rules) (Shares, error) {
 			break
 		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read feature line: %w", err)
 		}
 	}
 	counts := map[h3.Cell]int{}
 	for fine := range covered {
 		cell, err := fine.Parent(CellResolution)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("parent cell: %w", err)
 		}
 		counts[cell]++
 	}
@@ -79,36 +79,51 @@ func coverFeature(line []byte, rules Rules, covered map[h3.Cell]struct{}) error 
 	if !rules.Match(stringTags(f.Properties)) {
 		return nil
 	}
-	var polygons [][]ring
-	switch f.Geometry.Type {
-	case "Polygon":
-		var p []ring
-		if err := json.Unmarshal(f.Geometry.Coordinates, &p); err != nil {
-			return err
-		}
-		polygons = [][]ring{p}
-	case "MultiPolygon":
-		if err := json.Unmarshal(f.Geometry.Coordinates, &polygons); err != nil {
-			return err
-		}
-	default:
-		return nil
+	polygons, err := decodePolygons(f.Geometry.Type, f.Geometry.Coordinates)
+	if err != nil {
+		return err
 	}
 	for _, p := range polygons {
-		if len(p) == 0 {
-			continue
-		}
-		polygon := h3.GeoPolygon{GeoLoop: loop(p[0])}
-		for _, hole := range p[1:] {
-			polygon.Holes = append(polygon.Holes, loop(hole))
-		}
-		cells, err := h3.PolygonToCells(polygon, CoverResolution)
-		if err != nil {
+		if err := coverPolygon(p, covered); err != nil {
 			return err
 		}
-		for _, c := range cells {
-			covered[c] = struct{}{}
+	}
+	return nil
+}
+
+func decodePolygons(geomType string, coords json.RawMessage) ([][]ring, error) {
+	switch geomType {
+	case "Polygon":
+		var p []ring
+		if err := json.Unmarshal(coords, &p); err != nil {
+			return nil, err
 		}
+		return [][]ring{p}, nil
+	case "MultiPolygon":
+		var polygons [][]ring
+		if err := json.Unmarshal(coords, &polygons); err != nil {
+			return nil, err
+		}
+		return polygons, nil
+	default:
+		return nil, nil
+	}
+}
+
+func coverPolygon(p []ring, covered map[h3.Cell]struct{}) error {
+	if len(p) == 0 {
+		return nil
+	}
+	polygon := h3.GeoPolygon{GeoLoop: loop(p[0])}
+	for _, hole := range p[1:] {
+		polygon.Holes = append(polygon.Holes, loop(hole))
+	}
+	cells, err := h3.PolygonToCells(polygon, CoverResolution)
+	if err != nil {
+		return fmt.Errorf("polygon to cells: %w", err)
+	}
+	for _, c := range cells {
+		covered[c] = struct{}{}
 	}
 	return nil
 }

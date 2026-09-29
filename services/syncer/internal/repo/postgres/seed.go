@@ -51,37 +51,22 @@ func LoadSeedReference(ctx context.Context, tx pgx.Tx) (seed.Reference, error) {
 
 // ApplySeed writes one city's expanded synthetic dataset inside tx and publishes a new catalog revision.
 // The city row stays locked until tx ends, as for any catalog publication.
-func ApplySeed(ctx context.Context, tx pgx.Tx, rows seed.Rows, at time.Time) (SeedResult, error) {
+func ApplySeed(ctx context.Context, tx pgx.Tx, rows *seed.Rows, at time.Time) (SeedResult, error) {
 	var city string
-	if err := tx.QueryRow(ctx, `SELECT code FROM ref.city WHERE code = $1 FOR UPDATE`, rows.City).Scan(&city); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT code FROM ref.city WHERE code = $1 FOR UPDATE`, rows.City).
+		Scan(&city); err != nil {
 		return SeedResult{}, fmt.Errorf("lock city %s: %w", rows.City, err)
 	}
-	sourceID, err := upsertSource(ctx, tx, seed.Source(rows.Version))
+	src := seed.Source(rows.Version)
+	sourceID, err := upsertSource(ctx, tx, &src)
 	if err != nil {
 		return SeedResult{}, err
 	}
 	w := &seedWriter{tx: tx, city: rows.City, sourceID: uuidParam(sourceID), version: rows.Version, at: at,
 		sessionRecords: make(map[uuid.UUID]pgtype.UUID, len(rows.Sessions))}
 
-	for _, p := range rows.Places {
-		if err := w.place(ctx, p); err != nil {
-			return SeedResult{}, err
-		}
-	}
-	for _, e := range rows.Events {
-		if err := w.event(ctx, e); err != nil {
-			return SeedResult{}, err
-		}
-	}
-	for _, s := range rows.Sessions {
-		if err := w.session(ctx, s); err != nil {
-			return SeedResult{}, err
-		}
-	}
-	for _, p := range rows.Prices {
-		if err := w.price(ctx, p); err != nil {
-			return SeedResult{}, err
-		}
+	if writeErr := w.writeAll(ctx, rows); writeErr != nil {
+		return SeedResult{}, writeErr
 	}
 	hidden, err := w.deactivateMissing(ctx, rows)
 	if err != nil {
@@ -95,9 +80,9 @@ func ApplySeed(ctx context.Context, tx pgx.Tx, rows seed.Rows, at time.Time) (Se
 	if err != nil {
 		return SeedResult{}, fmt.Errorf("bump catalog revision: %w", err)
 	}
-	for _, p := range rows.Places {
-		if err := w.project(ctx, p, revision); err != nil {
-			return SeedResult{}, err
+	for i := range rows.Places {
+		if projErr := w.project(ctx, &rows.Places[i], revision); projErr != nil {
+			return SeedResult{}, projErr
 		}
 	}
 	_, err = tx.Exec(ctx, `
@@ -106,9 +91,14 @@ func ApplySeed(ctx context.Context, tx pgx.Tx, rows seed.Rows, at time.Time) (Se
 	if err != nil {
 		return SeedResult{}, fmt.Errorf("hide removed places: %w", err)
 	}
-	announcement := catalogevent.Invalidation{City: rows.City, CatalogRevision: revision, Reason: catalogevent.ReasonSeed, PublishedAt: at}
-	if err := EnqueueRevision(ctx, tx, announcement); err != nil {
-		return SeedResult{}, err
+	announcement := catalogevent.Invalidation{
+		City:            rows.City,
+		CatalogRevision: revision,
+		Reason:          catalogevent.ReasonSeed,
+		PublishedAt:     at,
+	}
+	if enqErr := EnqueueRevision(ctx, tx, &announcement); enqErr != nil {
+		return SeedResult{}, enqErr
 	}
 	return SeedResult{
 		Places:          len(rows.Places),
@@ -126,6 +116,30 @@ type seedWriter struct {
 	version        string
 	at             time.Time
 	sessionRecords map[uuid.UUID]pgtype.UUID
+}
+
+func (w *seedWriter) writeAll(ctx context.Context, rows *seed.Rows) error {
+	for i := range rows.Places {
+		if err := w.place(ctx, &rows.Places[i]); err != nil {
+			return err
+		}
+	}
+	for i := range rows.Events {
+		if err := w.event(ctx, &rows.Events[i]); err != nil {
+			return err
+		}
+	}
+	for i := range rows.Sessions {
+		if err := w.session(ctx, &rows.Sessions[i]); err != nil {
+			return err
+		}
+	}
+	for i := range rows.Prices {
+		if err := w.price(ctx, &rows.Prices[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (w *seedWriter) record(ctx context.Context, externalID string) (pgtype.UUID, error) {
@@ -146,7 +160,7 @@ func (w *seedWriter) record(ctx context.Context, externalID string) (pgtype.UUID
 	return id, nil
 }
 
-func (w *seedWriter) place(ctx context.Context, p seed.PlaceRow) error {
+func (w *seedWriter) place(ctx context.Context, p *seed.PlaceRow) error {
 	record, err := w.record(ctx, p.ExternalID)
 	if err != nil {
 		return err
@@ -173,7 +187,7 @@ func (w *seedWriter) place(ctx context.Context, p seed.PlaceRow) error {
 	return nil
 }
 
-func (w *seedWriter) event(ctx context.Context, e seed.EventRow) error {
+func (w *seedWriter) event(ctx context.Context, e *seed.EventRow) error {
 	record, err := w.record(ctx, e.ExternalID)
 	if err != nil {
 		return err
@@ -199,7 +213,7 @@ func (w *seedWriter) event(ctx context.Context, e seed.EventRow) error {
 	return nil
 }
 
-func (w *seedWriter) session(ctx context.Context, s seed.SessionRow) error {
+func (w *seedWriter) session(ctx context.Context, s *seed.SessionRow) error {
 	record, err := w.record(ctx, s.ExternalID)
 	if err != nil {
 		return err
@@ -239,7 +253,7 @@ func (w *seedWriter) session(ctx context.Context, s seed.SessionRow) error {
 	return nil
 }
 
-func (w *seedWriter) price(ctx context.Context, p seed.PriceRow) error {
+func (w *seedWriter) price(ctx context.Context, p *seed.PriceRow) error {
 	_, err := w.tx.Exec(ctx, `
 		INSERT INTO catalog.price_offer AS t (id, city, session_id, price_status, audience, tariff_label,
 			eligibility_age_min, eligibility_age_max, amount_min, amount_max, currency, benefit_programs,
@@ -267,10 +281,10 @@ func (w *seedWriter) price(ctx context.Context, p seed.PriceRow) error {
 
 // deactivateMissing hides this source's places and events that the dataset no longer lists and returns
 // the hidden place ids. Sessions stay untouched: saved routes may still reference them.
-func (w *seedWriter) deactivateMissing(ctx context.Context, rows seed.Rows) ([]string, error) {
+func (w *seedWriter) deactivateMissing(ctx context.Context, rows *seed.Rows) ([]string, error) {
 	events := make([]string, len(rows.Events))
-	for i, e := range rows.Events {
-		events[i] = e.ID.String()
+	for i := range rows.Events {
+		events[i] = rows.Events[i].ID.String()
 	}
 	_, err := w.tx.Exec(ctx, `
 		UPDATE catalog.event e SET is_active = false, updated_at = $4
@@ -283,8 +297,8 @@ func (w *seedWriter) deactivateMissing(ctx context.Context, rows seed.Rows) ([]s
 	}
 
 	places := make([]string, len(rows.Places))
-	for i, p := range rows.Places {
-		places[i] = p.ID.String()
+	for i := range rows.Places {
+		places[i] = rows.Places[i].ID.String()
 	}
 	hidden, err := w.tx.Query(ctx, `
 		UPDATE catalog.place p SET is_active = false, updated_at = $4
@@ -303,7 +317,7 @@ func (w *seedWriter) deactivateMissing(ctx context.Context, rows seed.Rows) ([]s
 	return ids, nil
 }
 
-func (w *seedWriter) project(ctx context.Context, p seed.PlaceRow, revision int64) error {
+func (w *seedWriter) project(ctx context.Context, p *seed.PlaceRow, revision int64) error {
 	if err := projectPlace(ctx, w.tx, p.ID.String(), w.city, p.H3Res8, p.H3Res11, revision, w.at); err != nil {
 		return fmt.Errorf("project place %s: %w", p.ExternalID, err)
 	}
@@ -311,7 +325,13 @@ func (w *seedWriter) project(ctx context.Context, p seed.PlaceRow, revision int6
 }
 
 // projectPlace rebuilds the place's search projection from the place and its active events.
-func projectPlace(ctx context.Context, tx pgx.Tx, id, city string, h3Res8, h3Res11, revision int64, at time.Time) error {
+func projectPlace(
+	ctx context.Context,
+	tx pgx.Tx,
+	id, city string,
+	h3Res8, h3Res11, revision int64,
+	at time.Time,
+) error {
 	_, err := tx.Exec(ctx, `
 		INSERT INTO catalog.leisure_poi AS t (id, city, title, normalized_title, categories, tag_mask, data_mode,
 			coordinates, h3_res8, h3_res11, base_score, benefit_programs, catalog_revision, is_active, updated_at)
@@ -343,5 +363,8 @@ func projectPlace(ctx context.Context, tx pgx.Tx, id, city string, h3Res8, h3Res
 			catalog_revision = EXCLUDED.catalog_revision, is_active = EXCLUDED.is_active,
 			updated_at = EXCLUDED.updated_at`,
 		id, city, h3Res8, h3Res11, revision, at)
-	return err
+	if err != nil {
+		return fmt.Errorf("exec project place %s: %w", id, err)
+	}
+	return nil
 }

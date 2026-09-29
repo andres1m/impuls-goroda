@@ -40,7 +40,7 @@ var scenicUnavailable = promauto.NewCounter(prometheus.CounterOpts{
 
 // CandidateSource supplies the catalog candidates of a request and how fresh they are.
 type CandidateSource interface {
-	Candidates(ctx context.Context, req domain.OptimizeRequest) ([]domain.Candidate, domain.DataFreshness, error)
+	Candidates(ctx context.Context, req *domain.OptimizeRequest) ([]domain.Candidate, domain.DataFreshness, error)
 }
 
 // RevisionHint is a candidate source that keeps a copy of the catalog: told that a newer revision
@@ -52,13 +52,21 @@ type RevisionHint interface {
 // TransitProvider prepares travel between the points of one search; degraded reports a fallback
 // that cannot see obstacles.
 type TransitProvider interface {
-	Transit(ctx context.Context, city string, points []domain.Coordinate, modes []domain.MovementMode) (solver.Transit, bool, error)
+	Transit(
+		ctx context.Context,
+		city string,
+		points []domain.Coordinate,
+		modes []domain.MovementMode,
+	) (solver.Transit, bool, error)
 }
 
 // CatalogNotReady is the source until the catalog can be read: it refuses instead of inventing places.
 type CatalogNotReady struct{}
 
-func (CatalogNotReady) Candidates(context.Context, domain.OptimizeRequest) ([]domain.Candidate, domain.DataFreshness, error) {
+func (CatalogNotReady) Candidates(
+	context.Context,
+	*domain.OptimizeRequest,
+) ([]domain.Candidate, domain.DataFreshness, error) {
 	return nil, domain.DataFreshness{}, ErrCatalogNotReady
 }
 
@@ -96,7 +104,13 @@ type Planner struct {
 	semanticTimeout time.Duration
 }
 
-func NewPlanner(cfg Config, source CandidateSource, transit TransitProvider, log *zap.Logger, opts ...Option) (*Planner, error) {
+func NewPlanner(
+	cfg Config,
+	source CandidateSource,
+	transit TransitProvider,
+	log *zap.Logger,
+	opts ...Option,
+) (*Planner, error) {
 	if err := (solver.Config{BeamWidth: cfg.BeamWidth, Parallelism: cfg.Parallelism}).Validate(); err != nil {
 		return nil, err
 	}
@@ -125,7 +139,12 @@ func scoreParams(scenicWeight float64) solver.ScoreParams {
 }
 
 // scenicFor prepares the city's scenic scores; being a preference, a failure only leaves them out.
-func (p *Planner) scenicFor(ctx context.Context, city string, revision domain.CatalogRevision, weight float64) solver.Scenic {
+func (p *Planner) scenicFor(
+	ctx context.Context,
+	city string,
+	revision domain.CatalogRevision,
+	weight float64,
+) solver.Scenic {
 	if p.scenic == nil || weight == 0 {
 		return nil
 	}
@@ -138,21 +157,34 @@ func (p *Planner) scenicFor(ctx context.Context, city string, revision domain.Ca
 	return scenic
 }
 
+const (
+	uuidVersionByte = 6
+	uuidVariantByte = 8
+	uuidVersionMask = 0x0f
+	uuidVersion4    = 0x40
+	uuidVariantMask = 0x3f
+	uuidVariantRFC  = 0x80
+)
+
 func randomVisitID() domain.VisitID {
 	var id domain.VisitID
 	_, _ = rand.Read(id[:])
-	id[6] = id[6]&0x0f | 0x40
-	id[8] = id[8]&0x3f | 0x80
+	id[uuidVersionByte] = id[uuidVersionByte]&uuidVersionMask | uuidVersion4
+	id[uuidVariantByte] = id[uuidVariantByte]&uuidVariantMask | uuidVariantRFC
 	return id
 }
 
-var archetypes = []domain.Archetype{domain.ArchetypeUrbanAvantgarde, domain.ArchetypeHistoryHeritage, domain.ArchetypeActionSocial}
+var archetypes = []domain.Archetype{
+	domain.ArchetypeUrbanAvantgarde,
+	domain.ArchetypeHistoryHeritage,
+	domain.ArchetypeActionSocial,
+}
 
-func (p *Planner) Optimize(ctx context.Context, req domain.OptimizeRequest) (domain.OptimizeResult, error) {
+func (p *Planner) Optimize(ctx context.Context, req *domain.OptimizeRequest) (domain.OptimizeResult, error) {
 	started := time.Now()
-	policy := pricing.PolicyFor(p.cfg.Currency, req.Constraints)
+	policy := pricing.PolicyFor(p.cfg.Currency, &req.Constraints)
 	if err := policy.Validate(); err != nil {
-		return domain.OptimizeResult{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
+		return domain.OptimizeResult{}, fmt.Errorf("%w: %w", ErrInvalidRequest, err)
 	}
 	candidates, data, err := p.source.Candidates(ctx, req)
 	if err != nil {
@@ -168,16 +200,26 @@ func (p *Planner) Optimize(ctx context.Context, req domain.OptimizeRequest) (dom
 	if len(conflicts) > 0 {
 		return done(domain.OptimizeResult{Status: domain.ResultConflict, Conflicts: conflicts})
 	}
-	pool, semanticWarning, err := p.semanticPool(ctx, req, admissible(candidates, req.Constraints))
+	pool, semanticWarning, err := p.semanticPool(ctx, req, admissible(candidates, &req.Constraints))
 	if err != nil {
 		return domain.OptimizeResult{}, err
 	}
-	transit, degraded, err := p.transit.Transit(ctx, req.City, points(req, pool, anchors), req.Constraints.MovementModes)
+	transit, degraded, err := p.transit.Transit(
+		ctx,
+		req.City,
+		points(req, pool, anchors),
+		req.Constraints.MovementModes,
+	)
 	if err != nil {
 		return domain.OptimizeResult{}, err
 	}
 	scenicWeight := p.cfg.ScenicWeights[req.City]
-	s, err := solver.New(solver.Config{BeamWidth: p.cfg.BeamWidth, Parallelism: p.cfg.Parallelism}, scoreParams(scenicWeight), transit, solver.WindowPlacement{})
+	s, err := solver.New(
+		solver.Config{BeamWidth: p.cfg.BeamWidth, Parallelism: p.cfg.Parallelism},
+		scoreParams(scenicWeight),
+		transit,
+		solver.WindowPlacement{},
+	)
 	if err != nil {
 		return domain.OptimizeResult{}, err
 	}
@@ -192,17 +234,28 @@ func (p *Planner) Optimize(ctx context.Context, req domain.OptimizeRequest) (dom
 		slot := solver.LunchSlotFor(*w)
 		problem.Lunch = &slot
 	}
-	if conflicts, err := s.Diagnose(ctx, problem); err != nil {
-		return domain.OptimizeResult{}, err
-	} else if len(conflicts) > 0 {
-		return done(domain.OptimizeResult{Status: domain.ResultConflict, Conflicts: conflicts})
-	}
-
-	plans, lunchDropped, err := p.plans(ctx, req, policy, s, problem, pool, degraded, data)
+	diagConflicts, err := s.Diagnose(ctx, &problem)
 	if err != nil {
 		return domain.OptimizeResult{}, err
 	}
+	if len(diagConflicts) > 0 {
+		return done(domain.OptimizeResult{Status: domain.ResultConflict, Conflicts: diagConflicts})
+	}
 
+	plans, lunchDropped, err := p.plans(ctx, req, &policy, s, &problem, pool, degraded, data)
+	if err != nil {
+		return domain.OptimizeResult{}, err
+	}
+	return done(finishOptimize(plans, anchors, pool, semanticWarning, degraded, lunchDropped))
+}
+
+func finishOptimize(
+	plans []domain.Plan,
+	anchors []solver.Anchor,
+	pool []domain.Candidate,
+	semanticWarning *domain.Warning,
+	degraded, lunchDropped bool,
+) domain.OptimizeResult {
 	var warnings []domain.Warning
 	if semanticWarning != nil {
 		warnings = append(warnings, *semanticWarning)
@@ -219,13 +272,17 @@ func (p *Planner) Optimize(ctx context.Context, req domain.OptimizeRequest) (dom
 	if len(plans) == 0 {
 		if len(anchors) > 0 {
 			obligations := make([]domain.Obligation, len(anchors))
-			for i, a := range anchors {
-				obligations[i] = a.Obligation
+			for i := range anchors {
+				obligations[i] = anchors[i].Obligation
 			}
-			return done(domain.OptimizeResult{Status: domain.ResultConflict, Warnings: warnings, Conflicts: []domain.Conflict{obligationsInfeasible(obligations)}})
+			return domain.OptimizeResult{
+				Status:    domain.ResultConflict,
+				Warnings:  warnings,
+				Conflicts: []domain.Conflict{obligationsInfeasible(obligations)},
+			}
 		}
 		warnings = append(warnings, noFeasibleWarning(pool))
-		return done(domain.OptimizeResult{Status: domain.ResultNoFeasibleRoute, Warnings: warnings})
+		return domain.OptimizeResult{Status: domain.ResultNoFeasibleRoute, Warnings: warnings}
 	}
 	if len(plans) < len(archetypes) {
 		warnings = append(warnings, fewerArchetypesWarning())
@@ -234,7 +291,7 @@ func (p *Planner) Optimize(ctx context.Context, req domain.OptimizeRequest) (dom
 	if slices.ContainsFunc(plans, func(plan domain.Plan) bool { return plan.Result == domain.ResultReady }) {
 		status = domain.ResultReady
 	}
-	return done(domain.OptimizeResult{Status: status, Routes: plans, Warnings: warnings})
+	return domain.OptimizeResult{Status: status, Routes: plans, Warnings: warnings}
 }
 
 type route struct {
@@ -254,21 +311,39 @@ type archetypeBeam struct {
 }
 
 // plans also reports whether the requested lunch had to be left out because no route had room for it.
-func (p *Planner) plans(ctx context.Context, req domain.OptimizeRequest, policy pricing.Policy, s *solver.Solver, problem solver.Problem, pool []domain.Candidate, degraded bool, data domain.DataFreshness) ([]domain.Plan, bool, error) {
-	lunchDropped := false
-	if problem.Lunch != nil && !lunchFits(problem) {
-		problem.Lunch, lunchDropped = nil, true
+func (p *Planner) plans(
+	ctx context.Context,
+	req *domain.OptimizeRequest,
+	policy *pricing.Policy,
+	s *solver.Solver,
+	problem *solver.Problem,
+	pool []domain.Candidate,
+	degraded bool,
+	data domain.DataFreshness,
+) (plans []domain.Plan, lunchDropped bool, err error) {
+	runProblem := *problem
+	if runProblem.Lunch != nil && !lunchFits(&runProblem) {
+		runProblem.Lunch, lunchDropped = nil, true
 	}
-	plans, err := p.searchPlans(ctx, req, policy, s, problem, pool, degraded, data)
-	if err != nil || len(plans) > 0 || problem.Lunch == nil {
+	plans, err = p.searchPlans(ctx, req, policy, s, &runProblem, pool, degraded, data)
+	if err != nil || len(plans) > 0 || runProblem.Lunch == nil {
 		return plans, lunchDropped, err
 	}
-	problem.Lunch = nil
-	plans, err = p.searchPlans(ctx, req, policy, s, problem, pool, degraded, data)
+	runProblem.Lunch = nil
+	plans, err = p.searchPlans(ctx, req, policy, s, &runProblem, pool, degraded, data)
 	return plans, true, err
 }
 
-func (p *Planner) searchPlans(ctx context.Context, req domain.OptimizeRequest, policy pricing.Policy, s *solver.Solver, problem solver.Problem, pool []domain.Candidate, degraded bool, data domain.DataFreshness) ([]domain.Plan, error) {
+func (p *Planner) searchPlans(
+	ctx context.Context,
+	req *domain.OptimizeRequest,
+	policy *pricing.Policy,
+	s *solver.Solver,
+	problem *solver.Problem,
+	pool []domain.Candidate,
+	degraded bool,
+	data domain.DataFreshness,
+) ([]domain.Plan, error) {
 	beams, err := searchArchetypes(ctx, s, problem, pool)
 	if err != nil || len(beams) == 0 {
 		return nil, err
@@ -276,7 +351,7 @@ func (p *Planner) searchPlans(ctx context.Context, req domain.OptimizeRequest, p
 	return p.selectPlans(req, policy, beams, degraded, data)
 }
 
-func lunchFits(p solver.Problem) bool {
+func lunchFits(p *solver.Problem) bool {
 	start := p.Start
 	if p.Lunch.Start.After(start) {
 		start = p.Lunch.Start
@@ -288,11 +363,17 @@ func lunchFits(p solver.Problem) bool {
 	return end.Sub(start) >= p.Lunch.Duration
 }
 
-func searchArchetypes(ctx context.Context, s *solver.Solver, problem solver.Problem, pool []domain.Candidate) ([]archetypeBeam, error) {
+func searchArchetypes(
+	ctx context.Context,
+	s *solver.Solver,
+	problem *solver.Problem,
+	pool []domain.Candidate,
+) ([]archetypeBeam, error) {
 	beams := make([]archetypeBeam, 0, len(archetypes))
+	runProblem := *problem
 	for _, a := range archetypes {
-		problem.Archetype = a
-		branches, err := s.Search(ctx, problem, pool)
+		runProblem.Archetype = a
+		branches, err := s.Search(ctx, &runProblem, pool)
 		if err != nil {
 			return nil, err
 		}
@@ -303,55 +384,19 @@ func searchArchetypes(ctx context.Context, s *solver.Solver, problem solver.Prob
 	return beams, nil
 }
 
-func (p *Planner) selectPlans(req domain.OptimizeRequest, policy pricing.Policy, beams []archetypeBeam, degraded bool, data domain.DataFreshness) ([]domain.Plan, error) {
+func (p *Planner) selectPlans(
+	req *domain.OptimizeRequest,
+	policy *pricing.Policy,
+	beams []archetypeBeam,
+	degraded bool,
+	data domain.DataFreshness,
+) ([]domain.Plan, error) {
 	selected := make([]*planned, len(beams))
-	for i := range beams {
-		mask := beams[i].archetype.Mask()
-		for beams[i].next < len(beams[i].branches) {
-			cand := beams[i].branches[beams[i].next]
-			beams[i].next++
-			if !hasArchetypeMatch(cand, mask) {
-				continue
-			}
-			prev := slices.IndexFunc(selected, func(other *planned) bool { return other != nil && sameVisits(other.branch, cand) })
-			if prev >= 0 && cand.Score <= selected[prev].branch.Score {
-				break
-			}
-			plan, ok, err := p.buildValid(req, policy, route{archetype: beams[i].archetype, branch: cand}, degraded, data)
-			if err != nil {
-				return nil, err
-			}
-			if !ok {
-				continue
-			}
-			if prev >= 0 {
-				selected[prev] = nil
-			}
-			selected[i] = &planned{branch: cand, plan: plan}
-			break
-		}
+	if err := p.selectPrimaryPlans(req, policy, beams, selected, degraded, data); err != nil {
+		return nil, err
 	}
-	// When user interests or shared candidates dominate the top branch across beams, an archetype
-	// falls back to its next branch only if it introduces a visit of its own archetype not yet chosen.
-	for i := range beams {
-		if selected[i] != nil {
-			continue
-		}
-		mask := beams[i].archetype.Mask()
-		for ; beams[i].next < len(beams[i].branches); beams[i].next++ {
-			cand := beams[i].branches[beams[i].next]
-			if !contrasts(cand, mask, selected) {
-				continue
-			}
-			plan, ok, err := p.buildValid(req, policy, route{archetype: beams[i].archetype, branch: cand}, degraded, data)
-			if err != nil {
-				return nil, err
-			}
-			if ok {
-				selected[i] = &planned{branch: cand, plan: plan}
-				break
-			}
-		}
+	if err := p.selectContrastPlans(req, policy, beams, selected, degraded, data); err != nil {
+		return nil, err
 	}
 	var out []domain.Plan
 	for _, s := range selected {
@@ -365,7 +410,113 @@ func (p *Planner) selectPlans(req domain.OptimizeRequest, policy pricing.Policy,
 	return p.fallbackPlan(req, policy, beams, degraded, data)
 }
 
-func (p *Planner) fallbackPlan(req domain.OptimizeRequest, policy pricing.Policy, beams []archetypeBeam, degraded bool, data domain.DataFreshness) ([]domain.Plan, error) {
+func (p *Planner) selectPrimaryPlans(
+	req *domain.OptimizeRequest,
+	policy *pricing.Policy,
+	beams []archetypeBeam,
+	selected []*planned,
+	degraded bool,
+	data domain.DataFreshness,
+) error {
+	for i := range beams {
+		if err := p.selectPrimaryBeamPlan(req, policy, beams, selected, i, degraded, data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *Planner) selectPrimaryBeamPlan(
+	req *domain.OptimizeRequest,
+	policy *pricing.Policy,
+	beams []archetypeBeam,
+	selected []*planned,
+	i int,
+	degraded bool,
+	data domain.DataFreshness,
+) error {
+	mask := beams[i].archetype.Mask()
+	for beams[i].next < len(beams[i].branches) {
+		cand := beams[i].branches[beams[i].next]
+		beams[i].next++
+		if !hasArchetypeMatch(cand, mask) {
+			continue
+		}
+		prev := slices.IndexFunc(
+			selected,
+			func(other *planned) bool { return other != nil && sameVisits(other.branch, cand) },
+		)
+		if prev >= 0 && cand.Score <= selected[prev].branch.Score {
+			break
+		}
+		plan, ok, err := p.buildValid(
+			req,
+			policy,
+			route{archetype: beams[i].archetype, branch: cand},
+			degraded,
+			data,
+		)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		if prev >= 0 {
+			selected[prev] = nil
+		}
+		selected[i] = &planned{branch: cand, plan: plan}
+		break
+	}
+	return nil
+}
+
+// selectContrastPlans fills remaining archetypes when user interests or shared candidates dominate
+// the top branch across beams, choosing the next branch that introduces an unvisited archetype place.
+func (p *Planner) selectContrastPlans(
+	req *domain.OptimizeRequest,
+	policy *pricing.Policy,
+	beams []archetypeBeam,
+	selected []*planned,
+	degraded bool,
+	data domain.DataFreshness,
+) error {
+	for i := range beams {
+		if selected[i] != nil {
+			continue
+		}
+		mask := beams[i].archetype.Mask()
+		for ; beams[i].next < len(beams[i].branches); beams[i].next++ {
+			cand := beams[i].branches[beams[i].next]
+			if !contrasts(cand, mask, selected) {
+				continue
+			}
+			plan, ok, err := p.buildValid(
+				req,
+				policy,
+				route{archetype: beams[i].archetype, branch: cand},
+				degraded,
+				data,
+			)
+			if err != nil {
+				return err
+			}
+			if ok {
+				selected[i] = &planned{branch: cand, plan: plan}
+				break
+			}
+		}
+	}
+	return nil
+}
+
+func (p *Planner) fallbackPlan(
+	req *domain.OptimizeRequest,
+	policy *pricing.Policy,
+	beams []archetypeBeam,
+	degraded bool,
+	data domain.DataFreshness,
+) ([]domain.Plan, error) {
 	for _, b := range beams {
 		for _, cand := range b.branches {
 			plan, ok, err := p.buildValid(req, policy, route{archetype: b.archetype, branch: cand}, degraded, data)
@@ -380,23 +531,36 @@ func (p *Planner) fallbackPlan(req domain.OptimizeRequest, policy pricing.Policy
 	return nil, nil
 }
 
-func (p *Planner) buildValid(req domain.OptimizeRequest, policy pricing.Policy, r route, degraded bool, data domain.DataFreshness) (domain.Plan, bool, error) {
+func (p *Planner) buildValid(
+	req *domain.OptimizeRequest,
+	policy *pricing.Policy,
+	r route,
+	degraded bool,
+	data domain.DataFreshness,
+) (domain.Plan, bool, error) {
 	plan, in, err := p.assemble(req, policy, r, degraded, data)
 	if err != nil {
 		return domain.Plan{}, false, err
 	}
-	if violations := validation.Check(plan, in); len(violations) > 0 {
+	if violations := validation.Check(&plan, &in); len(violations) > 0 {
 		rejectedPlans.WithLabelValues(violations[0].Code).Inc()
-		p.log.Error("planned route failed validation", zap.String("archetype", string(r.archetype)), zap.Any("violations", violations))
+		p.log.Error(
+			"planned route failed validation",
+			zap.String("archetype", string(r.archetype)),
+			zap.Any("violations", violations),
+		)
 		return domain.Plan{}, false, nil
 	}
 	return plan, true, nil
 }
 
 func hasArchetypeMatch(cand *domain.Branch, mask domain.InterestMask) bool {
-	return slices.ContainsFunc(cand.Visits, func(v domain.SearchVisit) bool {
-		return v.Candidate.InterestMask().Matches(mask) > 0
-	})
+	for i := range cand.Visits {
+		if cand.Visits[i].Candidate.InterestMask().Matches(mask) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func contrasts(cand *domain.Branch, mask domain.InterestMask, selected []*planned) bool {
@@ -405,25 +569,42 @@ func contrasts(cand *domain.Branch, mask domain.InterestMask, selected []*planne
 			return false
 		}
 	}
-	return slices.ContainsFunc(cand.Visits, func(v domain.SearchVisit) bool {
-		return v.Candidate.InterestMask().Matches(mask) > 0 && !visitedIn(v, selected)
-	})
-}
-
-func visitedIn(v domain.SearchVisit, selected []*planned) bool {
-	for _, s := range selected {
-		if s != nil && slices.ContainsFunc(s.branch.Visits, func(other domain.SearchVisit) bool { return sameVisit(v, other) }) {
+	for i := range cand.Visits {
+		v := &cand.Visits[i]
+		if v.Candidate.InterestMask().Matches(mask) > 0 && !visitedIn(v, selected) {
 			return true
 		}
 	}
 	return false
 }
 
-func sameVisits(a, b *domain.Branch) bool {
-	return slices.EqualFunc(a.Visits, b.Visits, sameVisit)
+func visitedIn(v *domain.SearchVisit, selected []*planned) bool {
+	for _, s := range selected {
+		if s == nil {
+			continue
+		}
+		for i := range s.branch.Visits {
+			if sameVisit(v, &s.branch.Visits[i]) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
-func sameVisit(a, b domain.SearchVisit) bool {
+func sameVisits(a, b *domain.Branch) bool {
+	if len(a.Visits) != len(b.Visits) {
+		return false
+	}
+	for i := range a.Visits {
+		if !sameVisit(&a.Visits[i], &b.Visits[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func sameVisit(a, b *domain.SearchVisit) bool {
 	return a.Candidate.Place.ID == b.Candidate.Place.ID && sessionOf(a.Candidate) == sessionOf(b.Candidate)
 }
 
@@ -436,7 +617,7 @@ func sessionOf(c *domain.Candidate) domain.SessionID {
 
 // admissible drops candidates no route may contain whatever else it holds; anchors are judged on
 // their own and replace catalog candidates at their places in the search.
-func admissible(candidates []domain.Candidate, c domain.RouteConstraints) []domain.Candidate {
+func admissible(candidates []domain.Candidate, c *domain.RouteConstraints) []domain.Candidate {
 	return slices.DeleteFunc(slices.Clone(candidates), func(cand domain.Candidate) bool {
 		if slices.Contains(c.ExcludedCategories, cand.Category()) {
 			return true
@@ -446,16 +627,16 @@ func admissible(candidates []domain.Candidate, c domain.RouteConstraints) []doma
 	})
 }
 
-func points(req domain.OptimizeRequest, pool []domain.Candidate, anchors []solver.Anchor) []domain.Coordinate {
+func points(req *domain.OptimizeRequest, pool []domain.Candidate, anchors []solver.Anchor) []domain.Coordinate {
 	out := []domain.Coordinate{req.Origin}
 	if req.Destination != nil {
 		out = append(out, *req.Destination)
 	}
-	for _, c := range pool {
-		out = append(out, c.Place.Location)
+	for i := range pool {
+		out = append(out, pool[i].Place.Location)
 	}
-	for _, a := range anchors {
-		out = append(out, a.Candidate.Place.Location)
+	for i := range anchors {
+		out = append(out, anchors[i].Candidate.Place.Location)
 	}
 	slices.SortFunc(out, func(a, b domain.Coordinate) int {
 		if c := cmp.Compare(a.Longitude, b.Longitude); c != 0 {

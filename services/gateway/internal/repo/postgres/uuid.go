@@ -17,8 +17,10 @@ func decodeUUID(id pgtype.UUID) ([16]byte, error) {
 	return id.Bytes, nil
 }
 
+const sha256HashBytes = 32
+
 func decodeHash(hash []byte) ([32]byte, error) {
-	if len(hash) != 32 {
+	if len(hash) != sha256HashBytes {
 		return [32]byte{}, errors.New("database returned an invalid token hash")
 	}
 	var result [32]byte

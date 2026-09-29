@@ -29,7 +29,7 @@ type Route struct {
 	CopiedFrom      *CopyOrigin
 }
 
-func (r Route) Validate() error {
+func (r *Route) Validate() error {
 	if err := requiredID([16]byte(r.ID)); err != nil {
 		return err
 	}

@@ -72,10 +72,16 @@ func inHorizon(start, end, now time.Time) bool {
 
 // newSession treats a short slot as a performance attended whole and a long one as an opening window
 // visited for part of it.
-func newSession(start, end time.Time, price PriceDraft, bookingURL *string) SessionDraft {
-	s := SessionDraft{StartsAt: start.UTC(), EndsAt: end.UTC(), AccessType: "ticket", BookingURL: bookingURL, Price: price}
-	if price.Status == "free" {
-		s.AccessType = "free"
+func newSession(start, end time.Time, price PriceDraft, bookingURL *string) *SessionDraft {
+	s := &SessionDraft{
+		StartsAt:   start.UTC(),
+		EndsAt:     end.UTC(),
+		AccessType: "ticket",
+		BookingURL: bookingURL,
+		Price:      price,
+	}
+	if price.Status == priceFree {
+		s.AccessType = priceFree
 	}
 	if d := end.Sub(start); d <= longestPerformance {
 		s.SlotType, s.MinDuration, s.RecommendedDuration = "FIXED_SESSION", d, d
@@ -85,16 +91,16 @@ func newSession(start, end time.Time, price PriceDraft, bookingURL *string) Sess
 	return s
 }
 
-func addSession(sessions []SessionDraft, s SessionDraft) []SessionDraft {
-	for _, existing := range sessions {
-		if existing.StartsAt.Equal(s.StartsAt) {
+func addSession(sessions []SessionDraft, s *SessionDraft) []SessionDraft {
+	for i := range sessions {
+		if sessions[i].StartsAt.Equal(s.StartsAt) {
 			return sessions
 		}
 	}
-	return append(sessions, s)
+	return append(sessions, *s)
 }
 
-func amount(v int64) *int64 { return &v }
+func amount(v int64) *int64 { return new(v) }
 
 const kopecksPerRuble = 100
 
@@ -107,7 +113,7 @@ func kopecks(rubles int64) (int64, bool) {
 }
 
 func freePrice() PriceDraft {
-	return PriceDraft{Status: "free", AmountMin: amount(0), AmountMax: amount(0)}
+	return PriceDraft{Status: priceFree, AmountMin: amount(0), AmountMax: amount(0)}
 }
 
 func fixedPrice(rubles int64) PriceDraft {
@@ -115,7 +121,7 @@ func fixedPrice(rubles int64) PriceDraft {
 	if !ok {
 		return unknownPrice("")
 	}
-	return PriceDraft{Status: "fixed", AmountMin: amount(v), AmountMax: amount(v)}
+	return PriceDraft{Status: "fixed", AmountMin: new(v), AmountMax: new(v)}
 }
 
 func rangePrice(loRubles, hiRubles int64) PriceDraft {
@@ -124,7 +130,7 @@ func rangePrice(loRubles, hiRubles int64) PriceDraft {
 	if !okLo || !okHi {
 		return unknownPrice("")
 	}
-	return PriceDraft{Status: "range", AmountMin: amount(lo), AmountMax: amount(hi)}
+	return PriceDraft{Status: "range", AmountMin: new(lo), AmountMax: new(hi)}
 }
 
 func unknownPrice(label string) PriceDraft {

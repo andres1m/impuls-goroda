@@ -28,7 +28,7 @@ func TestLunchSlotFor(t *testing.T) {
 	}
 }
 
-func lunchProblem(start, end time.Time) Problem {
+func lunchProblem(start, end time.Time) *Problem {
 	p := problem()
 	p.Start, p.End = start, end
 	p.Lunch = &LunchSlot{Start: at(13, 0), End: at(14, 30), Duration: 45 * time.Minute}
@@ -40,7 +40,7 @@ func cafe(id byte, location domain.Coordinate) domain.Candidate {
 }
 
 // requireLunch checks every route reserves lunch inside the window for exactly its duration.
-func requireLunch(t *testing.T, p Problem, routes []*domain.Branch) {
+func requireLunch(t *testing.T, p *Problem, routes []*domain.Branch) {
 	t.Helper()
 	if len(routes) == 0 {
 		t.Fatal("no routes")
@@ -55,7 +55,8 @@ func requireLunch(t *testing.T, p Problem, routes []*domain.Branch) {
 		}
 		if l.Venue {
 			v := r.Visits[l.At]
-			if !v.StartAt.Equal(l.StartAt) || !v.EndAt.Equal(l.EndAt) || v.Candidate.Category() != domain.CategoryGastro {
+			if !v.StartAt.Equal(l.StartAt) || !v.EndAt.Equal(l.EndAt) ||
+				v.Candidate.Category() != domain.CategoryGastro {
 				t.Fatalf("venue lunch %+v does not match its visit %+v", l, v)
 			}
 			continue
@@ -209,8 +210,8 @@ func TestSearchVisitsLunchVenuesOnlyForLunch(t *testing.T) {
 	}
 }
 
-func cafeWithoutHours(id byte, location domain.Coordinate) domain.Candidate {
-	c := cafe(id, location)
+func cafeWithoutHours(location domain.Coordinate) domain.Candidate {
+	c := cafe(1, location)
 	c.Window.HoursUnknown = true
 	return c
 }
@@ -230,7 +231,7 @@ func lunchPlaces(routes []*domain.Branch) map[byte]bool {
 
 func TestSearchLunchAtVenueWithUnknownHoursWhenAloneInRing(t *testing.T) {
 	p := lunchProblem(at(13, 0), at(14, 0))
-	routes := search(t, wide, p, []domain.Candidate{cafeWithoutHours(1, north(origin, 200))})
+	routes := search(t, wide, p, []domain.Candidate{cafeWithoutHours(north(origin, 200))})
 	requireLunch(t, p, routes)
 	if got := lunchPlaces(routes); len(got) != 1 || !got[1] {
 		t.Fatalf("lunch places %v", got)
@@ -238,7 +239,7 @@ func TestSearchLunchAtVenueWithUnknownHoursWhenAloneInRing(t *testing.T) {
 }
 
 func TestSearchPrefersKnownHoursInTheSameRing(t *testing.T) {
-	unknown := cafeWithoutHours(1, north(origin, 200))
+	unknown := cafeWithoutHours(north(origin, 200))
 	unknown.BaseScore = 100
 	p := lunchProblem(at(13, 0), at(14, 0))
 	routes := search(t, wide, p, []domain.Candidate{unknown, cafe(2, north(origin, 250))})
@@ -250,7 +251,12 @@ func TestSearchPrefersKnownHoursInTheSameRing(t *testing.T) {
 
 func TestSearchKeepsNearestRingOverKnownHours(t *testing.T) {
 	p := lunchProblem(at(13, 0), at(14, 0))
-	routes := search(t, wide, p, []domain.Candidate{cafeWithoutHours(1, north(origin, 200)), cafe(2, north(origin, 700))})
+	routes := search(
+		t,
+		wide,
+		p,
+		[]domain.Candidate{cafeWithoutHours(north(origin, 200)), cafe(2, north(origin, 700))},
+	)
 	requireLunch(t, p, routes)
 	if got := lunchPlaces(routes); len(got) != 1 || !got[1] {
 		t.Fatalf("lunch places %v", got)
@@ -259,7 +265,15 @@ func TestSearchKeepsNearestRingOverKnownHours(t *testing.T) {
 
 func TestSearchNeverVisitsVenueWithUnknownHoursWithoutLunch(t *testing.T) {
 	p := problem()
-	routes := search(t, wide, p, []domain.Candidate{cafeWithoutHours(1, north(origin, 200)), place(9, domain.CategoryCulture, 0, north(origin, 400))})
+	routes := search(
+		t,
+		wide,
+		p,
+		[]domain.Candidate{
+			cafeWithoutHours(north(origin, 200)),
+			place(9, domain.CategoryCulture, 0, north(origin, 400)),
+		},
+	)
 	for _, r := range routes {
 		for _, v := range r.Visits {
 			if v.Candidate.Place.ID[0] == 1 {

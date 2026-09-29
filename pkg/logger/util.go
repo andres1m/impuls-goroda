@@ -34,7 +34,7 @@ func checkOrCreatePath(p string) (string, error) {
 		return "", fmt.Errorf("path %s does not exist: %w", d, err)
 	}
 
-	if err := os.MkdirAll(d, 0750); err != nil {
+	if err := os.MkdirAll(d, 0o750); err != nil {
 		return "", fmt.Errorf("failed to create directory %s: %w", d, err)
 	}
 

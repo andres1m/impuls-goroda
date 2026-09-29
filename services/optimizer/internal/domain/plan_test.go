@@ -14,7 +14,7 @@ func moneyPtr(amount int64) *Money {
 }
 
 func freePrice() Price {
-	return Price{Status: PriceFree, Currency: rub, LowerMinor: i64(0), UpperMinor: i64(0)}
+	return Price{Status: PriceFree, Currency: rub, LowerMinor: new(int64(0)), UpperMinor: new(int64(0))}
 }
 
 func visitStep() Step {
@@ -39,19 +39,31 @@ func visitStep() Step {
 			Category:     CategoryCulture,
 			InterestMask: Interests(InterestContemporaryArt),
 			Availability: AvailabilityAvailable,
-			SessionStart: timePtr(at(10, 0)),
-			SessionEnd:   timePtr(at(18, 0)),
+			SessionStart: new(at(10, 0)),
+			SessionEnd:   new(at(18, 0)),
 			DataMode:     DataLive,
 			Provenance:   provided,
 		},
 		Cost: &CostSnapshot{
-			PriceOfferID:   &PriceOfferID{4},
-			Audience:       AudienceGeneral,
-			Price:          Price{Status: PriceFixed, Currency: rub, LowerMinor: i64(50000), UpperMinor: i64(50000)},
+			PriceOfferID: &PriceOfferID{4},
+			Audience:     AudienceGeneral,
+			Price: Price{
+				Status:     PriceFixed,
+				Currency:   rub,
+				LowerMinor: new(int64(50000)),
+				UpperMinor: new(int64(50000)),
+			},
 			PersonalAmount: moneyPtr(50000),
 			Provenance:     provided,
 		},
-		AppliedConstraints: []AppliedConstraint{{Code: "FIXED_SESSION", Strength: StrengthHard, Outcome: OutcomeSatisfied, Message: "Starts with the session"}},
+		AppliedConstraints: []AppliedConstraint{
+			{
+				Code:     "FIXED_SESSION",
+				Strength: StrengthHard,
+				Outcome:  OutcomeSatisfied,
+				Message:  "Starts with the session",
+			},
+		},
 	}
 }
 
@@ -82,8 +94,13 @@ func leg(position int, from, to LegEndpoint, fromVisit, toVisit *VisitID, depart
 		DistanceMeters: &distance,
 		Geometry:       []Coordinate{{Longitude: 37.60, Latitude: 55.70}, {Longitude: 37.61, Latitude: 55.71}},
 		Verification:   VerificationEstimated,
-		Evidence:       LegEvidence{Provider: "optimizer", Method: "distance_estimate", ObservedAt: fetched, Mode: "walk"},
-		Cost:           CostSnapshot{Price: freePrice(), PersonalAmount: moneyPtr(0), Provenance: provided},
+		Evidence: LegEvidence{
+			Provider:   "optimizer",
+			Method:     "distance_estimate",
+			ObservedAt: fetched,
+			Mode:       "walk",
+		},
+		Cost: CostSnapshot{Price: freePrice(), PersonalAmount: moneyPtr(0), Provenance: provided},
 	}
 }
 
@@ -154,14 +171,20 @@ func TestPlanValidate(t *testing.T) {
 		{"conflict without conflicts", func(p *Plan) { p.Result, p.Steps, p.Legs = ResultConflict, nil, nil }, false},
 		{"conflict with conflict", func(p *Plan) {
 			p.Result, p.Steps, p.Legs = ResultConflict, nil, nil
-			p.Conflicts = []Conflict{{Code: "SESSION_UNREACHABLE", SessionIDs: []SessionID{{3}}, Message: "Cannot reach the session"}}
+			p.Conflicts = []Conflict{
+				{Code: "SESSION_UNREACHABLE", SessionIDs: []SessionID{{3}}, Message: "Cannot reach the session"},
+			}
 		}, true},
-		{"bad warning code", func(p *Plan) { p.Warnings = []Warning{{Code: "bad-code", Scope: ScopeRoute, Message: "x"}} }, false},
+		{
+			"bad warning code",
+			func(p *Plan) { p.Warnings = []Warning{{Code: "bad-code", Scope: ScopeRoute, Message: "x"}} },
+			false,
+		},
 		{"visit warning for unknown visit", func(p *Plan) {
 			p.Warnings = []Warning{{Code: "LATE", Scope: ScopeVisit, VisitID: &VisitID{9}, Message: "x"}}
 		}, false},
 		{"leg warning", func(p *Plan) {
-			p.Warnings = []Warning{{Code: "ESTIMATED", Scope: ScopeLeg, LegPosition: intPtr(2), Message: "x"}}
+			p.Warnings = []Warning{{Code: "ESTIMATED", Scope: ScopeLeg, LegPosition: new(2), Message: "x"}}
 		}, true},
 		{"provider confirmation without provider evidence", func(p *Plan) {
 			p.Steps[0].Participation = Participation{Status: ParticipationProviderConfirmed, Evidence: EvidenceUser}
@@ -171,24 +194,40 @@ func TestPlanValidate(t *testing.T) {
 		{"invalid archetype", func(p *Plan) { p.Archetype = "" }, false},
 		{"session snapshot without event", func(p *Plan) { p.Steps[0].Catalog.EventID = nil }, false},
 		{"session snapshot without end", func(p *Plan) { p.Steps[0].Catalog.SessionEnd = nil }, false},
-		{"session snapshot ends before start", func(p *Plan) { p.Steps[0].Catalog.SessionEnd = timePtr(at(9, 0)) }, false},
-		{"personal amount in other currency", func(p *Plan) { p.Steps[0].Cost.PersonalAmount = &Money{AmountMinor: 1, Currency: "USD"} }, false},
+		{"session snapshot ends before start", func(p *Plan) { p.Steps[0].Catalog.SessionEnd = new(at(9, 0)) }, false},
+		{
+			"personal amount in other currency",
+			func(p *Plan) { p.Steps[0].Cost.PersonalAmount = &Money{AmountMinor: 1, Currency: "USD"} },
+			false,
+		},
 		{"visit without minimum duration", func(p *Plan) { p.Steps[0].MinDuration = 0 }, false},
 		{"warning for missing leg", func(p *Plan) {
-			p.Warnings = []Warning{{Code: "ESTIMATED", Scope: ScopeLeg, LegPosition: intPtr(5), Message: "x"}}
+			p.Warnings = []Warning{{Code: "ESTIMATED", Scope: ScopeLeg, LegPosition: new(5), Message: "x"}}
 		}, false},
 		{"last step after day end without destination", func(p *Plan) {
 			p.Destination, p.Legs, p.End = nil, p.Legs[:2], at(11, 50)
 		}, false},
-		{"first leg from a visit", func(p *Plan) { p.Legs[0].From, p.Legs[0].FromVisitID = EndpointVisit, &VisitID{2} }, false},
+		{
+			"first leg from a visit",
+			func(p *Plan) { p.Legs[0].From, p.Legs[0].FromVisitID = EndpointVisit, &VisitID{2} },
+			false,
+		},
 		{"leg from another visit", func(p *Plan) { p.Legs[1].FromVisitID = &VisitID{2} }, false},
-		{"last leg to a visit", func(p *Plan) { p.Legs[2].To, p.Legs[2].ToVisitID = EndpointVisit, &VisitID{1} }, false},
+		{
+			"last leg to a visit",
+			func(p *Plan) { p.Legs[2].To, p.Legs[2].ToVisitID = EndpointVisit, &VisitID{1} },
+			false,
+		},
 		{"leg position gap", func(p *Plan) { p.Legs[1].Position = 3 }, false},
 		{"leg arrives before it departs", func(p *Plan) { p.Legs[0].ArrivalAt = at(9, 30) }, false},
 		{"destination leg with target visit", func(p *Plan) { p.Legs[2].ToVisitID = &VisitID{2} }, false},
 		{"negative distance", func(p *Plan) { d := -1.0; p.Legs[0].DistanceMeters = &d }, false},
 		{"transport in other currency", func(p *Plan) { p.Cost.KnownTransport = Money{Currency: "USD"} }, false},
-		{"total bound in other currency", func(p *Plan) { p.Cost.TotalUpper = &Money{AmountMinor: 50000, Currency: "USD"} }, false},
+		{
+			"total bound in other currency",
+			func(p *Plan) { p.Cost.TotalUpper = &Money{AmountMinor: 50000, Currency: "USD"} },
+			false,
+		},
 		{"total range inverted", func(p *Plan) { p.Cost.TotalLower = moneyPtr(60000) }, false},
 		{"end equals start", func(p *Plan) { p.End = p.Start }, false},
 		{"free time with negative minimum", func(p *Plan) { p.Steps[1].MinDuration = -time.Minute }, false},
@@ -196,20 +235,42 @@ func TestPlanValidate(t *testing.T) {
 			p.Warnings = []Warning{{Code: "LATE", Scope: ScopeRoute, VisitID: &VisitID{1}, Message: "x"}}
 		}, false},
 		{"visit warning with leg", func(p *Plan) {
-			p.Warnings = []Warning{{Code: "LATE", Scope: ScopeVisit, VisitID: &VisitID{1}, LegPosition: intPtr(1), Message: "x"}}
+			p.Warnings = []Warning{
+				{Code: "LATE", Scope: ScopeVisit, VisitID: &VisitID{1}, LegPosition: new(1), Message: "x"},
+			}
 		}, false},
 		{"leg warning at position zero", func(p *Plan) {
-			p.Warnings = []Warning{{Code: "ESTIMATED", Scope: ScopeLeg, LegPosition: intPtr(0), Message: "x"}}
+			p.Warnings = []Warning{{Code: "ESTIMATED", Scope: ScopeLeg, LegPosition: new(0), Message: "x"}}
 		}, false},
 		{"session snapshot zero start", func(p *Plan) { p.Steps[0].Catalog.SessionStart = &time.Time{} }, false},
-		{"provenance zero verification time", func(p *Plan) { p.Steps[0].Catalog.Provenance.VerifiedAt = &time.Time{} }, false},
-		{"provenance zero source update", func(p *Plan) { p.Steps[0].Catalog.Provenance.SourceUpdatedAt = &time.Time{} }, false},
-		{"provenance blank url", func(p *Plan) { blank := " "; p.Steps[0].Catalog.Provenance.SourceURL = &blank }, false},
+		{
+			"provenance zero verification time",
+			func(p *Plan) { p.Steps[0].Catalog.Provenance.VerifiedAt = &time.Time{} },
+			false,
+		},
+		{
+			"provenance zero source update",
+			func(p *Plan) { p.Steps[0].Catalog.Provenance.SourceUpdatedAt = &time.Time{} },
+			false,
+		},
+		{
+			"provenance blank url",
+			func(p *Plan) { blank := " "; p.Steps[0].Catalog.Provenance.SourceURL = &blank },
+			false,
+		},
 		{"cost with unknown audience", func(p *Plan) { p.Steps[0].Cost.Audience = "vip" }, false},
 		{"leg cost without audience", func(p *Plan) { p.Legs[0].Cost.Audience = "" }, true},
 		{"bad destination", func(p *Plan) { p.Destination = &Coordinate{Latitude: 100} }, false},
-		{"infeasible plan with zero start", func(p *Plan) { p.Result, p.Steps, p.Legs, p.Start = ResultNoFeasibleRoute, nil, nil, time.Time{} }, false},
-		{"infeasible plan ending at start", func(p *Plan) { p.Result, p.Steps, p.Legs, p.End = ResultNoFeasibleRoute, nil, nil, p.Start }, false},
+		{
+			"infeasible plan with zero start",
+			func(p *Plan) { p.Result, p.Steps, p.Legs, p.Start = ResultNoFeasibleRoute, nil, nil, time.Time{} },
+			false,
+		},
+		{
+			"infeasible plan ending at start",
+			func(p *Plan) { p.Result, p.Steps, p.Legs, p.End = ResultNoFeasibleRoute, nil, nil, p.Start },
+			false,
+		},
 		{"infeasible plan with legs", func(p *Plan) { p.Result, p.Steps = ResultNoFeasibleRoute, nil }, false},
 		{"snapshot without title", func(p *Plan) { p.Steps[0].Catalog.Title = " " }, false},
 		{"constraint strength unknown", func(p *Plan) { p.Steps[0].AppliedConstraints[0].Strength = "firm" }, false},
@@ -222,15 +283,29 @@ func TestPlanValidate(t *testing.T) {
 		{"evidence without method", func(p *Plan) { p.Legs[0].Evidence.Method = "" }, false},
 		{"evidence without mode", func(p *Plan) { p.Legs[0].Evidence.Mode = "" }, false},
 		{"visit leg without source visit", func(p *Plan) { p.Legs[1].FromVisitID = nil }, false},
-		{"middle leg from origin", func(p *Plan) { p.Legs[1].From, p.Legs[1].FromVisitID = EndpointOrigin, nil }, false},
-		{"first leg to destination", func(p *Plan) { p.Legs[0].To, p.Legs[0].ToVisitID = EndpointDestination, nil }, false},
+		{
+			"middle leg from origin",
+			func(p *Plan) { p.Legs[1].From, p.Legs[1].FromVisitID = EndpointOrigin, nil },
+			false,
+		},
+		{
+			"first leg to destination",
+			func(p *Plan) { p.Legs[0].To, p.Legs[0].ToVisitID = EndpointDestination, nil },
+			false,
+		},
 		{"route warning with leg", func(p *Plan) {
-			p.Warnings = []Warning{{Code: "LATE", Scope: ScopeRoute, LegPosition: intPtr(1), Message: "x"}}
+			p.Warnings = []Warning{{Code: "LATE", Scope: ScopeRoute, LegPosition: new(1), Message: "x"}}
 		}, false},
 		{"leg warning with visit", func(p *Plan) {
-			p.Warnings = []Warning{{Code: "LATE", Scope: ScopeLeg, VisitID: &VisitID{1}, LegPosition: intPtr(1), Message: "x"}}
+			p.Warnings = []Warning{
+				{Code: "LATE", Scope: ScopeLeg, VisitID: &VisitID{1}, LegPosition: new(1), Message: "x"},
+			}
 		}, false},
-		{"leg warning without position", func(p *Plan) { p.Warnings = []Warning{{Code: "LATE", Scope: ScopeLeg, Message: "x"}} }, false},
+		{
+			"leg warning without position",
+			func(p *Plan) { p.Warnings = []Warning{{Code: "LATE", Scope: ScopeLeg, Message: "x"}} },
+			false,
+		},
 		{"leg in other currency", func(p *Plan) {
 			p.Legs[1].Cost.Price.Currency = "USD"
 			p.Legs[1].Cost.PersonalAmount = &Money{Currency: "USD"}
@@ -256,7 +331,12 @@ func TestPlanValidateBudget(t *testing.T) {
 		ok     bool
 	}{
 		{"no budget", Budget{Mode: BudgetNone}, func(*CostSummary) {}, true},
-		{"no budget but concluded", Budget{Mode: BudgetNone}, func(c *CostSummary) { c.BudgetConclusion = BudgetSatisfied }, false},
+		{
+			"no budget but concluded",
+			Budget{Mode: BudgetNone},
+			func(c *CostSummary) { c.BudgetConclusion = BudgetSatisfied },
+			false,
+		},
 		{"strict satisfied", strict, func(c *CostSummary) { c.BudgetConclusion = BudgetSatisfied }, true},
 		{"strict unknown hidden as satisfied", strict, func(c *CostSummary) {
 			c.BudgetConclusion = BudgetSatisfied
@@ -267,9 +347,14 @@ func TestPlanValidateBudget(t *testing.T) {
 			c.UnknownComponents = []UnknownCostComponent{{Code: "PRICE_UNKNOWN", Message: "Ticket price is unknown"}}
 		}, true},
 		{"strict not concluded", strict, func(c *CostSummary) {}, false},
-		{"limit in other currency", Budget{Mode: BudgetStrict, Limit: &Money{AmountMinor: 1, Currency: "USD"}}, func(c *CostSummary) {
-			c.BudgetConclusion = BudgetSatisfied
-		}, false},
+		{
+			"limit in other currency",
+			Budget{Mode: BudgetStrict, Limit: &Money{AmountMinor: 1, Currency: "USD"}},
+			func(c *CostSummary) {
+				c.BudgetConclusion = BudgetSatisfied
+			},
+			false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

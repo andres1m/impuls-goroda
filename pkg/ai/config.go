@@ -49,7 +49,7 @@ type AdminConfig struct {
 	Port int    `yaml:"port"`
 }
 
-func (c Config) Validate() error {
+func (c *Config) Validate() error {
 	if err := validProvider(c.Embedding.Provider, c.Embedding.Model); err != nil {
 		return fmt.Errorf("embedding: %w", err)
 	}

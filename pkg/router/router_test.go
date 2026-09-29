@@ -25,7 +25,7 @@ func TestRouteRegistersMethodPathAndMiddleware(t *testing.T) {
 	NewRoute(http.MethodPost, "/items", handler, mark).Register(context.Background(), e.Group("/api"))
 
 	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/items", nil))
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/items", http.NoBody))
 	if rec.Code != http.StatusTeapot {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusTeapot)
 	}
@@ -34,7 +34,7 @@ func TestRouteRegistersMethodPathAndMiddleware(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/items", nil))
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/items", http.NoBody))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("GET status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
 	}

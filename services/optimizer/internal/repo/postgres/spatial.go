@@ -39,7 +39,12 @@ const nearbyPOIsSQL = `
 	ORDER BY distance, id`
 
 // NearbyPOIs returns the city's active points within the radius, inclusive, nearest first.
-func (s *Spatial) NearbyPOIs(ctx context.Context, city string, center domain.Coordinate, radiusMeters float64) ([]NearbyPOI, error) {
+func (s *Spatial) NearbyPOIs(
+	ctx context.Context,
+	city string,
+	center domain.Coordinate,
+	radiusMeters float64,
+) ([]NearbyPOI, error) {
 	if err := validateCityPoint(city, center); err != nil {
 		return nil, err
 	}
@@ -50,13 +55,16 @@ func (s *Spatial) NearbyPOIs(ctx context.Context, city string, center domain.Coo
 	if err != nil {
 		return nil, fmt.Errorf("query nearby points: %w", err)
 	}
-	found, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (NearbyPOI, error) {
+	found, collectErr := pgx.CollectRows(rows, func(row pgx.CollectableRow) (NearbyPOI, error) {
 		var p NearbyPOI
 		err := row.Scan(&p.PlaceID, &p.DistanceMeters)
-		return p, err
+		if err != nil {
+			return p, fmt.Errorf("scan nearby point: %w", err)
+		}
+		return p, nil
 	})
-	if err != nil {
-		return nil, fmt.Errorf("read nearby points: %w", err)
+	if collectErr != nil {
+		return nil, fmt.Errorf("read nearby points: %w", collectErr)
 	}
 	return found, nil
 }
@@ -69,9 +77,13 @@ const cityCoversSQL = `
 
 // CityCovers reports whether the point lies inside the city or on its border. known is false
 // while the city boundary is not loaded, so callers must not treat that as outside.
-func (s *Spatial) CityCovers(ctx context.Context, city string, point domain.Coordinate) (covered, known bool, err error) {
-	if err := validateCityPoint(city, point); err != nil {
-		return false, false, err
+func (s *Spatial) CityCovers(
+	ctx context.Context,
+	city string,
+	point domain.Coordinate,
+) (covered, known bool, err error) {
+	if validationErr := validateCityPoint(city, point); validationErr != nil {
+		return false, false, validationErr
 	}
 	err = s.db.QueryRow(ctx, cityCoversSQL, city, point.Longitude, point.Latitude).Scan(&known, &covered)
 	if errors.Is(err, pgx.ErrNoRows) {

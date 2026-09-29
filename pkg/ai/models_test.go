@@ -55,9 +55,15 @@ func newFakeProvider(t *testing.T) *fakeProvider {
 		case "/models":
 			switch r.URL.Query().Get("type") {
 			case "embedding":
-				_, _ = io.WriteString(w, `{"data":[{"id":"p/emb","name":"Polza","top_provider":{"context_length":8192}}]}`)
+				_, _ = io.WriteString(
+					w,
+					`{"data":[{"id":"p/emb","name":"Polza","top_provider":{"context_length":8192}}]}`,
+				)
 			case "chat":
-				_, _ = io.WriteString(w, `{"data":[{"id":"p/chat","name":"Chat","top_provider":{"context_length":128000}}]}`)
+				_, _ = io.WriteString(
+					w,
+					`{"data":[{"id":"p/chat","name":"Chat","top_provider":{"context_length":128000}}]}`,
+				)
 			default:
 				_, _ = io.WriteString(w, `{"data":[{"id":"t/one","name":"Text","context_length":8000}]}`)
 			}
@@ -80,8 +86,12 @@ func vector(size int) string {
 func openRouterConfig(baseURL, key string) Config {
 	return Config{
 		OpenRouter: ProviderConfig{BaseURL: baseURL, APIKey: key},
-		Embedding:  EmbeddingConfig{Provider: ProviderOpenRouter, Model: "openai/text-embedding-3-small", Dimensions: 384},
-		Text:       TextConfig{Provider: ProviderOpenRouter, Model: "openai/gpt-4o-mini"},
+		Embedding: EmbeddingConfig{
+			Provider:   ProviderOpenRouter,
+			Model:      "openai/text-embedding-3-small",
+			Dimensions: 384,
+		},
+		Text: TextConfig{Provider: ProviderOpenRouter, Model: "openai/gpt-4o-mini"},
 	}
 }
 
@@ -93,6 +103,7 @@ func polzaConfig(baseURL, key string) Config {
 	}
 }
 
+//nolint:gocritic // test helper accepts configuration values from constructors
 func mustNew(t *testing.T, cfg Config) *Models {
 	t.Helper()
 	m, err := New(cfg)
@@ -269,14 +280,18 @@ func TestPolzaProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := m.Embedder().Embed(context.Background(), []string{"a"})
-	if err != nil || len(got.Vectors) != 1 || got.Space != (Space{Key: "polza/openai/text-embedding-3-small", Version: "d384"}) {
+	if err != nil || len(got.Vectors) != 1 ||
+		got.Space != (Space{Key: "polza/openai/text-embedding-3-small", Version: "d384"}) {
 		t.Fatalf("embedding %v, %v", got.Space, err)
 	}
-	if answer, err := m.Text().Complete(context.Background(), Prompt{User: "hi"}); err != nil || answer != "answer" {
-		t.Fatalf("complete %q, %v", answer, err)
+	if answer, completeErr := m.Text().
+		Complete(context.Background(), Prompt{User: "hi"}); completeErr != nil ||
+		answer != "answer" {
+		t.Fatalf("complete %q, %v", answer, completeErr)
 	}
 	embedding, err := m.Available(context.Background(), KindEmbedding)
-	if err != nil || len(embedding) != 1 || embedding[0] != (ModelInfo{ID: "p/emb", Name: "Polza", ContextLength: 8192}) {
+	if err != nil || len(embedding) != 1 ||
+		embedding[0] != (ModelInfo{ID: "p/emb", Name: "Polza", ContextLength: 8192}) {
 		t.Fatalf("embedding models %v, %v", embedding, err)
 	}
 	text, err := m.Available(context.Background(), KindText)

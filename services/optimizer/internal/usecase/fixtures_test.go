@@ -24,11 +24,6 @@ func at(hour, minute int) time.Time {
 func north(from domain.Coordinate, meters float64) domain.Coordinate {
 	return domain.Coordinate{Longitude: from.Longitude, Latitude: from.Latitude + meters/6371000*180/math.Pi}
 }
-
-func ptr[T any](v T) *T {
-	return &v
-}
-
 func place(id byte, category domain.Category, location domain.Coordinate) domain.Candidate {
 	return domain.Candidate{
 		Place: domain.Place{
@@ -43,10 +38,29 @@ func place(id byte, category domain.Category, location domain.Coordinate) domain
 	}
 }
 
-func session(id byte, category domain.Category, location domain.Coordinate, start, end time.Time, price int64) domain.Candidate {
+func session(
+	id byte,
+	category domain.Category,
+	location domain.Coordinate,
+	start, end time.Time,
+	price int64,
+) domain.Candidate {
 	c := place(id, category, location)
-	window := domain.VisitWindow{Kind: domain.WindowFixed, Start: start, End: end, MinDuration: end.Sub(start), RecommendedDuration: end.Sub(start)}
-	c.Event = &domain.Event{ID: domain.EventID{id}, PlaceID: c.Place.ID, Title: "Event", Category: category, DataMode: domain.DataSynthetic, Provenance: source}
+	window := domain.VisitWindow{
+		Kind:                domain.WindowFixed,
+		Start:               start,
+		End:                 end,
+		MinDuration:         end.Sub(start),
+		RecommendedDuration: end.Sub(start),
+	}
+	c.Event = &domain.Event{
+		ID:         domain.EventID{id},
+		PlaceID:    c.Place.ID,
+		Title:      "Event",
+		Category:   category,
+		DataMode:   domain.DataSynthetic,
+		Provenance: source,
+	}
 	c.Session = &domain.Session{
 		ID: domain.SessionID{id}, EventID: c.Event.ID, Window: window, Access: domain.AccessTicket,
 		Availability: domain.AvailabilityAvailable, Version: 3, DataMode: domain.DataSynthetic, Provenance: source,
@@ -76,7 +90,10 @@ type fakeSource struct {
 	err        error
 }
 
-func (f fakeSource) Candidates(context.Context, domain.OptimizeRequest) ([]domain.Candidate, domain.DataFreshness, error) {
+func (f fakeSource) Candidates(
+	context.Context,
+	*domain.OptimizeRequest,
+) ([]domain.Candidate, domain.DataFreshness, error) {
 	return f.candidates, freshness, f.err
 }
 
@@ -86,7 +103,11 @@ type statusTransit struct {
 	status domain.VerificationStatus
 }
 
-func (s statusTransit) Estimate(from, to domain.Coordinate, departAt time.Time, modes []domain.MovementMode) (domain.TransitEstimate, bool) {
+func (s statusTransit) Estimate(
+	from, to domain.Coordinate,
+	departAt time.Time,
+	modes []domain.MovementMode,
+) (domain.TransitEstimate, bool) {
 	t, ok := s.base.Estimate(from, to, departAt, modes)
 	t.Verification = s.status
 	return t, ok
@@ -99,7 +120,12 @@ type fakeProvider struct {
 	points   []domain.Coordinate
 }
 
-func (f *fakeProvider) Transit(_ context.Context, _ string, points []domain.Coordinate, _ []domain.MovementMode) (solver.Transit, bool, error) {
+func (f *fakeProvider) Transit(
+	_ context.Context,
+	_ string,
+	points []domain.Coordinate,
+	_ []domain.MovementMode,
+) (solver.Transit, bool, error) {
 	f.points = points
 	return f.transit, f.degraded, f.err
 }

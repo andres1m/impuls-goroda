@@ -13,11 +13,16 @@ import (
 func mkrfPayload(t *testing.T, edit func(g map[string]any)) []byte {
 	t.Helper()
 	g := map[string]any{
-		"id": 1329259, "name": " Экспозиция  Музея ", "ageRestriction": 12, "isFree": false, "price": 50, "maxPrice": 100,
-		"saleLink":     "https://example.test/buy",
-		"category":     map[string]any{"sysName": "vystavki"},
-		"tags":         []any{map[string]any{"sysName": "istoriya"}, map[string]any{"sysName": "nauka"}},
-		"organization": map[string]any{"name": "Музей"},
+		"id":             1329259,
+		"name":           " Экспозиция  Музея ",
+		"ageRestriction": 12,
+		"isFree":         false,
+		"price":          50,
+		"maxPrice":       100,
+		"saleLink":       "https://example.test/buy",
+		"category":       map[string]any{"sysName": "vystavki"},
+		"tags":           []any{map[string]any{"sysName": "istoriya"}, map[string]any{"sysName": "nauka"}},
+		"organization":   map[string]any{"name": "Музей"},
 		"places": []any{map[string]any{
 			"id": 56595, "name": "Музей ВДНХ",
 			"address": map[string]any{"street": "пр-кт Мира, 119", "fullAddress": "г Москва,г Москва,пр-кт Мира,119",
@@ -56,6 +61,7 @@ func mkrfCode(t *testing.T, city domain.City, payload []byte) string {
 	return bad.Code
 }
 
+//nolint:cyclop // one source fixture checks all event fields and rejection cases
 func TestMkrfEvent(t *testing.T) {
 	d, err := MkrfEvent(domain.Moscow, "event:1329259", mkrfPayload(t, nil), now)
 	if err != nil {
@@ -67,9 +73,12 @@ func TestMkrfEvent(t *testing.T) {
 		t.Fatalf("place %+v", p)
 	}
 	e := d.Event
-	if e.ExternalID != "event:1329259@place:56595" || e.Title != "Экспозиция Музея" || e.NormalizedTitle != "экспозиция музея" ||
-		e.Category != "culture" || !slices.Equal(e.Tags, []string{"classical_art", "science_tech"}) ||
-		*e.Organizer != "Музей" || *e.AgeMin != 12 {
+	if e.ExternalID != "event:1329259@place:56595" || e.Title != "Экспозиция Музея" ||
+		e.NormalizedTitle != "экспозиция музея" ||
+		e.Category != "culture" ||
+		!slices.Equal(e.Tags, []string{"classical_art", "science_tech"}) ||
+		*e.Organizer != "Музей" ||
+		*e.AgeMin != 12 {
 		t.Fatalf("event %+v", e)
 	}
 	if len(e.Sessions) != 2 {
@@ -149,7 +158,11 @@ func TestMkrfCoordinatesInEitherOrder(t *testing.T) {
 	if code := mkrfCode(t, domain.Perm, mkrfPayload(t, perm([]any{37.63, 55.83}))); code != "bad_coordinates" {
 		t.Fatalf("moscow point in perm: %s", code)
 	}
-	if code := mkrfCode(t, domain.Moscow, mkrfPayload(t, func(g map[string]any) { delete(address(g), "mapPosition") })); code != "bad_coordinates" {
+	if code := mkrfCode(
+		t,
+		domain.Moscow,
+		mkrfPayload(t, func(g map[string]any) { delete(address(g), "mapPosition") }),
+	); code != "bad_coordinates" {
 		t.Fatalf("no coordinates: %s", code)
 	}
 }
@@ -162,19 +175,32 @@ func TestMkrfPlaceChoice(t *testing.T) {
 				"mapPosition": map[string]any{"coordinates": []any{56.25, 58.01}}},
 		})
 	}), now)
-	if err != nil || d.Place.ExternalID != "place:7" || d.Event.ExternalID != "event:1@place:7" || d.Place.Address != nil {
+	if err != nil || d.Place.ExternalID != "place:7" || d.Event.ExternalID != "event:1@place:7" ||
+		d.Place.Address != nil {
 		t.Fatalf("perm place: %+v %v", d.Place, err)
 	}
 	if code := mkrfCode(t, domain.Perm, mkrfPayload(t, nil)); code != "missing_place" {
 		t.Fatalf("no place in city: %s", code)
 	}
-	if code := mkrfCode(t, domain.Moscow, mkrfPayload(t, func(g map[string]any) { delete(place(g), "id") })); code != "missing_place" {
+	if code := mkrfCode(
+		t,
+		domain.Moscow,
+		mkrfPayload(t, func(g map[string]any) { delete(place(g), "id") }),
+	); code != "missing_place" {
 		t.Fatalf("place without id: %s", code)
 	}
-	if code := mkrfCode(t, domain.Moscow, mkrfPayload(t, func(g map[string]any) { place(g)["name"] = " " })); code != "missing_name" {
+	if code := mkrfCode(
+		t,
+		domain.Moscow,
+		mkrfPayload(t, func(g map[string]any) { place(g)["name"] = " " }),
+	); code != "missing_name" {
 		t.Fatalf("place without name: %s", code)
 	}
-	if code := mkrfCode(t, domain.Moscow, mkrfPayload(t, func(g map[string]any) { g["name"] = "" })); code != "missing_name" {
+	if code := mkrfCode(
+		t,
+		domain.Moscow,
+		mkrfPayload(t, func(g map[string]any) { g["name"] = "" }),
+	); code != "missing_name" {
 		t.Fatalf("event without name: %s", code)
 	}
 	if code := mkrfCode(t, domain.Moscow, []byte(`{"data":`)); code != "bad_payload" {
@@ -209,7 +235,8 @@ func TestMkrfPrices(t *testing.T) {
 		if p.TariffLabel != nil {
 			label = *p.TariffLabel
 		}
-		if p.Status != tc.status || !sameAmount(p.AmountMin, tc.lo) || !sameAmount(p.AmountMax, tc.hi) || label != tc.label {
+		if p.Status != tc.status || !sameAmount(p.AmountMin, tc.lo) || !sameAmount(p.AmountMax, tc.hi) ||
+			label != tc.label {
 			t.Errorf("%s: %+v label %q", name, p, label)
 		}
 		if want := map[bool]string{true: "free", false: "ticket"}[tc.status == "free"]; d.Event.Sessions[0].AccessType != want {

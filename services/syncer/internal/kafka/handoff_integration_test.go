@@ -35,8 +35,8 @@ func TestHandoffIntegration(t *testing.T) {
 	queue := "syncer-test-" + suffix
 	w := worker.New(temporalClient, queue, worker.Options{})
 	w.RegisterWorkflow(workflow.ProcessRawIngest)
-	if err := w.Start(); err != nil {
-		t.Fatal(err)
+	if startErr := w.Start(); startErr != nil {
+		t.Fatal(startErr)
 	}
 	defer w.Stop()
 
@@ -48,8 +48,8 @@ func TestHandoffIntegration(t *testing.T) {
 	}
 	defer producer.Close()
 	envelope := testEnvelope(uuid.NewString())
-	if err := producer.Publish(ctx, []ingest.Envelope{envelope}); err != nil {
-		t.Fatal(err)
+	if pubErr := producer.Publish(ctx, []ingest.Envelope{envelope}); pubErr != nil {
+		t.Fatal(pubErr)
 	}
 
 	starter := rawtemporal.NewStarter(func() client.Client { return temporalClient }, queue)
@@ -58,8 +58,8 @@ func TestHandoffIntegration(t *testing.T) {
 		groupCfg := cfg
 		groupCfg.ConsumerGroup = group
 		consumer := NewConsumer(zap.NewNop(), groupCfg, starter)
-		if err := consumer.Init(ctx); err != nil {
-			t.Fatal(err)
+		if initErr := consumer.Init(ctx); initErr != nil {
+			t.Fatal(initErr)
 		}
 		runCtx, stop := context.WithCancel(ctx)
 		finished := make(chan error, 1)
@@ -74,17 +74,17 @@ func TestHandoffIntegration(t *testing.T) {
 		stop()
 		stopCtx, cancelStop := context.WithTimeout(ctx, 10*time.Second)
 		defer cancelStop()
-		if err := consumer.Stop(stopCtx); err != nil {
-			t.Fatal(err)
+		if stopErr := consumer.Stop(stopCtx); stopErr != nil {
+			t.Fatal(stopErr)
 		}
-		if err := <-finished; err != nil {
-			t.Fatal(err)
+		if runErr := <-finished; runErr != nil {
+			t.Fatal(runErr)
 		}
 	}
-	id := rawtemporal.WorkflowID(envelope)
+	id := rawtemporal.WorkflowID(&envelope)
 	describe := func() (string, enumspb.WorkflowExecutionStatus) {
-		resp, err := temporalClient.DescribeWorkflowExecution(ctx, id, "")
-		if err != nil {
+		resp, descErr := temporalClient.DescribeWorkflowExecution(ctx, id, "")
+		if descErr != nil {
 			return "", enumspb.WORKFLOW_EXECUTION_STATUS_UNSPECIFIED
 		}
 		info := resp.GetWorkflowExecutionInfo()
@@ -103,8 +103,8 @@ func TestHandoffIntegration(t *testing.T) {
 
 	// The same envelope published again and a new group reading from the start replay a
 	// consumer that crashed after starting the workflow but before committing.
-	if err := producer.Publish(ctx, []ingest.Envelope{envelope}); err != nil {
-		t.Fatal(err)
+	if pubErr := producer.Publish(ctx, []ingest.Envelope{envelope}); pubErr != nil {
+		t.Fatal(pubErr)
 	}
 	existing := counter("existing")
 	consumeUntil("syncer-test-b-"+suffix, func() bool { return counter("existing") >= existing+2 })

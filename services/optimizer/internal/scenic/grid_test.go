@@ -77,13 +77,11 @@ func TestGridIsSafeForParallelSearch(t *testing.T) {
 	g := NewGrid(nil, Shares{})
 	var wg sync.WaitGroup
 	for range 8 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 100 {
 				g.Score(from, to)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -95,12 +93,14 @@ func TestLoadLayers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteLayer(f, Shares{a: 0.5}); err != nil {
-		t.Fatal(err)
+	if writeErr := WriteLayer(f, Shares{a: 0.5}); writeErr != nil {
+		t.Fatal(writeErr)
 	}
-	f.Close()
-	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("ignored"), 0o644); err != nil {
-		t.Fatal(err)
+	if closeErr := f.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	if writeErr := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("ignored"), 0o644); writeErr != nil {
+		t.Fatal(writeErr)
 	}
 	layers, err := LoadLayers(dir)
 	if err != nil {
@@ -109,13 +109,13 @@ func TestLoadLayers(t *testing.T) {
 	if len(layers) != 1 || layers["perm"][a] != 0.5 {
 		t.Fatalf("layers = %v", layers)
 	}
-	if missing, err := LoadLayers(filepath.Join(dir, "absent")); err != nil || len(missing) != 0 {
-		t.Fatalf("missing directory: %v, %v", missing, err)
+	if missing, loadErr := LoadLayers(filepath.Join(dir, "absent")); loadErr != nil || len(missing) != 0 {
+		t.Fatalf("missing directory: %v, %v", missing, loadErr)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "moscow.csv"), []byte("broken"), 0o644); err != nil {
-		t.Fatal(err)
+	if writeErr := os.WriteFile(filepath.Join(dir, "moscow.csv"), []byte("broken"), 0o644); writeErr != nil {
+		t.Fatal(writeErr)
 	}
-	if _, err := LoadLayers(dir); err == nil {
+	if _, loadErr := LoadLayers(dir); loadErr == nil {
 		t.Fatal("broken layer accepted")
 	}
 }
@@ -143,11 +143,11 @@ func TestSourceCachesByRevision(t *testing.T) {
 	if got := g.Score(from, to); math.Abs(got-0.5) > 1e-9 {
 		t.Fatalf("score = %f", got)
 	}
-	if _, err := s.Grid(ctx, "perm", 7); err != nil || reader.calls != 1 {
-		t.Fatalf("same revision read %d times, %v", reader.calls, err)
+	if _, gridErr := s.Grid(ctx, "perm", 7); gridErr != nil || reader.calls != 1 {
+		t.Fatalf("same revision read %d times, %v", reader.calls, gridErr)
 	}
-	if _, err := s.Grid(ctx, "perm", 8); err != nil || reader.calls != 2 {
-		t.Fatalf("new revision read %d times, %v", reader.calls, err)
+	if _, gridErr := s.Grid(ctx, "perm", 8); gridErr != nil || reader.calls != 2 {
+		t.Fatalf("new revision read %d times, %v", reader.calls, gridErr)
 	}
 	moscow, err := s.Grid(ctx, "moscow", 8)
 	if err != nil || reader.calls != 3 {
@@ -157,11 +157,11 @@ func TestSourceCachesByRevision(t *testing.T) {
 		t.Fatalf("city without a layer scores %f", got)
 	}
 	reader.err = errors.New("down")
-	if _, err := s.Grid(ctx, "perm", 9); err == nil {
+	if _, gridErr := s.Grid(ctx, "perm", 9); gridErr == nil {
 		t.Fatal("reader failure hidden")
 	}
-	if _, err := s.Grid(ctx, "perm", 8); err != nil {
-		t.Fatalf("cached revision lost after a failure: %v", err)
+	if _, gridErr := s.Grid(ctx, "perm", 8); gridErr != nil {
+		t.Fatalf("cached revision lost after a failure: %v", gridErr)
 	}
 }
 

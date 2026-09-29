@@ -14,7 +14,7 @@ import (
 )
 
 func TestMutationHeaders(t *testing.T) {
-	request := httptest.NewRequest(http.MethodPost, "/", nil)
+	request := httptest.NewRequest(http.MethodPost, "/", http.NoBody)
 	request.Header.Set("Idempotency-Key", "11111111-1111-4111-8111-111111111111")
 	request.Header.Set("If-Match", `"7"`)
 	key, err := ParseIdempotencyKey(request)
@@ -52,9 +52,9 @@ func TestMutationHeaders(t *testing.T) {
 func TestRevisionConflictHTTPResponse(t *testing.T) {
 	e := testEcho()
 	e.POST("/command", func(*echo.Context) error {
-		return MapCommandError(&command.RevisionConflict{Current: domain.RouteRevisionNumber(8)})
+		return MapCommandError(&command.RevisionConflictError{Current: domain.RouteRevisionNumber(8)})
 	})
-	request := httptest.NewRequest(http.MethodPost, "/command", nil)
+	request := httptest.NewRequest(http.MethodPost, "/command", http.NoBody)
 	request.Header.Set("X-Request-ID", "request-1")
 	recorder := httptest.NewRecorder()
 	e.ServeHTTP(recorder, request)
@@ -69,13 +69,16 @@ func TestRevisionConflictHTTPResponse(t *testing.T) {
 		t.Fatalf("response=%+v", response)
 	}
 	var mapped *Error
-	if !errors.As(MapCommandError(command.ErrIdempotencyKeyReused), &mapped) || mapped.Status != http.StatusConflict || mapped.Code != "IDEMPOTENCY_KEY_REUSED" {
+	if !errors.As(MapCommandError(command.ErrIdempotencyKeyReused), &mapped) || mapped.Status != http.StatusConflict ||
+		mapped.Code != "IDEMPOTENCY_KEY_REUSED" {
 		t.Fatalf("reused key mapping=%+v", mapped)
 	}
 	if !errors.As(MapCommandError(postgres.ErrNotFound), &mapped) || mapped.Status != http.StatusNotFound {
 		t.Fatalf("missing route mapping=%+v", mapped)
 	}
-	if !errors.As(MapCommandError(errors.New("database offline")), &mapped) || mapped.Status != http.StatusServiceUnavailable || !mapped.Retryable {
+	if !errors.As(MapCommandError(errors.New("database offline")), &mapped) ||
+		mapped.Status != http.StatusServiceUnavailable ||
+		!mapped.Retryable {
 		t.Fatalf("database failure mapping=%+v", mapped)
 	}
 }

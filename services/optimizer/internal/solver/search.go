@@ -41,7 +41,7 @@ func New(cfg Config, score ScoreParams, transit Transit, placement Placement) (*
 // Search returns up to BeamWidth best routes with at least one visit, best first. Every route
 // contains all anchors; when no route can, the result is empty.
 // The routes reference the pool's candidates, which must not be modified afterwards.
-func (s *Solver) Search(ctx context.Context, p Problem, pool []domain.Candidate) ([]*domain.Branch, error) {
+func (s *Solver) Search(ctx context.Context, p *Problem, pool []domain.Candidate) ([]*domain.Branch, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
@@ -53,23 +53,28 @@ func (s *Solver) Search(ctx context.Context, p Problem, pool []domain.Candidate)
 	var best []*domain.Branch
 	for len(beam) > 0 {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("search canceled: %w", err)
 		}
 		children, err := run.expandAll(ctx, beam)
 		if err != nil {
 			return nil, err
 		}
 		beam = top(children, s.cfg.BeamWidth)
-		best = top(append(best, slices.DeleteFunc(slices.Clone(beam), func(b *domain.Branch) bool { return !run.complete(b) })...), s.cfg.BeamWidth)
+		best = top(
+			append(
+				best,
+				slices.DeleteFunc(slices.Clone(beam), func(b *domain.Branch) bool { return !run.complete(b) })...),
+			s.cfg.BeamWidth,
+		)
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("search canceled: %w", err)
 	}
 	return best, nil
 }
 
 // newRun prepares one run over the pool with the problem's anchors in it.
-func (s *Solver) newRun(p Problem, pool []domain.Candidate) (searchRun, error) {
+func (s *Solver) newRun(p *Problem, pool []domain.Candidate) (*searchRun, error) {
 	pool, anchors := mergeAnchors(pool, p.Anchors)
 	isAnchor := make([]bool, len(pool))
 	var fixed, flexible []int
@@ -84,14 +89,26 @@ func (s *Solver) newRun(p Problem, pool []domain.Candidate) (searchRun, error) {
 	slices.SortStableFunc(fixed, func(a, b int) int { return pool[a].Window.Start.Compare(pool[b].Window.Start) })
 	for i := range pool {
 		if err := pool[i].Validate(); err != nil {
-			return searchRun{}, fmt.Errorf("candidate %d: %w", i, err)
+			return nil, fmt.Errorf("candidate %d: %w", i, err)
 		}
 	}
 	pool = p.Load.trim(pool, isAnchor)
-	run := searchRun{
-		Solver: s, problem: p, pool: pool, anchors: anchors, isAnchor: isAnchor, fixedAnchors: fixed, flexibleAnchors: flexible,
-		utilities: make([]float64, len(pool)), quotes: make([]pricing.Quote, len(pool)), priced: make([]bool, len(pool)),
-		lunchOnly: make([]bool, len(pool)), visitNorm: p.Load.visitNorm(p.End.Sub(p.Start)),
+	run := &searchRun{
+		Solver:          s,
+		problem:         *p,
+		pool:            pool,
+		anchors:         anchors,
+		isAnchor:        isAnchor,
+		fixedAnchors:    fixed,
+		flexibleAnchors: flexible,
+		utilities: make(
+			[]float64,
+			len(pool),
+		),
+		quotes:    make([]pricing.Quote, len(pool)),
+		priced:    make([]bool, len(pool)),
+		lunchOnly: make([]bool, len(pool)),
+		visitNorm: p.Load.visitNorm(p.End.Sub(p.Start)),
 	}
 	for i := range pool {
 		run.utilities[i] = pool[i].BaseScore * s.score.affinity(p.Interests, pool[i].InterestMask(), p.Archetype)
@@ -106,14 +123,6 @@ func (s *Solver) newRun(p Problem, pool []domain.Candidate) (searchRun, error) {
 		}
 	}
 	return run, nil
-}
-
-func (r searchRun) root() *domain.Branch {
-	root := domain.NewBranch(r.problem.Origin, r.problem.Start, r.problem.Pricing.Currency)
-	for _, id := range r.problem.Visited {
-		root.VisitedPlaces[id] = struct{}{}
-	}
-	return root
 }
 
 type searchRun struct {
@@ -137,66 +146,78 @@ type searchRun struct {
 	lunchOnly   []bool
 }
 
-func (r searchRun) expandAll(ctx context.Context, beam []*domain.Branch) ([]*domain.Branch, error) {
+func (r *searchRun) root() *domain.Branch {
+	root := domain.NewBranch(r.problem.Origin, r.problem.Start, r.problem.Pricing.Currency)
+	for _, id := range r.problem.Visited {
+		root.VisitedPlaces[id] = struct{}{}
+	}
+	return root
+}
+
+func (r *searchRun) expandAll(ctx context.Context, beam []*domain.Branch) ([]*domain.Branch, error) {
 	perParent := make([][]*domain.Branch, len(beam))
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(r.cfg.Parallelism)
 	for i, parent := range beam {
 		g.Go(func() error {
 			if err := gctx.Err(); err != nil {
-				return err
+				return fmt.Errorf("expand canceled: %w", err)
 			}
 			perParent[i] = r.expand(parent)
 			return nil
 		})
 	}
 	if err := g.Wait(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("expand beam: %w", err)
 	}
 	return slices.Concat(perParent...), nil
 }
 
-func (r searchRun) expand(parent *domain.Branch) []*domain.Branch {
+func (r *searchRun) expand(parent *domain.Branch) []*domain.Branch {
 	var children []*domain.Branch
 	rest, due := r.restDue(parent)
 	// A rest the day has no room for is simply left out; one that fits costs something to skip.
 	fits := due && r.restFits(parent, rest)
 	for i := range r.pool {
-		c := &r.pool[i]
-		_, visited := parent.VisitedPlaces[c.Place.ID]
-		// An anchor is a commitment, so it stays even at a place visited earlier today.
-		if r.isAnchor[i] {
-			visited = done(parent, c)
+		if child, ok := r.expandCandidate(parent, i, rest, fits); ok {
+			children = append(children, child)
 		}
-		if visited || !r.priced[i] || r.lunchOnly[i] {
-			continue
-		}
-		if !r.problem.Pricing.Fits(parent.KnownCost, r.quotes[i]) {
-			continue
-		}
-		var child *domain.Branch
-		ok := false
-		if fits {
-			if child, ok = r.visit(parent, i, rest.EndAt); ok {
-				child.Rests = append(child.Rests, rest)
-			}
-		}
-		if !ok {
-			// The rest is soft: without room for it the visit still goes ahead.
-			if child, ok = r.visit(parent, i, parent.Now); !ok {
-				continue
-			}
-			if fits {
-				child.Score -= restSkipWeight
-			}
-		}
-		children = append(children, child)
 	}
 	return append(children, r.lunches(parent)...)
 }
 
+func (r *searchRun) expandCandidate(parent *domain.Branch, i int, rest domain.Rest, fits bool) (*domain.Branch, bool) {
+	c := &r.pool[i]
+	_, visited := parent.VisitedPlaces[c.Place.ID]
+	// An anchor is a commitment, so it stays even at a place visited earlier today.
+	if r.isAnchor[i] {
+		visited = done(parent, c)
+	}
+	if visited || !r.priced[i] || r.lunchOnly[i] {
+		return nil, false
+	}
+	if !r.problem.Pricing.Fits(parent.KnownCost, r.quotes[i]) {
+		return nil, false
+	}
+	if fits {
+		if child, ok := r.visit(parent, i, rest.EndAt); ok {
+			child.Rests = append(child.Rests, rest)
+			return child, true
+		}
+	}
+	// The rest is soft: without room for it the visit still goes ahead.
+	child, ok := r.visit(parent, i, parent.Now)
+	if !ok {
+		return nil, false
+	}
+	if fits {
+		child.Score -= restSkipWeight
+	}
+	return child, true
+}
+
 // visit extends the branch with the pool's candidate i, leaving the current place at departAt.
-func (r searchRun) visit(parent *domain.Branch, i int, departAt time.Time) (*domain.Branch, bool) {
+func (r *searchRun) visit(parent *domain.Branch, i int, departAt time.Time) (*domain.Branch, bool) {
 	c := &r.pool[i]
 	leg, ok := r.transit.Estimate(parent.Position, c.Place.Location, departAt, r.problem.Modes)
 	if !ok {
@@ -207,19 +228,35 @@ func (r searchRun) visit(parent *domain.Branch, i int, departAt time.Time) (*dom
 	if !ok {
 		return nil, false
 	}
-	visit := domain.SearchVisit{Candidate: c, Transit: leg, ArrivalAt: arrival, Buffer: slot.Buffer, StartAt: slot.StartAt, EndAt: slot.EndAt}
-	child := r.extend(parent, visit, finish, r.utilities[i], r.quotes[i], r.isAnchor[i])
+	visit := domain.SearchVisit{
+		Candidate: c,
+		Transit:   leg,
+		ArrivalAt: arrival,
+		Buffer:    slot.Buffer,
+		StartAt:   slot.StartAt,
+		EndAt:     slot.EndAt,
+	}
+	child := r.extend(parent, &visit, finish, r.utilities[i], r.quotes[i], r.isAnchor[i])
 	if !r.anchorsReachable(child) {
 		// A shorter stay in an open window may still leave time for the commitments ahead.
 		if c.Window.Kind != domain.WindowContinuous {
 			return nil, false
 		}
-		short, shortFinish, ok := r.placeBy(c, arrival, slot.StartAt.Add(c.Window.MinDuration))
-		if !ok {
+		short, shortFinish, shortOK := r.placeBy(c, arrival, slot.StartAt.Add(c.Window.MinDuration))
+		if !shortOK {
 			return nil, false
 		}
 		visit.Buffer, visit.StartAt, visit.EndAt = short.Buffer, short.StartAt, short.EndAt
-		if child = r.extend(parent, visit, shortFinish, r.utilities[i], r.quotes[i], r.isAnchor[i]); !r.anchorsReachable(child) {
+		if child = r.extend(
+			parent,
+			&visit,
+			shortFinish,
+			r.utilities[i],
+			r.quotes[i],
+			r.isAnchor[i],
+		); !r.anchorsReachable(
+			child,
+		) {
 			return nil, false
 		}
 	}
@@ -231,7 +268,7 @@ func (r searchRun) visit(parent *domain.Branch, i int, departAt time.Time) (*dom
 
 // restFits tells whether the branch can pause for the rest and still keep its commitments, its lunch
 // and the way to the destination.
-func (r searchRun) restFits(parent *domain.Branch, rest domain.Rest) bool {
+func (r *searchRun) restFits(parent *domain.Branch, rest domain.Rest) bool {
 	// The checks only read the branch, so a shallow copy is enough.
 	rested := *parent
 	rested.Now = rest.EndAt
@@ -246,23 +283,24 @@ func (r searchRun) restFits(parent *domain.Branch, rest domain.Rest) bool {
 }
 
 // restDue is the rest the pace asks for before the next visit, if one is due now.
-func (r searchRun) restDue(b *domain.Branch) (domain.Rest, bool) {
+func (r *searchRun) restDue(b *domain.Branch) (domain.Rest, bool) {
 	l := r.problem.Load
 	n := len(b.Visits)
 	since := r.problem.VisitsSinceRest + n
-	if l.RestEvery == 0 || l.Rest == 0 || since == 0 || since%l.RestEvery != 0 || slices.ContainsFunc(b.Rests, func(x domain.Rest) bool { return x.At == n }) {
+	if l.RestEvery == 0 || l.Rest == 0 || since == 0 || since%l.RestEvery != 0 ||
+		slices.ContainsFunc(b.Rests, func(x domain.Rest) bool { return x.At == n }) {
 		return domain.Rest{}, false
 	}
 	return domain.Rest{At: n, StartAt: b.Now, EndAt: b.Now.Add(l.Rest)}, true
 }
 
 // place fits the visit into the day so that the destination, if any, is still reachable in time.
-func (r searchRun) place(c *domain.Candidate, arrival time.Time) (Slot, *domain.TransitEstimate, bool) {
+func (r *searchRun) place(c *domain.Candidate, arrival time.Time) (Slot, *domain.TransitEstimate, bool) {
 	return r.placeBy(c, arrival, r.problem.End)
 }
 
 // placeBy is place with the visit ending no later than deadline.
-func (r searchRun) placeBy(c *domain.Candidate, arrival, deadline time.Time) (Slot, *domain.TransitEstimate, bool) {
+func (r *searchRun) placeBy(c *domain.Candidate, arrival, deadline time.Time) (Slot, *domain.TransitEstimate, bool) {
 	end := r.problem.End
 	slot, ok := r.placement.Place(c, arrival, deadline)
 	if !ok || r.problem.Destination == nil {
@@ -285,18 +323,31 @@ func (r searchRun) placeBy(c *domain.Candidate, arrival, deadline time.Time) (Sl
 	return slot, &finish, true
 }
 
-func (r searchRun) finish(c *domain.Candidate, departAt time.Time) (domain.TransitEstimate, bool) {
+func (r *searchRun) finish(c *domain.Candidate, departAt time.Time) (domain.TransitEstimate, bool) {
 	return r.transit.Estimate(c.Place.Location, *r.problem.Destination, departAt, r.problem.Modes)
 }
 
 // extend adds the visit. Every visit but a lunch venue counts towards the pace's norm; an exempt one, a
 // commitment or a lunch, is never charged for going over it.
-func (r searchRun) extend(parent *domain.Branch, visit domain.SearchVisit, finish *domain.TransitEstimate, utility float64, quote pricing.Quote, exempt bool) *domain.Branch {
+func (r *searchRun) extend(
+	parent *domain.Branch,
+	visit *domain.SearchVisit,
+	finish *domain.TransitEstimate,
+	utility float64,
+	quote pricing.Quote,
+	exempt bool,
+) *domain.Branch {
 	child := parent.Clone()
 	c := visit.Candidate
 	category := c.Category()
 	wait := visit.StartAt.Sub(visit.ArrivalAt) - visit.Buffer
-	child.Score += r.score.gain(utility, visit.EndAt.Sub(visit.StartAt), wait, r.travelPenalty(parent.Position, c.Place.Location, visit.Transit), child.CountCategory(category))
+	child.Score += r.score.gain(
+		utility,
+		visit.EndAt.Sub(visit.StartAt),
+		wait,
+		r.travelPenalty(parent.Position, c.Place.Location, &visit.Transit),
+		child.CountCategory(category),
+	)
 	child.Score += r.finishPenalty(parent.Position, parent.Finish) - r.finishPenalty(c.Place.Location, finish)
 	child.Finish = finish
 	if visit.Transit.Mode == domain.MovementWalk {
@@ -316,7 +367,7 @@ func (r searchRun) extend(parent *domain.Branch, visit domain.SearchVisit, finis
 		child.UnknownCost = true
 	}
 	child.AddCategory(category)
-	child.Visits = append(child.Visits, visit)
+	child.Visits = append(child.Visits, *visit)
 	child.VisitedPlaces[c.Place.ID] = struct{}{}
 	if c.Session != nil {
 		child.UsedSessions[c.Session.ID] = struct{}{}
@@ -337,7 +388,7 @@ func compareBranches(a, b *domain.Branch) int {
 	if c := cmp.Compare(b.Score, a.Score); c != 0 {
 		return c
 	}
-	if c := slices.CompareFunc(a.Visits, b.Visits, compareVisits); c != 0 {
+	if c := compareVisitSlices(a.Visits, b.Visits); c != 0 {
 		return c
 	}
 	if c := compareLunches(a.Lunch, b.Lunch); c != 0 {
@@ -346,14 +397,24 @@ func compareBranches(a, b *domain.Branch) int {
 	return cmp.Compare(len(a.Rests), len(b.Rests))
 }
 
-func compareVisits(a, b domain.SearchVisit) int {
+func compareVisitSlices(a, b []domain.SearchVisit) int {
+	limit := min(len(a), len(b))
+	for i := range limit {
+		if c := compareVisits(&a[i], &b[i]); c != 0 {
+			return c
+		}
+	}
+	return cmp.Compare(len(a), len(b))
+}
+
+func compareVisits(a, b *domain.SearchVisit) int {
 	if c := bytes.Compare(a.Candidate.Place.ID[:], b.Candidate.Place.ID[:]); c != 0 {
 		return c
 	}
 	return bytes.Compare(sessionKey(a), sessionKey(b))
 }
 
-func sessionKey(v domain.SearchVisit) []byte {
+func sessionKey(v *domain.SearchVisit) []byte {
 	if v.Candidate.Session == nil {
 		return nil
 	}

@@ -26,7 +26,11 @@ func NewBaselineTransit(params TransitParams) (*BaselineTransit, error) {
 	return &BaselineTransit{params: params}, nil
 }
 
-func (t *BaselineTransit) Estimate(from, to domain.Coordinate, departAt time.Time, modes []domain.MovementMode) (domain.TransitEstimate, bool) {
+func (t *BaselineTransit) Estimate(
+	from, to domain.Coordinate,
+	departAt time.Time,
+	modes []domain.MovementMode,
+) (domain.TransitEstimate, bool) {
 	walk := slices.Contains(modes, domain.MovementWalk)
 	transit := slices.Contains(modes, domain.MovementTransit)
 	d := distanceMeters(from, to)
@@ -45,7 +49,7 @@ func (t *BaselineTransit) Estimate(from, to domain.Coordinate, departAt time.Tim
 	return domain.TransitEstimate{
 		Mode:           mode,
 		DistanceMeters: d,
-		Duration:       time.Duration(math.Round(minutes*60)) * time.Second,
+		Duration:       time.Duration(math.Round(minutes*secondsPerMinute)) * time.Second,
 		Verification:   domain.VerificationUnknown,
 		Evidence: domain.LegEvidence{
 			Provider: "optimizer",
@@ -58,16 +62,22 @@ func (t *BaselineTransit) Estimate(from, to domain.Coordinate, departAt time.Tim
 	}, true
 }
 
-const earthRadiusMeters = 6_371_000
+const (
+	earthRadiusMeters       = 6_371_000
+	secondsPerMinute        = 60
+	halfAngleDivisor        = 2
+	haversineDiameterFactor = 2
+	degreesPerHalfTurn      = 180
+)
 
 func distanceMeters(a, b domain.Coordinate) float64 {
 	lat1, lat2 := radians(a.Latitude), radians(b.Latitude)
-	sinLat := math.Sin((lat2 - lat1) / 2)
-	sinLon := math.Sin(radians(b.Longitude-a.Longitude) / 2)
+	sinLat := math.Sin((lat2 - lat1) / halfAngleDivisor)
+	sinLon := math.Sin(radians(b.Longitude-a.Longitude) / halfAngleDivisor)
 	h := sinLat*sinLat + math.Cos(lat1)*math.Cos(lat2)*sinLon*sinLon
-	return 2 * earthRadiusMeters * math.Asin(math.Sqrt(min(h, 1)))
+	return haversineDiameterFactor * earthRadiusMeters * math.Asin(math.Sqrt(min(h, 1)))
 }
 
 func radians(degrees float64) float64 {
-	return degrees * math.Pi / 180
+	return degrees * math.Pi / degreesPerHalfTurn
 }

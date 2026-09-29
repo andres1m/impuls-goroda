@@ -141,14 +141,9 @@ type RouteConstraints struct {
 	AcceptedUnknowns   []UnknownConditionCode
 }
 
-func (c RouteConstraints) Validate() error {
-	if len(c.MovementModes) == 0 {
-		return errors.New("at least one movement mode is required")
-	}
-	for _, mode := range c.MovementModes {
-		if strings.TrimSpace(string(mode)) == "" {
-			return errors.New("movement mode is required")
-		}
+func (c *RouteConstraints) Validate() error {
+	if err := c.validateMovementModes(); err != nil {
+		return err
 	}
 	if strings.TrimSpace(c.LoadProfile) == "" {
 		return errors.New("load profile is required")
@@ -161,11 +156,30 @@ func (c RouteConstraints) Validate() error {
 			return err
 		}
 	}
-	for _, program := range c.BenefitPrograms {
-		if strings.TrimSpace(program) == "" {
-			return errors.New("benefit program is required")
+	if err := c.validateClaimsAndObligations(); err != nil {
+		return err
+	}
+	if c.LunchWindow != nil {
+		if err := c.LunchWindow.Validate(); err != nil {
+			return err
 		}
 	}
+	return c.validateStringLists()
+}
+
+func (c *RouteConstraints) validateMovementModes() error {
+	if len(c.MovementModes) == 0 {
+		return errors.New("at least one movement mode is required")
+	}
+	for _, mode := range c.MovementModes {
+		if strings.TrimSpace(string(mode)) == "" {
+			return errors.New("movement mode is required")
+		}
+	}
+	return nil
+}
+
+func (c *RouteConstraints) validateClaimsAndObligations() error {
 	for _, claim := range c.AudienceClaims {
 		if err := claim.Validate(); err != nil {
 			return err
@@ -176,24 +190,31 @@ func (c RouteConstraints) Validate() error {
 			return err
 		}
 	}
-	if c.LunchWindow != nil {
-		if err := c.LunchWindow.Validate(); err != nil {
-			return err
-		}
+	return nil
+}
+
+func (c *RouteConstraints) validateStringLists() error {
+	if err := validateNonEmptyStrings(c.BenefitPrograms, "benefit program is required"); err != nil {
+		return err
 	}
-	for _, category := range c.ExcludedCategories {
-		if strings.TrimSpace(category) == "" {
-			return errors.New("excluded category is required")
-		}
+	if err := validateNonEmptyStrings(c.ExcludedCategories, "excluded category is required"); err != nil {
+		return err
 	}
-	for _, preference := range c.SoftPreferences {
-		if strings.TrimSpace(preference) == "" {
-			return errors.New("soft preference is required")
-		}
+	if err := validateNonEmptyStrings(c.SoftPreferences, "soft preference is required"); err != nil {
+		return err
 	}
 	for _, unknown := range c.AcceptedUnknowns {
 		if strings.TrimSpace(string(unknown)) == "" {
 			return errors.New("accepted unknown condition is required")
+		}
+	}
+	return nil
+}
+
+func validateNonEmptyStrings(values []string, errMsg string) error {
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" {
+			return errors.New(errMsg)
 		}
 	}
 	return nil

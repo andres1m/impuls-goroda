@@ -24,7 +24,8 @@ func TestModelLists(t *testing.T) {
 	t.Cleanup(srv.Close)
 	c := New(srv.URL, "k", srv.Client())
 	embedding, err := c.EmbeddingModels(context.Background())
-	if err != nil || len(embedding) != 1 || embedding[0] != (openaiapi.Model{ID: "e/one", Name: "One", ContextLength: 512}) {
+	if err != nil || len(embedding) != 1 ||
+		embedding[0] != (openaiapi.Model{ID: "e/one", Name: "One", ContextLength: 512}) {
 		t.Fatalf("embedding models %v, %v", embedding, err)
 	}
 	text, err := c.TextModels(context.Background())
@@ -34,7 +35,9 @@ func TestModelLists(t *testing.T) {
 }
 
 func TestErrorsNameOpenRouter(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusUnauthorized) }))
+	srv := httptest.NewServer(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusUnauthorized) }),
+	)
 	t.Cleanup(srv.Close)
 	_, err := New(srv.URL, "k", srv.Client()).Embeddings(context.Background(), "m", []string{"a"}, 1)
 	if err == nil || err.Error() != "openrouter responded 401: Unauthorized" {

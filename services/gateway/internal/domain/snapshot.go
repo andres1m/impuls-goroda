@@ -34,10 +34,35 @@ type CatalogSnapshot struct {
 	Provenance          FactProvenance
 }
 
-func (s CatalogSnapshot) Validate() error {
+func (s *CatalogSnapshot) Validate() error {
 	if strings.TrimSpace(s.Title) == "" {
 		return errors.New("catalog snapshot title is required")
 	}
+	if err := s.validateEntityChain(); err != nil {
+		return err
+	}
+	if (s.SessionStartsAt == nil) != (s.SessionEndsAt == nil) {
+		return errors.New("catalog session times must be provided together")
+	}
+	if s.SessionStartsAt != nil && !s.SessionEndsAt.After(*s.SessionStartsAt) {
+		return errors.New("catalog session interval is invalid")
+	}
+	switch s.Availability {
+	case AvailabilityAvailable,
+		AvailabilityRegistrationRequired,
+		AvailabilitySoldOut,
+		AvailabilityCancelled,
+		AvailabilityUnknown:
+	default:
+		return errors.New("invalid catalog availability")
+	}
+	if err := s.DataMode.Validate(); err != nil {
+		return err
+	}
+	return s.Provenance.Validate()
+}
+
+func (s *CatalogSnapshot) validateEntityChain() error {
 	if s.PlaceID != nil {
 		if err := requiredID([16]byte(*s.PlaceID)); err != nil {
 			return err
@@ -59,21 +84,7 @@ func (s CatalogSnapshot) Validate() error {
 			return err
 		}
 	}
-	if (s.SessionStartsAt == nil) != (s.SessionEndsAt == nil) {
-		return errors.New("catalog session times must be provided together")
-	}
-	if s.SessionStartsAt != nil && !s.SessionEndsAt.After(*s.SessionStartsAt) {
-		return errors.New("catalog session interval is invalid")
-	}
-	switch s.Availability {
-	case AvailabilityAvailable, AvailabilityRegistrationRequired, AvailabilitySoldOut, AvailabilityCancelled, AvailabilityUnknown:
-	default:
-		return errors.New("invalid catalog availability")
-	}
-	if err := s.DataMode.Validate(); err != nil {
-		return err
-	}
-	return s.Provenance.Validate()
+	return nil
 }
 
 type ParticipationSnapshot struct {
@@ -147,10 +158,20 @@ type RouteStep struct {
 	AppliedConstraints []AppliedConstraint
 }
 
-func (s RouteStep) Validate() error {
+func (s *RouteStep) Validate() error {
 	if err := requiredID([16]byte(s.VisitID)); err != nil {
 		return err
 	}
+	if err := s.validateKindAndTiming(); err != nil {
+		return err
+	}
+	if err := s.Participation.Validate(); err != nil {
+		return err
+	}
+	return s.validateSnapshots()
+}
+
+func (s *RouteStep) validateKindAndTiming() error {
 	if s.Position <= 0 || s.MinDurationSeconds < 0 {
 		return errors.New("route step position or duration is invalid")
 	}
@@ -166,15 +187,17 @@ func (s RouteStep) Validate() error {
 	default:
 		return errors.New("invalid route step kind")
 	}
-	if s.ArrivalAt.IsZero() || s.VisitStartAt.Before(s.ArrivalAt) || !s.VisitEndAt.After(s.VisitStartAt) || s.DepartureAt.Before(s.VisitEndAt) {
+	if s.ArrivalAt.IsZero() || s.VisitStartAt.Before(s.ArrivalAt) || !s.VisitEndAt.After(s.VisitStartAt) ||
+		s.DepartureAt.Before(s.VisitEndAt) {
 		return errors.New("route step interval is invalid")
 	}
 	if s.VisitEndAt.Sub(s.VisitStartAt) < time.Duration(s.MinDurationSeconds)*time.Second {
 		return errors.New("route step is shorter than its minimum duration")
 	}
-	if err := s.Participation.Validate(); err != nil {
-		return err
-	}
+	return nil
+}
+
+func (s *RouteStep) validateSnapshots() error {
 	if s.Catalog != nil {
 		if err := s.Catalog.Validate(); err != nil {
 			return err
@@ -218,8 +241,9 @@ type LegEvidence struct {
 	Limitations []string
 }
 
-func (e LegEvidence) Validate() error {
-	if strings.TrimSpace(e.Provider) == "" || strings.TrimSpace(e.Method) == "" || e.ObservedAt.IsZero() || strings.TrimSpace(e.Mode) == "" {
+func (e *LegEvidence) Validate() error {
+	if strings.TrimSpace(e.Provider) == "" || strings.TrimSpace(e.Method) == "" || e.ObservedAt.IsZero() ||
+		strings.TrimSpace(e.Mode) == "" {
 		return errors.New("leg evidence is incomplete")
 	}
 	return nil
@@ -241,40 +265,80 @@ type RouteLeg struct {
 	Cost           CostSnapshot
 }
 
-func (l RouteLeg) Validate() error {
-	if l.Position <= 0 || l.DepartureAt.IsZero() || l.ArrivalAt.Before(l.DepartureAt) || strings.TrimSpace(string(l.Mode)) == "" {
+func (l *RouteLeg) Validate() error {
+	if l.Position <= 0 || l.DepartureAt.IsZero() || l.ArrivalAt.Before(l.DepartureAt) ||
+		strings.TrimSpace(string(l.Mode)) == "" {
 		return errors.New("route leg position, time or mode is invalid")
 	}
-	if l.FromKind == LegOrigin {
+	if err := l.validateEndpoints(); err != nil {
+		return err
+	}
+	if err := l.validateMetricsAndGeometry(); err != nil {
+		return err
+	}
+	if !validVerification(l.Verification) {
+		return errors.New("invalid leg verification status")
+	}
+	if err := l.Evidence.Validate(); err != nil {
+		return err
+	}
+	return l.Cost.Validate()
+}
+
+func (l *RouteLeg) validateEndpoints() error {
+	if err := l.validateSourceEndpoint(); err != nil {
+		return err
+	}
+	if err := l.validateTargetEndpoint(); err != nil {
+		return err
+	}
+	if err := validateOptionalVisitID(l.FromVisitID); err != nil {
+		return err
+	}
+	return validateOptionalVisitID(l.ToVisitID)
+}
+
+func (l *RouteLeg) validateSourceEndpoint() error {
+	switch l.FromKind {
+	case LegOrigin:
 		if l.FromVisitID != nil {
 			return errors.New("origin leg must not have a source visit")
 		}
-	} else if l.FromKind == LegVisit {
+		return nil
+	case LegVisit:
 		if l.FromVisitID == nil {
 			return errors.New("visit leg requires a source visit")
 		}
-	} else {
+		return nil
+	case LegDestination:
+		return errors.New("invalid leg source kind")
+	default:
 		return errors.New("invalid leg source kind")
 	}
-	if l.ToKind == LegDestination {
+}
+
+func (l *RouteLeg) validateTargetEndpoint() error {
+	switch l.ToKind {
+	case LegDestination:
 		if l.ToVisitID != nil {
 			return errors.New("destination leg must not have a target visit")
 		}
-	} else if l.ToKind == LegVisit {
+		return nil
+	case LegVisit:
 		if l.ToVisitID == nil {
 			return errors.New("visit leg requires a target visit")
 		}
-	} else {
+		return nil
+	case LegOrigin:
+		return errors.New("invalid leg target kind")
+	default:
 		return errors.New("invalid leg target kind")
 	}
-	for _, visitID := range []*VisitID{l.FromVisitID, l.ToVisitID} {
-		if visitID != nil {
-			if err := requiredID([16]byte(*visitID)); err != nil {
-				return err
-			}
-		}
-	}
-	if l.DistanceMeters != nil && (math.IsNaN(*l.DistanceMeters) || math.IsInf(*l.DistanceMeters, 0) || *l.DistanceMeters < 0) {
+}
+
+func (l *RouteLeg) validateMetricsAndGeometry() error {
+	if l.DistanceMeters != nil &&
+		(math.IsNaN(*l.DistanceMeters) || math.IsInf(*l.DistanceMeters, 0) || *l.DistanceMeters < 0) {
 		return errors.New("route leg distance must not be negative")
 	}
 	for _, point := range l.Geometry {
@@ -282,13 +346,5 @@ func (l RouteLeg) Validate() error {
 			return err
 		}
 	}
-	switch l.Verification {
-	case VerificationVerified, VerificationEstimated, VerificationUnknown, VerificationUnavailable:
-	default:
-		return errors.New("invalid leg verification status")
-	}
-	if err := l.Evidence.Validate(); err != nil {
-		return err
-	}
-	return l.Cost.Validate()
+	return nil
 }

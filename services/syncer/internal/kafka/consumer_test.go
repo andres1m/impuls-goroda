@@ -52,7 +52,7 @@ type fakeStarter struct {
 	start func(call int) (bool, error)
 }
 
-func (s *fakeStarter) Start(context.Context, ingest.Envelope) (bool, error) {
+func (s *fakeStarter) Start(context.Context, *ingest.Envelope) (bool, error) {
 	s.calls++
 	return s.start(s.calls)
 }
@@ -62,7 +62,9 @@ func pollOf(values ...[]byte) kgo.Fetches {
 	for i, v := range values {
 		records[i] = &kgo.Record{Topic: "integration.raw", Value: v, Offset: int64(i)}
 	}
-	return kgo.Fetches{{Topics: []kgo.FetchTopic{{Topic: "integration.raw", Partitions: []kgo.FetchPartition{{Records: records}}}}}}
+	return kgo.Fetches{
+		{Topics: []kgo.FetchTopic{{Topic: "integration.raw", Partitions: []kgo.FetchPartition{{Records: records}}}}},
+	}
 }
 
 func envelopeBytes(t *testing.T) []byte {
@@ -164,7 +166,10 @@ func TestConsumerCountsAndSkipsInvalidEnvelopes(t *testing.T) {
 }
 
 func TestConsumerContinuesAfterCommitFailure(t *testing.T) {
-	group := &fakeGroup{polls: []kgo.Fetches{pollOf(envelopeBytes(t)), pollOf(envelopeBytes(t))}, commitErr: errors.New("rebalance in progress")}
+	group := &fakeGroup{
+		polls:     []kgo.Fetches{pollOf(envelopeBytes(t)), pollOf(envelopeBytes(t))},
+		commitErr: errors.New("rebalance in progress"),
+	}
 	starter := &fakeStarter{start: func(int) (bool, error) { return true, nil }}
 	runConsumer(t, group, starter)
 	if starter.calls != 2 || len(group.committed) != 2 {

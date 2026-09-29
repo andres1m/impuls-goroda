@@ -33,6 +33,7 @@ import (
 )
 
 const configPath = "config.yaml"
+const healthcheckTimeout = 3 * time.Second
 
 type appConfig struct {
 	Logger    config.Logger     `yaml:"logger"`
@@ -57,39 +58,7 @@ type infrastructureComponents struct {
 func main() {
 	ctx := context.Background()
 
-	if len(os.Args) > 1 && os.Args[1] == "ingest" {
-		if err := runIngest(ctx, os.Args[2:]); err != nil {
-			log.Fatalf("ingest: %v", err)
-		}
-		return
-	}
-
-	if len(os.Args) > 1 && os.Args[1] == "seed" {
-		if err := runSeed(ctx, os.Args[2:]); err != nil {
-			log.Fatalf("seed: %v", err)
-		}
-		return
-	}
-
-	if len(os.Args) > 1 && os.Args[1] == "embed" {
-		if err := runEmbed(ctx, os.Args[2:]); err != nil {
-			log.Fatalf("embed: %v", err)
-		}
-		return
-	}
-
-	if len(os.Args) > 1 && os.Args[1] == "rematerialize" {
-		if err := runRematerialize(ctx, os.Args[2:]); err != nil {
-			log.Fatalf("rematerialize: %v", err)
-		}
-		return
-	}
-
-	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
-		if err := healthcheck(ctx); err != nil {
-			log.Printf("healthcheck failed: %v", err)
-			os.Exit(1)
-		}
+	if len(os.Args) > 1 && runSubcommand(ctx, os.Args[1], os.Args[2:]) {
 		return
 	}
 
@@ -98,6 +67,32 @@ func main() {
 	}
 
 	log.Println("success shutdown")
+}
+
+func runSubcommand(ctx context.Context, command string, args []string) bool {
+	var err error
+	switch command {
+	case "ingest":
+		err = runIngest(ctx, args)
+	case "seed":
+		err = runSeed(ctx, args)
+	case "embed":
+		err = runEmbed(ctx, args)
+	case "rematerialize":
+		err = runRematerialize(ctx, args)
+	case "healthcheck":
+		if err = healthcheck(ctx); err != nil {
+			log.Printf("healthcheck failed: %v", err)
+			os.Exit(1)
+		}
+		return true
+	default:
+		return false
+	}
+	if err != nil {
+		log.Fatalf("subcommand: %v", err)
+	}
+	return true
 }
 
 func run(ctx context.Context) error {
@@ -111,20 +106,31 @@ func run(ctx context.Context) error {
 		server.WithMetrics(),
 	)
 
-	temporalWorker, err := temporal.NewWorker(infra.log.Log, infra.temporal, &infra.cfg.Temporal, func(r worker.Registry) {
-		r.RegisterWorkflow(workflow.ProcessRawIngest)
-		r.RegisterWorkflowWithOptions(workflow.MaterializeCity, sdkworkflow.RegisterOptions{Name: activity.MaterializeWorkflowName})
-		r.RegisterActivity(&activity.Activities{
-			Client: func() client.Client { return infra.temporal.TemporalClient },
-			Queue:  infra.temporal.TaskQueue(),
-			Store:  postgres.NewMaterializeStore(func() *pgxpool.Pool { return infra.pool.Pool }),
-			Now:    time.Now,
-		})
-	})
+	temporalWorker, err := temporal.NewWorker(
+		infra.log.Log,
+		infra.temporal,
+		&infra.cfg.Temporal,
+		func(r worker.Registry) {
+			r.RegisterWorkflow(workflow.ProcessRawIngest)
+			r.RegisterWorkflowWithOptions(
+				workflow.MaterializeCity,
+				sdkworkflow.RegisterOptions{Name: activity.MaterializeWorkflowName},
+			)
+			r.RegisterActivity(&activity.Activities{
+				Client: func() client.Client { return infra.temporal.TemporalClient },
+				Queue:  infra.temporal.TaskQueue(),
+				Store:  postgres.NewMaterializeStore(func() *pgxpool.Pool { return infra.pool.Pool }),
+				Now:    time.Now,
+			})
+		},
+	)
 	if err != nil {
 		return fmt.Errorf("create temporal worker error: %w", err)
 	}
-	starter := rawtemporal.NewStarter(func() client.Client { return infra.temporal.TemporalClient }, infra.temporal.TaskQueue())
+	starter := rawtemporal.NewStarter(
+		func() client.Client { return infra.temporal.TemporalClient },
+		infra.temporal.TaskQueue(),
+	)
 	consumer := kafka.NewConsumer(infra.log.Log, infra.cfg.Kafka, starter)
 	relay, err := delivery.NewRelay(infra.cfg.Delivery, postgres.NewDeliveries(poolDB{client: infra.pool}),
 		map[string]delivery.Sender{
@@ -167,7 +173,11 @@ func (p poolDB) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, e
 	if p.client.Pool == nil {
 		return nil, errDatabaseNotConnected
 	}
-	return p.client.Pool.Query(ctx, sql, args...)
+	rows, err := p.client.Pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query pool: %w", err)
+	}
+	return rows, nil
 }
 
 func (p poolDB) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
@@ -181,7 +191,11 @@ func (p poolDB) Exec(ctx context.Context, sql string, args ...any) (pgconn.Comma
 	if p.client.Pool == nil {
 		return pgconn.CommandTag{}, errDatabaseNotConnected
 	}
-	return p.client.Pool.Exec(ctx, sql, args...)
+	tag, err := p.client.Pool.Exec(ctx, sql, args...)
+	if err != nil {
+		return tag, fmt.Errorf("execute pool statement: %w", err)
+	}
+	return tag, nil
 }
 
 type notConnectedRow struct{}
@@ -199,7 +213,7 @@ func initInfrastructure() (*infrastructureComponents, error) {
 		return nil, fmt.Errorf("create logger error: %w", err)
 	}
 
-	pool, err := db.NewDb(zapLog.Log, cfg.Database)
+	pool, err := db.NewDB(zapLog.Log, cfg.Database)
 	if err != nil {
 		return nil, fmt.Errorf("create db error: %w", err)
 	}
@@ -238,7 +252,7 @@ func healthcheck(ctx context.Context) error {
 		return fmt.Errorf("load config error: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, healthcheckTimeout)
 	defer cancel()
 
 	return server.Probe(ctx, fmt.Sprintf("http://127.0.0.1:%d/healthz", cfg.OpsServer.Port))

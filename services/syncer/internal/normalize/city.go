@@ -18,6 +18,8 @@ var cityNames = map[domain.City]string{domain.Moscow: "Москва", domain.Per
 // A point farther than this from the city centre is taken as a data error; the precise city boundary
 // check belongs to quarantine.
 const cityRadiusKm = 80
+const halfCircleDegrees = 180
+const haversineFactor = 2
 
 // cityPoint reads a coordinate pair whose order sources do not keep and takes the order that lands in
 // the city; when both do, the nearer one.
@@ -28,7 +30,7 @@ func cityPoint(city domain.City, a, b float64) (lat, lon float64, ok bool) {
 	}
 	best := math.Inf(1)
 	for _, p := range []point{{a, b}, {b, a}} {
-		if p.lat < -90 || p.lat > 90 || p.lon < -180 || p.lon > 180 {
+		if p.lat < -90 || p.lat > 90 || p.lon < -halfCircleDegrees || p.lon > halfCircleDegrees {
 			continue
 		}
 		if d := distanceKm(center, p); d <= cityRadiusKm && d < best {
@@ -40,8 +42,9 @@ func cityPoint(city domain.City, a, b float64) (lat, lon float64, ok bool) {
 
 func distanceKm(a, b point) float64 {
 	const earthRadiusKm = 6371
-	rad := math.Pi / 180
+	rad := math.Pi / halfCircleDegrees
 	dLat, dLon := (b.lat-a.lat)*rad, (b.lon-a.lon)*rad
-	h := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(a.lat*rad)*math.Cos(b.lat*rad)*math.Sin(dLon/2)*math.Sin(dLon/2)
-	return 2 * earthRadiusKm * math.Asin(math.Sqrt(h))
+	h := math.Sin(dLat/haversineFactor)*math.Sin(dLat/haversineFactor) +
+		math.Cos(a.lat*rad)*math.Cos(b.lat*rad)*math.Sin(dLon/haversineFactor)*math.Sin(dLon/haversineFactor)
+	return haversineFactor * earthRadiusKm * math.Asin(math.Sqrt(h))
 }

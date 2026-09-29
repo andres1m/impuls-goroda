@@ -13,7 +13,8 @@ func TestPresetSendsAppButtonAndDeduplicates(t *testing.T) {
 	var mu sync.Mutex
 	var requests []message
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/messages" || r.URL.Query().Get("user_id") != "42" || r.Header.Get("Authorization") != "test-token" {
+		if r.Method != http.MethodPost || r.URL.Path != "/messages" || r.URL.Query().Get("user_id") != "42" ||
+			r.Header.Get("Authorization") != "test-token" {
 			t.Errorf("unexpected MAX request: %s %s", r.Method, r.URL.String())
 		}
 		var body message
@@ -37,7 +38,7 @@ func TestPresetSendsAppButtonAndDeduplicates(t *testing.T) {
 	update.Message.Body.ID = "message-1"
 	update.Message.Body.Text = "Культура"
 	for range 2 {
-		if err := client.Handle(context.Background(), update); err != nil {
+		if err := client.Handle(context.Background(), &update); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -46,7 +47,13 @@ func TestPresetSendsAppButtonAndDeduplicates(t *testing.T) {
 	if len(requests) != 1 {
 		t.Fatalf("sent %d replies, want one", len(requests))
 	}
-	if requests[0].Attachments[0].Payload.Buttons[0][0] != (button{Type: "open_app", Text: "Открыть маршрут", WebApp: "example_bot", Payload: "demo_culture"}) {
+	wantBtn := button{
+		Type:    "open_app",
+		Text:    "Открыть маршрут",
+		WebApp:  "example_bot",
+		Payload: "demo_culture",
+	}
+	if requests[0].Attachments[0].Payload.Buttons[0][0] != wantBtn {
 		t.Fatalf("unexpected app button: %+v", requests[0].Attachments[0].Payload.Buttons[0][0])
 	}
 }

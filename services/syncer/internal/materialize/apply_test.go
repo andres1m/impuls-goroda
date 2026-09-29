@@ -12,15 +12,26 @@ import (
 
 const cafe = `{"type":"node","id":1,"lat":58.01,"lon":56.25,"tags":{"name":"Кофейня","amenity":"cafe"}}`
 
-func raw(id, external string, payload string) Raw {
-	return Raw{ID: id, SourceRecordID: "rec-" + external, Source: domain.OSM, ExternalID: external, Payload: []byte(payload),
-		ContentHash: []byte(id), FetchedAt: time.Date(2026, 9, 28, 10, 0, 0, 0, time.UTC), DataMode: domain.Live, Latest: true}
+func raw(id, external, payload string) Raw {
+	return Raw{
+		ID:             id,
+		SourceRecordID: "rec-" + external,
+		Source:         domain.OSM,
+		ExternalID:     external,
+		Payload:        []byte(payload),
+		ContentHash: []byte(
+			id,
+		),
+		FetchedAt: time.Date(2026, 9, 28, 10, 0, 0, 0, time.UTC),
+		DataMode:  domain.Live,
+		Latest:    true,
+	}
 }
 
 func ids(rs []Raw) []string {
 	var out []string
-	for _, r := range rs {
-		out = append(out, r.ID)
+	for i := range rs {
+		out = append(out, rs[i].ID)
 	}
 	return out
 }
@@ -51,7 +62,8 @@ func TestPrepareSortsTheBatch(t *testing.T) {
 	if len(o.Failed) != 1 || o.Failed[0].Raw.ID != "r4" || o.Failed[0].Code != "missing_name" {
 		t.Fatalf("failed %+v", o.Failed)
 	}
-	if len(o.Apply) != 2 || o.Apply[0].Raw.ID != "r5" || o.Apply[1].Raw.ID != "r6" || o.Apply[0].Place.Category != "gastro" {
+	if len(o.Apply) != 2 || o.Apply[0].Raw.ID != "r5" || o.Apply[1].Raw.ID != "r6" ||
+		o.Apply[0].Place.Category != "gastro" {
 		t.Fatalf("apply %+v", o.Apply)
 	}
 }
@@ -67,8 +79,13 @@ func (f *fakeStore) PendingBatch(context.Context, domain.City, []string) ([]Raw,
 	return f.pending, f.err
 }
 
-func (f *fakeStore) Publish(_ context.Context, _ domain.City, o Outcome, _ time.Time) (int64, bool, error) {
-	f.published = append(f.published, o)
+func (f *fakeStore) Publish(
+	_ context.Context,
+	_ domain.City,
+	o *Outcome,
+	_ time.Time,
+) (revision int64, published bool, err error) {
+	f.published = append(f.published, *o)
 	return f.revision, len(o.Apply) > 0, nil
 }
 
@@ -114,7 +131,8 @@ func TestApplyReportsWhyRecordsFailed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Failures) != 1 || res.Failures[0] != (Failure{RawIngestID: "r1", Source: domain.OSM, Code: "missing_name"}) {
+	if len(res.Failures) != 1 ||
+		res.Failures[0] != (Failure{RawIngestID: "r1", Source: domain.OSM, Code: "missing_name"}) {
 		t.Fatalf("failures %+v", res.Failures)
 	}
 }
@@ -124,7 +142,12 @@ type timedStore struct {
 	at time.Time
 }
 
-func (s *timedStore) Publish(_ context.Context, _ domain.City, o Outcome, at time.Time) (int64, bool, error) {
+func (s *timedStore) Publish(
+	_ context.Context,
+	_ domain.City,
+	o *Outcome,
+	at time.Time,
+) (revision int64, published bool, err error) {
 	s.at = at
 	return 1, len(o.Apply) > 0, nil
 }
@@ -135,7 +158,7 @@ func TestApplyPublishesAtTheNormalizationClock(t *testing.T) {
 		calls++
 		return time.Date(2026, 9, 28, 10, 0, calls, 0, time.FixedZone("MSK", 3*3600))
 	}
-	s := &timedStore{fakeStore: fakeStore{pending: []Raw{raw("r1", "node/1", cafe)}}}
+	s := &timedStore{pending: []Raw{raw("r1", "node/1", cafe)}}
 	if _, err := Apply(context.Background(), s, domain.Perm, []string{"r1"}, clock); err != nil {
 		t.Fatal(err)
 	}

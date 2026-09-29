@@ -36,7 +36,14 @@ func serverTelemetry(ctx context.Context, req any, info *grpc.UnaryServerInfo, h
 	return resp, err
 }
 
-func clientTelemetry(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+func clientTelemetry(
+	ctx context.Context,
+	method string,
+	req, reply any,
+	cc *grpc.ClientConn,
+	invoker grpc.UnaryInvoker,
+	opts ...grpc.CallOption,
+) error {
 	if id := telemetry.RequestID(ctx); id != "" {
 		ctx = metadata.AppendToOutgoingContext(ctx, requestIDHeader, id)
 	}

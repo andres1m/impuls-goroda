@@ -48,7 +48,27 @@ type RouteIssue struct {
 	ResolvedAt      *time.Time
 }
 
-func (i RouteIssue) Validate() error {
+func (i *RouteIssue) Validate() error {
+	if err := i.validateIDs(); err != nil {
+		return err
+	}
+	switch i.Type {
+	case IssueCancelled, IssueUnreachable, IssueStale, IssueUnknown:
+	default:
+		return errors.New("invalid issue type")
+	}
+	if err := i.Details.Validate(); err != nil {
+		return err
+	}
+	if i.CatalogRevision != nil {
+		if err := i.CatalogRevision.Validate(); err != nil {
+			return err
+		}
+	}
+	return i.validateStateAndTimestamps()
+}
+
+func (i *RouteIssue) validateIDs() error {
 	if err := requiredID([16]byte(i.ID)); err != nil {
 		return err
 	}
@@ -65,14 +85,10 @@ func (i RouteIssue) Validate() error {
 			return err
 		}
 	}
-	switch i.Type {
-	case IssueCancelled, IssueUnreachable, IssueStale, IssueUnknown:
-	default:
-		return errors.New("invalid issue type")
-	}
-	if err := i.Details.Validate(); err != nil {
-		return err
-	}
+	return nil
+}
+
+func (i *RouteIssue) validateStateAndTimestamps() error {
 	switch i.State {
 	case IssueOpen, IssueAcknowledged:
 		if i.ResolvedAt != nil {
@@ -84,11 +100,6 @@ func (i RouteIssue) Validate() error {
 		}
 	default:
 		return errors.New("invalid issue state")
-	}
-	if i.CatalogRevision != nil {
-		if err := i.CatalogRevision.Validate(); err != nil {
-			return err
-		}
 	}
 	if i.CreatedAt.IsZero() || (i.ResolvedAt != nil && i.ResolvedAt.Before(i.CreatedAt)) {
 		return errors.New("issue timestamps are invalid")

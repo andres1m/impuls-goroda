@@ -17,10 +17,6 @@ func at(hour, minute int) time.Time {
 	return day.Add(time.Duration(hour)*time.Hour + time.Duration(minute)*time.Minute)
 }
 
-func timePtr(t time.Time) *time.Time { return &t }
-
-func intPtr(v int) *int { return &v }
-
 func validWindow() VisitWindow {
 	return VisitWindow{
 		Kind:                WindowContinuous,
@@ -50,9 +46,9 @@ func TestVisitWindowValidate(t *testing.T) {
 		{"no minimum", func(w *VisitWindow) { w.MinDuration = 0 }, false},
 		{"recommended below minimum", func(w *VisitWindow) { w.RecommendedDuration = 30 * time.Minute }, false},
 		{"negative buffer", func(w *VisitWindow) { w.ArrivalBuffer = -time.Minute }, false},
-		{"last entry after end", func(w *VisitWindow) { w.LastEntryAt = timePtr(at(19, 0)) }, false},
-		{"last entry before start", func(w *VisitWindow) { w.LastEntryAt = timePtr(at(9, 0)) }, false},
-		{"last entry inside", func(w *VisitWindow) { w.LastEntryAt = timePtr(at(17, 0)) }, true},
+		{"last entry after end", func(w *VisitWindow) { w.LastEntryAt = new(at(19, 0)) }, false},
+		{"last entry before start", func(w *VisitWindow) { w.LastEntryAt = new(at(9, 0)) }, false},
+		{"last entry inside", func(w *VisitWindow) { w.LastEntryAt = new(at(17, 0)) }, true},
 		{"continuous shorter than minimum", func(w *VisitWindow) { w.End = at(10, 30) }, false},
 		{"invalid kind", func(w *VisitWindow) { w.Kind = "open" }, false},
 		{"fixed end equals start", func(w *VisitWindow) { *w = fixed; w.End = w.Start }, false},
@@ -113,9 +109,14 @@ func validSession() Session {
 
 func validOffer() PriceOffer {
 	return PriceOffer{
-		ID:         PriceOfferID{4},
-		SessionID:  SessionID{3},
-		Price:      Price{Status: PriceFixed, Currency: rub, LowerMinor: i64(50000), UpperMinor: i64(50000)},
+		ID:        PriceOfferID{4},
+		SessionID: SessionID{3},
+		Price: Price{
+			Status:     PriceFixed,
+			Currency:   rub,
+			LowerMinor: new(int64(50000)),
+			UpperMinor: new(int64(50000)),
+		},
 		Audience:   AudienceGeneral,
 		Provenance: provided,
 	}
@@ -151,34 +152,70 @@ func TestCatalogEntitiesValidate(t *testing.T) {
 		err  error
 		ok   bool
 	}{
-		{"place", validPlace().Validate(), true},
+		{"place", func() error { p := validPlace(); return p.Validate() }(), true},
 		{"place without category", func() error { p := validPlace(); p.Category = nil; return p.Validate() }(), true},
 		{"place blank city", func() error { p := validPlace(); p.City = " "; return p.Validate() }(), false},
 		{"place blank title", func() error { p := validPlace(); p.Title = ""; return p.Validate() }(), false},
-		{"place unknown category", func() error { p := validPlace(); c := Category("bar"); p.Category = &c; return p.Validate() }(), false},
+		{
+			"place unknown category",
+			func() error { p := validPlace(); c := Category("bar"); p.Category = &c; return p.Validate() }(),
+			false,
+		},
 		{"event blank title", func() error { e := validEvent(); e.Title = ""; return e.Validate() }(), false},
-		{"event negative max age", func() error { e := validEvent(); e.AgeMax = intPtr(-1); return e.Validate() }(), false},
+		{
+			"event negative max age",
+			func() error { e := validEvent(); e.AgeMax = new(-1); return e.Validate() }(),
+			false,
+		},
 		{"place zero id", func() error { p := validPlace(); p.ID = PlaceID{}; return p.Validate() }(), false},
-		{"place bad location", func() error { p := validPlace(); p.Location.Latitude = math.NaN(); return p.Validate() }(), false},
-		{"event", validEvent().Validate(), true},
-		{"event age inverted", func() error { e := validEvent(); e.AgeMin, e.AgeMax = intPtr(10), intPtr(5); return e.Validate() }(), false},
-		{"event negative age", func() error { e := validEvent(); e.AgeMin = intPtr(-1); return e.Validate() }(), false},
-		{"session", validSession().Validate(), true},
+		{
+			"place bad location",
+			func() error { p := validPlace(); p.Location.Latitude = math.NaN(); return p.Validate() }(),
+			false,
+		},
+		{"event", func() error { e := validEvent(); return e.Validate() }(), true},
+		{
+			"event age inverted",
+			func() error { e := validEvent(); e.AgeMin, e.AgeMax = new(10), new(5); return e.Validate() }(),
+			false,
+		},
+		{"event negative age", func() error { e := validEvent(); e.AgeMin = new(-1); return e.Validate() }(), false},
+		{"session", func() error { s := validSession(); return s.Validate() }(), true},
 		{"session zero version", func() error { s := validSession(); s.Version = 0; return s.Validate() }(), false},
-		{"session zero registration deadline", func() error { s := validSession(); s.RegistrationDeadline = &time.Time{}; return s.Validate() }(), false},
-		{"session zero availability time", func() error { s := validSession(); s.AvailabilityObservedAt = &time.Time{}; return s.Validate() }(), false},
-		{"offer zero validity", func() error { o := validOffer(); o.ValidUntil = &time.Time{}; return o.Validate() }(), false},
-		{"offer blank benefit program", func() error { o := validOffer(); o.BenefitPrograms = []string{" "}; return o.Validate() }(), false},
+		{
+			"session zero registration deadline",
+			func() error { s := validSession(); s.RegistrationDeadline = &time.Time{}; return s.Validate() }(),
+			false,
+		},
+		{
+			"session zero availability time",
+			func() error { s := validSession(); s.AvailabilityObservedAt = &time.Time{}; return s.Validate() }(),
+			false,
+		},
+		{
+			"offer zero validity",
+			func() error { o := validOffer(); o.ValidUntil = &time.Time{}; return o.Validate() }(),
+			false,
+		},
+		{
+			"offer blank benefit program",
+			func() error { o := validOffer(); o.BenefitPrograms = []string{" "}; return o.Validate() }(),
+			false,
+		},
 		{"session bad access", func() error { s := validSession(); s.Access = "vip"; return s.Validate() }(), false},
-		{"offer", validOffer().Validate(), true},
+		{"offer", func() error { o := validOffer(); return o.Validate() }(), true},
 		{"offer empty audience", func() error { o := validOffer(); o.Audience = ""; return o.Validate() }(), false},
 		{"offer eligibility inverted", func() error {
 			o := validOffer()
-			o.EligibilityAgeMin, o.EligibilityAgeMax = intPtr(18), intPtr(14)
+			o.EligibilityAgeMin, o.EligibilityAgeMax = new(18), new(14)
 			return o.Validate()
 		}(), false},
-		{"entrance", validEntrance().Validate(), true},
-		{"entrance bad accessibility", func() error { e := validEntrance(); e.Accessibility = "yes"; return e.Validate() }(), false},
+		{"entrance", func() error { e := validEntrance(); return e.Validate() }(), true},
+		{
+			"entrance bad accessibility",
+			func() error { e := validEntrance(); e.Accessibility = "yes"; return e.Validate() }(),
+			false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -197,7 +234,11 @@ func TestCandidateValidate(t *testing.T) {
 	}{
 		{"event visit", func(*Candidate) {}, true},
 		{"place visit", func(c *Candidate) { c.Event, c.Session, c.Offers = nil, nil, nil }, true},
-		{"place visit without category", func(c *Candidate) { c.Event, c.Session, c.Offers, c.Place.Category = nil, nil, nil, nil }, false},
+		{
+			"place visit without category",
+			func(c *Candidate) { c.Event, c.Session, c.Offers, c.Place.Category = nil, nil, nil, nil },
+			false,
+		},
 		{"place visit with price offers", func(c *Candidate) { c.Event, c.Session = nil, nil }, false},
 		{"event without session", func(c *Candidate) { c.Session = nil }, false},
 		{"session without event", func(c *Candidate) { c.Event = nil }, false},

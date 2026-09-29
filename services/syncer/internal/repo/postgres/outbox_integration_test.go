@@ -33,7 +33,14 @@ func outboxPool(t *testing.T) *pgxpool.Pool {
 // stay put; the tests remove them afterwards.
 const testDestination = "gateway"
 
-func insertTestRows(t *testing.T, pool *pgxpool.Pool, n int, state string, next time.Time, leaseUntil *time.Time) []uuid.UUID {
+func insertTestRows(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	n int,
+	state string,
+	next time.Time,
+	leaseUntil *time.Time,
+) []uuid.UUID {
 	t.Helper()
 	ids := make([]uuid.UUID, n)
 	for i := range ids {
@@ -65,9 +72,9 @@ func rowState(t *testing.T, pool *pgxpool.Pool, id uuid.UUID) (state string, att
 
 func claimed(items []delivery.Item, ids []uuid.UUID) int {
 	n := 0
-	for _, it := range items {
+	for i := range items {
 		for _, id := range ids {
-			if it.ID == id {
+			if items[i].ID == id {
 				n++
 			}
 		}
@@ -85,7 +92,7 @@ func TestEnqueueRevisionIntegration(t *testing.T) {
 	t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
 	at := time.Date(2026, 9, 28, 10, 0, 0, 0, time.UTC)
 	m := catalogevent.Invalidation{City: "perm", CatalogRevision: 42, Reason: catalogevent.ReasonSeed, PublishedAt: at}
-	if err := EnqueueRevision(ctx, tx, m); err != nil {
+	if err = EnqueueRevision(ctx, tx, &m); err != nil {
 		t.Fatal(err)
 	}
 	var (
@@ -157,7 +164,9 @@ func TestClaimTakesExpiredLeasesAndDueRetries(t *testing.T) {
 	keepLater := insertTestRows(t, pool, 1, "failed", now.Add(time.Hour), nil)
 	keepDone := insertTestRows(t, pool, 1, "delivered", now.Add(-time.Hour), nil)
 
-	items, err := NewDeliveries(pool).Claim(context.Background(), now, now.Add(time.Minute), []string{testDestination}, 100)
+	items, err := NewDeliveries(
+		pool,
+	).Claim(context.Background(), now, now.Add(time.Minute), []string{testDestination}, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,11 +200,13 @@ func TestMarksAndBacklog(t *testing.T) {
 		t.Fatalf("backlog %d, oldest %v: %v", count, age, err)
 	}
 	items := claimOwn(t, store, ids, now, now.Add(time.Minute))
-	if err := store.Delivered(ctx, items[ids[0]], now); err != nil {
+	item0 := items[ids[0]]
+	if err = store.Delivered(ctx, &item0, now); err != nil {
 		t.Fatal(err)
 	}
 	next := now.Add(time.Hour).Truncate(time.Microsecond)
-	if err := store.Failed(ctx, items[ids[1]], next); err != nil {
+	item1 := items[ids[1]]
+	if err = store.Failed(ctx, &item1, next); err != nil {
 		t.Fatal(err)
 	}
 	if state, _, _ := rowState(t, pool, ids[0]); state != "delivered" {
@@ -214,10 +225,10 @@ func claimOwn(t *testing.T, store *Deliveries, ids []uuid.UUID, now, leaseUntil 
 		t.Fatal(err)
 	}
 	own := map[uuid.UUID]delivery.Item{}
-	for _, it := range items {
+	for i := range items {
 		for _, id := range ids {
-			if it.ID == id {
-				own[id] = it
+			if items[i].ID == id {
+				own[id] = items[i]
 			}
 		}
 	}
@@ -236,16 +247,16 @@ func TestMarkAfterLostLeaseIsRefused(t *testing.T) {
 	first := claimOwn(t, store, ids, now, now.Add(time.Second))[ids[0]]
 	later := now.Add(2 * time.Second)
 	second := claimOwn(t, store, ids, later, later.Add(time.Minute))[ids[0]]
-	if err := store.Delivered(ctx, first, later); !errors.Is(err, ErrLeaseLost) {
+	if err := store.Delivered(ctx, &first, later); !errors.Is(err, ErrLeaseLost) {
 		t.Fatalf("mark under a lost lease: %v", err)
 	}
-	if err := store.Failed(ctx, first, later); !errors.Is(err, ErrLeaseLost) {
+	if err := store.Failed(ctx, &first, later); !errors.Is(err, ErrLeaseLost) {
 		t.Fatalf("mark under a lost lease: %v", err)
 	}
 	if state, attempts, _ := rowState(t, pool, ids[0]); state != "in_flight" || attempts != 2 {
 		t.Fatalf("row is %s after %d attempts", state, attempts)
 	}
-	if err := store.Delivered(ctx, second, later); err != nil {
+	if err := store.Delivered(ctx, &second, later); err != nil {
 		t.Fatal(err)
 	}
 }

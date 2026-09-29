@@ -86,7 +86,10 @@ func TestPublishGivesUpOnSilentBroker(t *testing.T) {
 	producer.timeout = 2 * time.Second
 
 	started := time.Now()
-	err = producer.Publish(context.Background(), []ingest.Envelope{testEnvelope("0b5c3f6e-2d1a-4c8e-9f3b-7a6d5e4c3b2a")})
+	err = producer.Publish(
+		context.Background(),
+		[]ingest.Envelope{testEnvelope("0b5c3f6e-2d1a-4c8e-9f3b-7a6d5e4c3b2a")},
+	)
 	if err == nil {
 		t.Fatal("publish to a silent broker succeeded")
 	}

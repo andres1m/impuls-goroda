@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -14,7 +15,10 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 )
 
-const principalKey = "principal"
+const (
+	principalKey      = "principal"
+	corsMaxAgeSeconds = 600
+)
 
 type Principal struct {
 	UserID domain.UserID
@@ -54,7 +58,13 @@ func Authenticate(runtime Authenticator) echo.MiddlewareFunc {
 				if errors.Is(err, auth.ErrAuthRequired) {
 					return authRequired()
 				}
-				return &Error{Status: http.StatusServiceUnavailable, Code: "AUTH_UNAVAILABLE", Message: "Authentication is temporarily unavailable", Retryable: true, Cause: err}
+				return &Error{
+					Status:    http.StatusServiceUnavailable,
+					Code:      "AUTH_UNAVAILABLE",
+					Message:   "Authentication is temporarily unavailable",
+					Retryable: true,
+					Cause:     err,
+				}
 			}
 			c.Set(principalKey, Principal{UserID: pair.Account.ID, Kind: pair.Account.Kind})
 			return next(c)
@@ -104,9 +114,15 @@ func VerifyWebhook(runtime WebhookChecker) echo.MiddlewareFunc {
 func RequireOwner(ctx context.Context, runtime OwnerChecker, routeID domain.RouteID, userID domain.UserID) error {
 	if err := runtime.RequireRouteOwner(ctx, routeID, userID); err != nil {
 		if errors.Is(err, postgres.ErrNotFound) {
-			return &Error{Status: http.StatusNotFound, Code: "NOT_FOUND", Message: "Resource not found"}
+			return &Error{Status: http.StatusNotFound, Code: codeNotFound, Message: msgNotFound}
 		}
-		return &Error{Status: http.StatusServiceUnavailable, Code: "DATABASE_UNAVAILABLE", Message: "Service is temporarily unavailable", Retryable: true, Cause: err}
+		return &Error{
+			Status:    http.StatusServiceUnavailable,
+			Code:      "DATABASE_UNAVAILABLE",
+			Message:   "Service is temporarily unavailable",
+			Retryable: true,
+			Cause:     err,
+		}
 	}
 	return nil
 }
@@ -117,7 +133,7 @@ func PrincipalFrom(c *echo.Context) (Principal, bool) {
 }
 
 func CORS(allowedOrigin string) (echo.MiddlewareFunc, error) {
-	return (middleware.CORSConfig{
+	mw, err := (middleware.CORSConfig{
 		AllowOrigins: []string{allowedOrigin},
 		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodDelete, http.MethodOptions},
 		AllowHeaders: []string{
@@ -128,18 +144,25 @@ func CORS(allowedOrigin string) (echo.MiddlewareFunc, error) {
 			"If-Match",
 		},
 		ExposeHeaders: []string{echo.HeaderXRequestID, "ETag", "Retry-After"},
-		MaxAge:        600,
+		MaxAge:        corsMaxAgeSeconds,
 	}).ToMiddleware()
+	if err != nil {
+		return nil, fmt.Errorf("configure cors middleware: %w", err)
+	}
+	return mw, nil
 }
 
 func authRequired() *Error {
-	return &Error{Status: http.StatusUnauthorized, Code: "AUTH_REQUIRED", Message: "Authentication is required"}
+	return &Error{Status: http.StatusUnauthorized, Code: codeAuthRequired, Message: "Authentication is required"}
 }
 
 func rateLimited(delay time.Duration) *Error {
-	seconds := int(delay.Round(time.Second) / time.Second)
-	if seconds < 1 {
-		seconds = 1
+	seconds := max(int(delay.Round(time.Second)/time.Second), 1)
+	return &Error{
+		Status:     http.StatusTooManyRequests,
+		Code:       "RATE_LIMITED",
+		Message:    "Too many requests",
+		Retryable:  true,
+		RetryAfter: seconds,
 	}
-	return &Error{Status: http.StatusTooManyRequests, Code: "RATE_LIMITED", Message: "Too many requests", Retryable: true, RetryAfter: seconds}
 }

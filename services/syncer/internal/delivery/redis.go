@@ -3,6 +3,7 @@ package delivery
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	goredis "github.com/redis/go-redis/v9"
 
@@ -23,13 +24,16 @@ func NewRedisSender(client func() Publisher) RedisSender {
 	return RedisSender{client: client}
 }
 
-func (s RedisSender) Send(ctx context.Context, item Item) error {
+func (s RedisSender) Send(ctx context.Context, item *Item) error {
 	if _, err := catalogevent.Decode(item.Payload); err != nil {
-		return err
+		return fmt.Errorf("decode catalog event: %w", err)
 	}
 	client := s.client()
 	if client == nil {
 		return errors.New("redis is not connected")
 	}
-	return client.Publish(ctx, catalogevent.Channel, item.Payload).Err()
+	if err := client.Publish(ctx, catalogevent.Channel, item.Payload).Err(); err != nil {
+		return fmt.Errorf("publish catalog event to redis: %w", err)
+	}
+	return nil
 }

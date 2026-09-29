@@ -29,7 +29,7 @@ type UserAccount struct {
 	LastSeenAt time.Time
 }
 
-func (u UserAccount) Validate() error {
+func (u *UserAccount) Validate() error {
 	if err := requiredID([16]byte(u.ID)); err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ type AuthSession struct {
 	RevokedAt *time.Time
 }
 
-func (s AuthSession) Validate() error {
+func (s *AuthSession) Validate() error {
 	if err := requiredID([16]byte(s.ID)); err != nil {
 		return err
 	}
@@ -88,8 +88,8 @@ func (s AuthSession) Validate() error {
 	return nil
 }
 
-func (s AuthSession) ValidFor(account UserAccount, now time.Time) bool {
-	return s.Validate() == nil && account.Validate() == nil &&
+func (s *AuthSession) ValidFor(account *UserAccount, now time.Time) bool {
+	return account != nil && s.Validate() == nil && account.Validate() == nil &&
 		s.UserID == account.ID && account.State == AccountActive &&
 		s.RevokedAt == nil && !now.Before(s.CreatedAt) && now.Before(s.ExpiresAt)
 }

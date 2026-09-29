@@ -27,7 +27,8 @@ func newAdapter(url string) *Adapter {
 func TestFetchParsesElements(t *testing.T) {
 	var gotQuery string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != interpreterPath || r.Header.Get("User-Agent") != ingest.UserAgent {
+		if r.Method != http.MethodPost || r.URL.Path != interpreterPath ||
+			r.Header.Get("User-Agent") != ingest.UserAgent {
 			http.Error(w, "unexpected request", http.StatusNotAcceptable)
 			return
 		}
@@ -53,10 +54,12 @@ func TestFetchParsesElements(t *testing.T) {
 		t.Fatalf("%d records, %d skipped", len(batch.Records), batch.Skipped)
 	}
 	node, way := batch.Records[0], batch.Records[1]
-	if node.ExternalID != "node/702713073" || node.SourceURL != "https://www.openstreetmap.org/node/702713073" || string(node.Payload) != museumNode {
+	if node.ExternalID != "node/702713073" || node.SourceURL != "https://www.openstreetmap.org/node/702713073" ||
+		string(node.Payload) != museumNode {
 		t.Fatalf("node = %+v", node)
 	}
-	if way.ExternalID != "way/25995453" || way.SourceURL != "https://www.openstreetmap.org/way/25995453" || way.SourceUpdatedAt != nil {
+	if way.ExternalID != "way/25995453" || way.SourceURL != "https://www.openstreetmap.org/way/25995453" ||
+		way.SourceUpdatedAt != nil {
 		t.Fatalf("way = %+v", way)
 	}
 	var cursor map[string]string
@@ -101,7 +104,12 @@ func TestSourceIsLive(t *testing.T) {
 }
 
 func TestQueryAsksForPlacesToEat(t *testing.T) {
-	if q := query(domain.Perm); !strings.Contains(q, `nwr(area.city)["amenity"~"^(cafe|restaurant|fast_food|food_court)$"]["name"];`) {
+	if q := query(
+		domain.Perm,
+	); !strings.Contains(
+		q,
+		`nwr(area.city)["amenity"~"^(cafe|restaurant|fast_food|food_court)$"]["name"];`,
+	) {
 		t.Fatalf("query = %s", q)
 	}
 	if v := New("", nil, nil).Source().SchemaVersion; v != "overpass-leisure-places-2" {

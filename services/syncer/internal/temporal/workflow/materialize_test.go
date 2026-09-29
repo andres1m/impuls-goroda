@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ type materializeRun struct {
 	start   time.Time
 }
 
-func newMaterializeRun(t *testing.T) *materializeRun {
+func newMaterializeRun() *materializeRun {
 	var suite testsuite.WorkflowTestSuite
 	r := &materializeRun{env: suite.NewTestWorkflowEnvironment()}
 	r.env.RegisterActivity(acts)
@@ -66,7 +67,7 @@ func ids(from, n int) []string {
 }
 
 func TestMaterializeFlushesAFullBatchAtOnce(t *testing.T) {
-	r := newMaterializeRun(t)
+	r := newMaterializeRun()
 	r.signal(time.Second, ids(0, 500)...)
 	r.run(t, nil)
 	if r.env.GetWorkflowError() != nil || len(r.batches) != 1 || len(r.batches[0]) != 500 || r.at[0] != time.Second {
@@ -75,7 +76,7 @@ func TestMaterializeFlushesAFullBatchAtOnce(t *testing.T) {
 }
 
 func TestMaterializeFlushesAfterQuiet(t *testing.T) {
-	r := newMaterializeRun(t)
+	r := newMaterializeRun()
 	r.signal(time.Second, "a", "b", "a")
 	r.run(t, nil)
 	if len(r.batches) != 1 || !slices.Equal(r.batches[0], []string{"a", "b"}) || r.at[0] != 3*time.Second {
@@ -84,9 +85,9 @@ func TestMaterializeFlushesAfterQuiet(t *testing.T) {
 }
 
 func TestMaterializeFlushesAtTheLatestTenSecondsAfterTheFirstID(t *testing.T) {
-	r := newMaterializeRun(t)
+	r := newMaterializeRun()
 	for i := range 15 {
-		r.signal(time.Duration(i+1)*time.Second, fmt.Sprint(i))
+		r.signal(time.Duration(i+1)*time.Second, strconv.Itoa(i))
 	}
 	r.run(t, nil)
 	if len(r.batches) < 2 || r.at[0] != 11*time.Second || len(r.batches[0]) != 10 {
@@ -95,7 +96,7 @@ func TestMaterializeFlushesAtTheLatestTenSecondsAfterTheFirstID(t *testing.T) {
 }
 
 func TestMaterializeStartsWithCarriedIDs(t *testing.T) {
-	r := newMaterializeRun(t)
+	r := newMaterializeRun()
 	r.run(t, []string{"x", "y"})
 	if len(r.batches) != 1 || !slices.Equal(r.batches[0], []string{"x", "y"}) {
 		t.Fatalf("batches %v", r.batches)
@@ -103,7 +104,7 @@ func TestMaterializeStartsWithCarriedIDs(t *testing.T) {
 }
 
 func TestMaterializeEndsAfterAnIdleMinute(t *testing.T) {
-	r := newMaterializeRun(t)
+	r := newMaterializeRun()
 	r.signal(time.Second, "a")
 	r.signal(50*time.Second, "b")
 	r.run(t, nil)
@@ -124,7 +125,11 @@ func TestMaterializeKeepsGoingWhenABatchFails(t *testing.T) {
 		func(_ context.Context, _ domain.City, ids []string) (materialize.Result, error) {
 			calls++
 			if ids[0] == "bad" {
-				return materialize.Result{}, temporal.NewNonRetryableApplicationError("down", "test", errors.New("down"))
+				return materialize.Result{}, temporal.NewNonRetryableApplicationError(
+					"down",
+					"test",
+					errors.New("down"),
+				)
 			}
 			return materialize.Result{}, nil
 		})
@@ -137,9 +142,9 @@ func TestMaterializeKeepsGoingWhenABatchFails(t *testing.T) {
 }
 
 func TestMaterializeContinuesAsNewAfterManyBatches(t *testing.T) {
-	r := newMaterializeRun(t)
+	r := newMaterializeRun()
 	for i := range batchesPerRun + 1 {
-		r.signal(time.Duration(i*5+1)*time.Second, fmt.Sprint(i))
+		r.signal(time.Duration(i*5+1)*time.Second, strconv.Itoa(i))
 	}
 	r.env.ExecuteWorkflow(MaterializeCity, domain.Perm, []string(nil))
 	var next *workflow.ContinueAsNewError
@@ -152,8 +157,10 @@ func TestProcessRawIngestEnqueuesTheRecord(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
 	env.RegisterActivity(acts)
-	env.OnActivity(acts.Enqueue, mock.Anything, domain.Moscow, "0b5c3f6e-2d1a-4c8e-9f3b-7a6d5e4c3b2a").Return(nil).Once()
-	env.ExecuteWorkflow(ProcessRawIngest, ingest.Envelope{
+	env.OnActivity(acts.Enqueue, mock.Anything, domain.Moscow, "0b5c3f6e-2d1a-4c8e-9f3b-7a6d5e4c3b2a").
+		Return(nil).
+		Once()
+	env.ExecuteWorkflow(ProcessRawIngest, &ingest.Envelope{
 		Version: ingest.EnvelopeVersion, RawIngestID: "0b5c3f6e-2d1a-4c8e-9f3b-7a6d5e4c3b2a", Source: domain.KudaGo,
 		City: domain.Moscow, ExternalID: "event:1", FetchedAt: time.Now().UTC(), DataMode: domain.Live,
 	})
@@ -166,7 +173,7 @@ func TestProcessRawIngestEnqueuesTheRecord(t *testing.T) {
 func TestMaterializeContinuesAsNewBeforeTooManySignals(t *testing.T) {
 	defer func(n int) { signalsPerRun = n }(signalsPerRun)
 	signalsPerRun = 30
-	r := newMaterializeRun(t)
+	r := newMaterializeRun()
 	r.signal(time.Second, ids(0, signalsPerRun+100)...)
 	r.env.ExecuteWorkflow(MaterializeCity, domain.Perm, []string(nil))
 	var next *workflow.ContinueAsNewError

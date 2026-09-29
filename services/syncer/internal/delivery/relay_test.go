@@ -34,7 +34,13 @@ type fakeStore struct {
 	markLeases []time.Time
 }
 
-func (s *fakeStore) Claim(_ context.Context, _ time.Time, leaseUntil time.Time, destinations []string, limit int) ([]Item, error) {
+func (s *fakeStore) Claim(
+	_ context.Context,
+	_ time.Time,
+	leaseUntil time.Time,
+	destinations []string,
+	limit int,
+) ([]Item, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.claims++
@@ -52,7 +58,7 @@ func (s *fakeStore) Claim(_ context.Context, _ time.Time, leaseUntil time.Time, 
 	return out, nil
 }
 
-func (s *fakeStore) Delivered(_ context.Context, item Item, _ time.Time) error {
+func (s *fakeStore) Delivered(_ context.Context, item *Item, _ time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.delivered = append(s.delivered, item.ID)
@@ -60,7 +66,7 @@ func (s *fakeStore) Delivered(_ context.Context, item Item, _ time.Time) error {
 	return nil
 }
 
-func (s *fakeStore) Failed(_ context.Context, item Item, next time.Time) error {
+func (s *fakeStore) Failed(_ context.Context, item *Item, next time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.failed = append(s.failed, mark{item.ID, next})
@@ -81,21 +87,34 @@ type fakeSender struct {
 	sent []uuid.UUID
 }
 
-func (f *fakeSender) Send(_ context.Context, item Item) error {
+func (f *fakeSender) Send(_ context.Context, item *Item) error {
 	f.sent = append(f.sent, item.ID)
 	return f.err
 }
 
-func items(n int, attempts int) []Item {
+func items(n, attempts int) []Item {
 	out := make([]Item, n)
 	for i := range out {
-		out[i] = Item{ID: uuid.New(), Destination: "redis", EventType: "catalog.revision", Payload: []byte(`{}`), Attempts: attempts, CreatedAt: now}
+		out[i] = Item{
+			ID:          uuid.New(),
+			Destination: "redis",
+			EventType:   "catalog.revision",
+			Payload:     []byte(`{}`),
+			Attempts:    attempts,
+			CreatedAt:   now,
+		}
 	}
 	return out
 }
 
 func testConfig() Config {
-	return Config{PollInterval: time.Second, Batch: 2, Lease: 30 * time.Second, BackoffMin: time.Second, BackoffMax: time.Minute}
+	return Config{
+		PollInterval: time.Second,
+		Batch:        2,
+		Lease:        30 * time.Second,
+		BackoffMin:   time.Second,
+		BackoffMax:   time.Minute,
+	}
 }
 
 func newTestRelay(t *testing.T, store Store, senders map[string]Sender) *Relay {
@@ -113,7 +132,8 @@ func TestTickDeliversAndMarks(t *testing.T) {
 	if err := newTestRelay(t, store, map[string]Sender{"redis": sender}).Tick(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(sender.sent) != 1 || len(store.delivered) != 1 || store.delivered[0] != sender.sent[0] || len(store.failed) != 0 {
+	if len(sender.sent) != 1 || len(store.delivered) != 1 || store.delivered[0] != sender.sent[0] ||
+		len(store.failed) != 0 {
 		t.Fatalf("sent %v delivered %v failed %v", sender.sent, store.delivered, store.failed)
 	}
 	if !store.leases[0].Equal(now.Add(30*time.Second)) || !store.markLeases[0].Equal(store.leases[0]) {
@@ -219,7 +239,7 @@ type blockingSender struct {
 	release chan struct{}
 }
 
-func (b *blockingSender) Send(context.Context, Item) error {
+func (b *blockingSender) Send(context.Context, *Item) error {
 	close(b.started)
 	<-b.release
 	return nil

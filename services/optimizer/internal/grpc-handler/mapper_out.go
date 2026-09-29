@@ -12,7 +12,7 @@ import (
 // Results are validated before they are mapped, so these functions assume known enum
 // values and consistent optional fields.
 
-func optimizeResponseToProto(r domain.OptimizeResult) *pb.OptimizeResponse {
+func optimizeResponseToProto(r *domain.OptimizeResult) *pb.OptimizeResponse {
 	out := &pb.OptimizeResponse{
 		Status:            resultStatuses.toProto[r.Status],
 		Warnings:          warningsToProto(r.Warnings),
@@ -20,13 +20,13 @@ func optimizeResponseToProto(r domain.OptimizeResult) *pb.OptimizeResponse {
 		Data:              freshnessToProto(r.Data),
 		ComputationTimeMs: milliseconds(r.ComputationTime),
 	}
-	for _, route := range r.Routes {
-		out.Routes = append(out.Routes, planToProto(route))
+	for i := range r.Routes {
+		out.Routes = append(out.Routes, planToProto(&r.Routes[i]))
 	}
 	return out
 }
 
-func recomputeResponseToProto(r domain.RecomputeResult) *pb.RecomputeResponse {
+func recomputeResponseToProto(r *domain.RecomputeResult) *pb.RecomputeResponse {
 	out := &pb.RecomputeResponse{
 		Status:            recomputeStatuses.toProto[r.Status],
 		Conflicts:         conflictsToProto(r.Conflicts),
@@ -34,10 +34,10 @@ func recomputeResponseToProto(r domain.RecomputeResult) *pb.RecomputeResponse {
 		ComputationTimeMs: milliseconds(r.ComputationTime),
 	}
 	if r.Candidate != nil {
-		out.Candidate = planToProto(*r.Candidate)
+		out.Candidate = planToProto(r.Candidate)
 	}
-	for _, c := range r.Changes {
-		out.Changes = append(out.Changes, changeToProto(c))
+	for i := range r.Changes {
+		out.Changes = append(out.Changes, changeToProto(&r.Changes[i]))
 	}
 	return out
 }
@@ -61,7 +61,7 @@ func freshnessToProto(f domain.DataFreshness) *pb.DataFreshness {
 	}
 }
 
-func changeToProto(c domain.RouteChange) *pb.RouteChange {
+func changeToProto(c *domain.RouteChange) *pb.RouteChange {
 	out := &pb.RouteChange{
 		Kind:          changeKinds.toProto[c.Kind],
 		Scope:         scopes.toProto[c.Scope],
@@ -74,7 +74,9 @@ func changeToProto(c domain.RouteChange) *pb.RouteChange {
 	case domain.TimeShift:
 		out.Details = &pb.RouteChange_TimeShiftSeconds{TimeShiftSeconds: int64(d.Delta / time.Second)}
 	case domain.CostChange:
-		out.Details = &pb.RouteChange_Cost{Cost: &pb.CostChange{Before: moneyToProto(d.Before), After: moneyToProto(d.After)}}
+		out.Details = &pb.RouteChange_Cost{
+			Cost: &pb.CostChange{Before: moneyToProto(d.Before), After: moneyToProto(d.After)},
+		}
 	case domain.ParticipationAction:
 		out.Details = &pb.RouteChange_ParticipationAction{ParticipationAction: d.Action}
 	case domain.VerificationChange:
@@ -86,7 +88,7 @@ func changeToProto(c domain.RouteChange) *pb.RouteChange {
 	return out
 }
 
-func planToProto(p domain.Plan) *pb.RoutePlan {
+func planToProto(p *domain.Plan) *pb.RoutePlan {
 	out := &pb.RoutePlan{
 		Archetype:       archetypes.toProto[p.Archetype],
 		StartAt:         timestamppb.New(p.Start),
@@ -96,17 +98,17 @@ func planToProto(p domain.Plan) *pb.RoutePlan {
 		Result:          resultStatuses.toProto[p.Result],
 		Warnings:        warningsToProto(p.Warnings),
 		Conflicts:       conflictsToProto(p.Conflicts),
-		Cost:            costSummaryToProto(p.Cost),
+		Cost:            costSummaryToProto(&p.Cost),
 		Geometry:        coordinatesToProto(p.Geometry),
 	}
 	if p.Destination != nil {
 		out.Destination = coordinateToProto(*p.Destination)
 	}
-	for _, s := range p.Steps {
-		out.Steps = append(out.Steps, stepToProto(s))
+	for i := range p.Steps {
+		out.Steps = append(out.Steps, stepToProto(&p.Steps[i]))
 	}
-	for _, l := range p.Legs {
-		out.Legs = append(out.Legs, legToProto(l))
+	for i := range p.Legs {
+		out.Legs = append(out.Legs, legToProto(&p.Legs[i]))
 	}
 	return out
 }
@@ -146,8 +148,18 @@ func optionalUint(v *int) *uint32 {
 	if v == nil {
 		return nil
 	}
-	u := uint32(*v)
+	u := boundedUint32(*v)
 	return &u
+}
+
+func boundedUint32(v int) uint32 {
+	if v < 0 {
+		return 0
+	}
+	if v > math.MaxUint32 {
+		return math.MaxUint32
+	}
+	return uint32(v)
 }
 
 func coordinateToProto(c domain.Coordinate) *pb.Coordinate {
@@ -208,7 +220,7 @@ func unknownComponentsToProto(values []domain.UnknownCostComponent) []*pb.Unknow
 	return out
 }
 
-func costSummaryToProto(c domain.CostSummary) *pb.CostSummary {
+func costSummaryToProto(c *domain.CostSummary) *pb.CostSummary {
 	return &pb.CostSummary{
 		KnownPersonal:     moneyToProto(c.KnownPersonal),
 		KnownTransport:    moneyToProto(c.KnownTransport),
@@ -220,7 +232,7 @@ func costSummaryToProto(c domain.CostSummary) *pb.CostSummary {
 	}
 }
 
-func provenanceToProto(p domain.Provenance) *pb.Provenance {
+func provenanceToProto(p *domain.Provenance) *pb.Provenance {
 	return &pb.Provenance{
 		SourceName:      p.SourceName,
 		SourceUrl:       p.SourceURL,
@@ -231,7 +243,7 @@ func provenanceToProto(p domain.Provenance) *pb.Provenance {
 	}
 }
 
-func costSnapshotToProto(c domain.CostSnapshot) *pb.CostSnapshot {
+func costSnapshotToProto(c *domain.CostSnapshot) *pb.CostSnapshot {
 	return &pb.CostSnapshot{
 		PriceOfferId: optionalIDBytes(c.PriceOfferID),
 		Audience:     string(c.Audience),
@@ -244,11 +256,11 @@ func costSnapshotToProto(c domain.CostSnapshot) *pb.CostSnapshot {
 		PersonalAmount:    optionalMoneyToProto(c.PersonalAmount),
 		ProgramAmount:     optionalMoneyToProto(c.ProgramAmount),
 		UnknownComponents: unknownComponentsToProto(c.UnknownComponents),
-		Provenance:        provenanceToProto(c.Provenance),
+		Provenance:        provenanceToProto(&c.Provenance),
 	}
 }
 
-func catalogToProto(c domain.CatalogSnapshot) *pb.CatalogSnapshot {
+func catalogToProto(c *domain.CatalogSnapshot) *pb.CatalogSnapshot {
 	return &pb.CatalogSnapshot{
 		PlaceId:             idBytes(c.PlaceID),
 		EntranceId:          optionalIDBytes(c.EntranceID),
@@ -264,15 +276,15 @@ func catalogToProto(c domain.CatalogSnapshot) *pb.CatalogSnapshot {
 		SessionEndsAt:       optionalTimestamp(c.SessionEnd),
 		SessionVersion:      c.SessionVersion,
 		DataMode:            dataModes.toProto[c.DataMode],
-		Provenance:          provenanceToProto(c.Provenance),
+		Provenance:          provenanceToProto(&c.Provenance),
 	}
 }
 
-func stepToProto(s domain.Step) *pb.RouteStep {
+func stepToProto(s *domain.Step) *pb.RouteStep {
 	out := &pb.RouteStep{
 		VisitId:            idBytes(s.VisitID),
 		Kind:               stepKinds.toProto[s.Kind],
-		Position:           uint32(s.Position),
+		Position:           boundedUint32(s.Position),
 		ArrivalAt:          timestamppb.New(s.ArrivalAt),
 		VisitStartAt:       timestamppb.New(s.VisitStartAt),
 		VisitEndAt:         timestamppb.New(s.VisitEndAt),
@@ -286,10 +298,10 @@ func stepToProto(s domain.Step) *pb.RouteStep {
 		},
 	}
 	if s.Catalog != nil {
-		out.Catalog = catalogToProto(*s.Catalog)
+		out.Catalog = catalogToProto(s.Catalog)
 	}
 	if s.Cost != nil {
-		out.Cost = costSnapshotToProto(*s.Cost)
+		out.Cost = costSnapshotToProto(s.Cost)
 	}
 	for _, a := range s.AppliedConstraints {
 		out.AppliedConstraints = append(out.AppliedConstraints, &pb.AppliedConstraint{
@@ -302,9 +314,9 @@ func stepToProto(s domain.Step) *pb.RouteStep {
 	return out
 }
 
-func legToProto(l domain.Leg) *pb.RouteLeg {
+func legToProto(l *domain.Leg) *pb.RouteLeg {
 	return &pb.RouteLeg{
-		Position:       uint32(l.Position),
+		Position:       boundedUint32(l.Position),
 		FromKind:       legEndpoints.toProto[l.From],
 		ToKind:         legEndpoints.toProto[l.To],
 		FromVisitId:    optionalIDBytes(l.FromVisitID),
@@ -322,6 +334,6 @@ func legToProto(l domain.Leg) *pb.RouteLeg {
 			Mode:        l.Evidence.Mode,
 			Limitations: l.Evidence.Limitations,
 		},
-		Cost: costSnapshotToProto(l.Cost),
+		Cost: costSnapshotToProto(&l.Cost),
 	}
 }

@@ -12,7 +12,7 @@ var unknownPrice = domain.UnknownCostComponent{Code: "PRICE_UNKNOWN", Message: "
 // Cost prices the visits of a chosen route in order. A program payment is only an estimate:
 // the user's share stays unknown because nobody has confirmed the benefit applies or that
 // the program has enough money.
-func (p Policy) Cost(visits []*domain.Candidate) ([]domain.CostSnapshot, domain.CostSummary, error) {
+func (p *Policy) Cost(visits []*domain.Candidate) ([]domain.CostSnapshot, domain.CostSummary, error) {
 	if err := p.Validate(); err != nil {
 		return nil, domain.CostSummary{}, err
 	}
@@ -44,7 +44,7 @@ func (p Policy) Cost(visits []*domain.Candidate) ([]domain.CostSnapshot, domain.
 }
 
 // Summarize adds up the visits' cost snapshots, such as a plan's kept history and its new steps.
-func (p Policy) Summarize(snapshots []domain.CostSnapshot) (domain.CostSummary, error) {
+func (p *Policy) Summarize(snapshots []domain.CostSnapshot) (domain.CostSummary, error) {
 	if err := p.Validate(); err != nil {
 		return domain.CostSummary{}, err
 	}
@@ -52,7 +52,8 @@ func (p Policy) Summarize(snapshots []domain.CostSnapshot) (domain.CostSummary, 
 	summary := domain.CostSummary{KnownPersonal: zero, KnownTransport: zero, ProgramAmount: zero}
 	var lower, upper int64
 	allKnown := true
-	for _, s := range snapshots {
+	for i := range snapshots {
+		s := &snapshots[i]
 		top, known := s.Price.UpperBound()
 		if !known {
 			allKnown = false
@@ -82,18 +83,18 @@ func (p Policy) Summarize(snapshots []domain.CostSnapshot) (domain.CostSummary, 
 }
 
 // priced still prices a visit the constraints would exclude, so an older plan gets an honest cost.
-func (p Policy) priced(c *domain.Candidate) Quote {
+func (p *Policy) priced(c *domain.Candidate) Quote {
 	if q, ok := p.Quote(c); ok {
 		return q
 	}
-	relaxed := p
+	relaxed := *p
 	relaxed.PushkinCardOnly = false
 	relaxed.AcceptUnknownPrice = true
 	q, _ := relaxed.Quote(c)
 	return q
 }
 
-func (p Policy) conclude(allKnown bool, upper int64) domain.BudgetConclusion {
+func (p *Policy) conclude(allKnown bool, upper int64) domain.BudgetConclusion {
 	switch {
 	case p.Budget.Mode == domain.BudgetNone:
 		return domain.BudgetNotApplicable

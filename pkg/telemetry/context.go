@@ -17,7 +17,10 @@ func WithRequestID(ctx context.Context, id string) context.Context {
 }
 
 func RequestID(ctx context.Context) string {
-	id, _ := ctx.Value(requestIDKey{}).(string)
+	id, ok := ctx.Value(requestIDKey{}).(string)
+	if !ok {
+		return ""
+	}
 	return id
 }
 

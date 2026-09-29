@@ -38,7 +38,7 @@ type Table struct {
 }
 
 // Pair returns the travel from point i to point j; false when the graph has no path.
-func (t Table) Pair(i, j int) (seconds, meters float64, ok bool) {
+func (t *Table) Pair(i, j int) (seconds, meters float64, ok bool) {
 	k := i*t.size + j
 	if t.seconds[k] == nil || t.meters[k] == nil {
 		return 0, 0, false
@@ -68,8 +68,14 @@ func (c *Client) Table(ctx context.Context, endpoint, profile string, points []d
 	for i, p := range points {
 		coords[i] = strconv.FormatFloat(p.Longitude, 'f', 6, 64) + "," + strconv.FormatFloat(p.Latitude, 'f', 6, 64)
 	}
-	target := strings.TrimRight(endpoint, "/") + "/table/v1/" + profile + "/" + strings.Join(coords, ";") + "?annotations=duration,distance&generate_hints=false"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	target := strings.TrimRight(
+		endpoint,
+		"/",
+	) + "/table/v1/" + profile + "/" + strings.Join(
+		coords,
+		";",
+	) + "?annotations=duration,distance&generate_hints=false"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, http.NoBody)
 	if err != nil {
 		return Table{}, fmt.Errorf("routing table request: %w", err)
 	}
@@ -84,7 +90,12 @@ func (c *Client) Table(ctx context.Context, endpoint, profile string, points []d
 		return Table{}, fmt.Errorf("decode routing table (status %d): %w", resp.StatusCode, err)
 	}
 	if resp.StatusCode != http.StatusOK || body.Code != "Ok" {
-		return Table{}, fmt.Errorf("routing table failed with status %d: %s: %s", resp.StatusCode, body.Code, body.Message)
+		return Table{}, fmt.Errorf(
+			"routing table failed with status %d: %s: %s",
+			resp.StatusCode,
+			body.Code,
+			body.Message,
+		)
 	}
 	if body.DataVersion == "" {
 		return Table{}, errors.New("routing graph has no data version")

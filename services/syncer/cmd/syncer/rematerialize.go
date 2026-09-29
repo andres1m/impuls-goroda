@@ -16,12 +16,15 @@ import (
 
 func parseRematerializeArgs(args []string) (domain.SourceKey, domain.City, error) {
 	usage := errors.New("usage: syncer rematerialize <kudago|mkrf_events|osm> <moscow|perm>")
-	if len(args) != 2 {
+	const rematerializeArgCount = 2
+	if len(args) != rematerializeArgCount {
 		return "", "", usage
 	}
 	source := domain.SourceKey(args[0])
 	switch source {
 	case domain.KudaGo, domain.MkrfEvents, domain.OSM:
+	case domain.SyntheticSource:
+		return "", "", errors.Join(fmt.Errorf("unsupported source %q", args[0]), usage)
 	default:
 		return "", "", errors.Join(fmt.Errorf("unknown source %q", args[0]), usage)
 	}
@@ -34,32 +37,38 @@ func parseRematerializeArgs(args []string) (domain.SourceKey, domain.City, error
 
 // runRematerialize runs the source's stored records of the city through materialization again, which moves
 // the session horizon forward for records whose content has not changed.
-func runRematerialize(ctx context.Context, args []string) error {
+func runRematerialize(ctx context.Context, args []string) (resultErr error) {
 	source, city, err := parseRematerializeArgs(args)
 	if err != nil {
 		return err
 	}
 	var cfg appConfig
-	if err := config.Load(configPath, &cfg); err != nil {
-		return fmt.Errorf("load config: %w", err)
+	if loadErr := config.Load(configPath, &cfg); loadErr != nil {
+		return fmt.Errorf("load config: %w", loadErr)
 	}
 	database, err := openDatabase(ctx)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = database.Stop(context.Background()) }()
+	defer func() { resultErr = errors.Join(resultErr, database.Stop(context.Background())) }()
 	workflows := temporal.NewClient(nil, nil, &cfg.Temporal)
-	if err := workflows.Init(ctx); err != nil {
-		return fmt.Errorf("connect temporal: %w", err)
+	if initErr := workflows.Init(ctx); initErr != nil {
+		return fmt.Errorf("connect temporal: %w", initErr)
 	}
-	defer func() { _ = workflows.Stop(context.Background()) }()
+	defer func() { resultErr = errors.Join(resultErr, workflows.Stop(context.Background())) }()
 
 	ids, err := postgres.NewMaterializeStore(func() *pgxpool.Pool { return database.Pool }).Reopen(ctx, source, city)
 	if err != nil {
 		return err
 	}
 	for i, id := range ids {
-		if err := activity.SignalMaterialize(ctx, workflows.TemporalClient, workflows.TaskQueue(), city, id); err != nil {
+		if err := activity.SignalMaterialize(
+			ctx,
+			workflows.TemporalClient,
+			workflows.TaskQueue(),
+			city,
+			id,
+		); err != nil {
 			return fmt.Errorf("signalled %d of %d: %w", i, len(ids), err)
 		}
 	}

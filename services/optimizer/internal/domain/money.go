@@ -17,8 +17,10 @@ func (m Money) Validate() error {
 	return nil
 }
 
+const currencyCodeLen = 3
+
 func validCurrency(code string) bool {
-	if len(code) != 3 {
+	if len(code) != currencyCodeLen {
 		return false
 	}
 	for _, r := range code {
@@ -39,36 +41,50 @@ const (
 )
 
 type Price struct {
-	Status     PriceStatus
-	Currency   string
-	LowerMinor *int64
-	UpperMinor *int64
+	Status     PriceStatus `json:"Status"`
+	Currency   string      `json:"Currency"`
+	LowerMinor *int64      `json:"LowerMinor"`
+	UpperMinor *int64      `json:"UpperMinor"`
 }
 
 func (p Price) Validate() error {
 	if !validCurrency(p.Currency) {
 		return errors.New("price currency must be an ISO 4217 code")
 	}
-	lower, upper := p.LowerMinor, p.UpperMinor
 	switch p.Status {
 	case PriceFree:
-		if lower == nil || upper == nil || *lower != 0 || *upper != 0 {
-			return errors.New("free price must have zero bounds")
-		}
+		return validateFreePrice(p.LowerMinor, p.UpperMinor)
 	case PriceFixed:
-		if lower == nil || upper == nil || *lower < 0 || *lower != *upper {
-			return errors.New("fixed price must have equal non-negative bounds")
-		}
+		return validateFixedPrice(p.LowerMinor, p.UpperMinor)
 	case PriceRange:
-		if lower == nil || upper == nil || *lower < 0 || *upper < *lower {
-			return errors.New("price range bounds are invalid")
-		}
+		return validateRangePrice(p.LowerMinor, p.UpperMinor)
 	case PriceUnknown:
-		if lower != nil || upper != nil {
+		if p.LowerMinor != nil || p.UpperMinor != nil {
 			return errors.New("unknown price must not have bounds")
 		}
+		return nil
 	default:
 		return errors.New("invalid price status")
+	}
+}
+
+func validateFreePrice(lower, upper *int64) error {
+	if lower == nil || upper == nil || *lower != 0 || *upper != 0 {
+		return errors.New("free price must have zero bounds")
+	}
+	return nil
+}
+
+func validateFixedPrice(lower, upper *int64) error {
+	if lower == nil || upper == nil || *lower < 0 || *lower != *upper {
+		return errors.New("fixed price must have equal non-negative bounds")
+	}
+	return nil
+}
+
+func validateRangePrice(lower, upper *int64) error {
+	if lower == nil || upper == nil || *lower < 0 || *upper < *lower {
+		return errors.New("price range bounds are invalid")
 	}
 	return nil
 }

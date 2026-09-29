@@ -22,7 +22,7 @@ type Placement interface {
 type WindowPlacement struct{}
 
 func (WindowPlacement) Place(c *domain.Candidate, arrivalAt, deadline time.Time) (Slot, bool) {
-	w := c.Window
+	w := &c.Window
 	switch w.Kind {
 	case domain.WindowFixed:
 		return placeFixed(w, arrivalAt, deadline)
@@ -33,7 +33,7 @@ func (WindowPlacement) Place(c *domain.Candidate, arrivalAt, deadline time.Time)
 	}
 }
 
-func placeFixed(w domain.VisitWindow, arrivalAt, deadline time.Time) (Slot, bool) {
+func placeFixed(w *domain.VisitWindow, arrivalAt, deadline time.Time) (Slot, bool) {
 	if w.End.After(deadline) || w.End.Sub(w.Start) < w.MinDuration {
 		return Slot{}, false
 	}
@@ -55,7 +55,7 @@ func placeFixed(w domain.VisitWindow, arrivalAt, deadline time.Time) (Slot, bool
 	return Slot{StartAt: start, EndAt: w.End}, true
 }
 
-func placeContinuous(w domain.VisitWindow, arrivalAt, deadline time.Time) (Slot, bool) {
+func placeContinuous(w *domain.VisitWindow, arrivalAt, deadline time.Time) (Slot, bool) {
 	start := later(arrivalAt.Add(w.ArrivalBuffer), w.Start)
 	if w.LastEntryAt != nil && start.After(*w.LastEntryAt) {
 		return Slot{}, false

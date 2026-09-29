@@ -19,112 +19,76 @@ import (
 
 // Recompute proposes how the rest of a plan changes after a delay, a cancellation, a removal or a
 // new pin. What already happened stays as it was, and a commitment is never dropped without saying so.
-func (p *Planner) Recompute(ctx context.Context, req domain.RecomputeRequest) (domain.RecomputeResult, error) {
+func (p *Planner) Recompute(ctx context.Context, req *domain.RecomputeRequest) (domain.RecomputeResult, error) {
 	started := time.Now()
-	if req.Base.Cost.KnownPersonal.Currency != p.cfg.Currency {
-		return domain.RecomputeResult{}, fmt.Errorf("%w: base plan currency does not match planner currency", ErrInvalidRequest)
-	}
-	policy := pricing.PolicyFor(p.cfg.Currency, req.Constraints)
-	if err := policy.Validate(); err != nil {
-		return domain.RecomputeResult{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
-	}
-	w, err := newRework(req)
+	policy, w, err := p.prepareRecompute(req)
 	if err != nil {
 		return domain.RecomputeResult{}, err
 	}
-	catalogReq := domain.OptimizeRequest{
-		City: req.City, Timezone: req.Timezone, Start: req.Base.Start, End: req.Base.End,
-		Origin: req.Base.Origin, Destination: req.Base.Destination, Constraints: req.Constraints,
-	}
-	catalog, data, err := p.source.Candidates(ctx, catalogReq)
+	catalog, data, err := p.fetchRecomputeCatalog(ctx, req)
 	if err != nil {
 		return domain.RecomputeResult{}, err
-	}
-	if c, ok := req.Trigger.(domain.CancellationTrigger); ok && data.CatalogRevision < c.MinCatalogRevision {
-		// The caller may have heard of the publication before the source did; one more read settles it.
-		hint, ok := p.source.(RevisionHint)
-		if !ok {
-			return domain.RecomputeResult{}, ErrStaleCatalog
-		}
-		hint.Observe(req.City, c.MinCatalogRevision)
-		if catalog, data, err = p.source.Candidates(ctx, catalogReq); err != nil {
-			return domain.RecomputeResult{}, err
-		}
-		if data.CatalogRevision < c.MinCatalogRevision {
-			return domain.RecomputeResult{}, ErrStaleCatalog
-		}
 	}
 	done := func(res domain.RecomputeResult) (domain.RecomputeResult, error) {
 		res.Data = data
 		res.ComputationTime = time.Since(started)
 		return res, nil
 	}
+	anchors, conflictRes, err := w.prepareAnchors(catalog, &policy, p.newID)
+	if err != nil {
+		return domain.RecomputeResult{}, err
+	}
+	if conflictRes != nil {
+		return done(*conflictRes)
+	}
+	return p.executeRecompute(ctx, req, w, &policy, catalog, anchors, data, done)
+}
 
-	if err := w.locate(catalog); err != nil {
-		return domain.RecomputeResult{}, err
+func (p *Planner) prepareRecompute(req *domain.RecomputeRequest) (pricing.Policy, *rework, error) {
+	if req.Base.Cost.KnownPersonal.Currency != p.cfg.Currency {
+		return pricing.Policy{}, nil, fmt.Errorf(
+			"%w: base plan currency does not match planner currency",
+			ErrInvalidRequest,
+		)
 	}
-	w.applyTrigger(p.newID)
-	w.resolve(catalog)
-	anchors := w.anchors(catalog)
-	if len(w.conflicts) > 0 {
-		return done(domain.RecomputeResult{Status: domain.RecomputeConflict, Conflicts: w.conflicts})
+	policy := pricing.PolicyFor(p.cfg.Currency, &req.Constraints)
+	if err := policy.Validate(); err != nil {
+		return pricing.Policy{}, nil, fmt.Errorf("%w: %w", ErrInvalidRequest, err)
 	}
-	if w.historyOverBudget(policy) {
-		return done(domain.RecomputeResult{Status: domain.RecomputeConflict, Conflicts: []domain.Conflict{{
-			Code:    "BUDGET_EXCEEDED",
-			Message: "Completed visits already exceed the strict budget",
-		}}})
+	w, err := newRework(req)
+	if err != nil {
+		return pricing.Policy{}, nil, err
 	}
+	return policy, w, nil
+}
 
-	transit, degraded, err := p.transit.Transit(ctx, req.City, w.points(req, catalog), req.Constraints.MovementModes)
+func (p *Planner) fetchRecomputeCatalog(
+	ctx context.Context,
+	req *domain.RecomputeRequest,
+) ([]domain.Candidate, domain.DataFreshness, error) {
+	catalogReq := domain.OptimizeRequest{
+		City: req.City, Timezone: req.Timezone, Start: req.Base.Start, End: req.Base.End,
+		Origin: req.Base.Origin, Destination: req.Base.Destination, Constraints: req.Constraints,
+	}
+	catalog, data, err := p.source.Candidates(ctx, &catalogReq)
 	if err != nil {
-		return domain.RecomputeResult{}, err
+		return nil, domain.DataFreshness{}, err
 	}
-	s, err := solver.New(solver.Config{BeamWidth: p.cfg.BeamWidth, Parallelism: p.cfg.Parallelism}, solver.DefaultScoreParams(), transit, solver.WindowPlacement{})
-	if err != nil {
-		return domain.RecomputeResult{}, err
+	if c, ok := req.Trigger.(domain.CancellationTrigger); ok && data.CatalogRevision < c.MinCatalogRevision {
+		// The caller may have heard of the publication before the source did; one more read settles it.
+		hint, ok := p.source.(RevisionHint)
+		if !ok {
+			return nil, domain.DataFreshness{}, ErrStaleCatalog
+		}
+		hint.Observe(req.City, c.MinCatalogRevision)
+		if catalog, data, err = p.source.Candidates(ctx, &catalogReq); err != nil {
+			return nil, domain.DataFreshness{}, err
+		}
+		if data.CatalogRevision < c.MinCatalogRevision {
+			return nil, domain.DataFreshness{}, ErrStaleCatalog
+		}
 	}
-	problem := solver.Problem{
-		Start: w.start, End: req.Base.End, Origin: w.position, Destination: req.Base.Destination,
-		Interests: req.Constraints.InterestMask, Archetype: req.Base.Archetype, Modes: req.Constraints.MovementModes,
-		Pricing: w.leftover(policy, nil), Anchors: anchors, Visited: w.historyPlaces(),
-		Load: solver.ProfileFor(req.Constraints.LoadProfile),
-	}
-	steps, order := w.repairSteps()
-	repair, err := s.Repair(ctx, problem, steps)
-	if err != nil {
-		return domain.RecomputeResult{}, err
-	}
-	switch {
-	case repair.Unreachable != nil:
-		return done(domain.RecomputeResult{Status: domain.RecomputeConflict, Conflicts: []domain.Conflict{w.unreachable(repair.Unreachable)}})
-	case repair.DestinationUnreachable:
-		return done(domain.RecomputeResult{Status: domain.RecomputeConflict, Conflicts: []domain.Conflict{{
-			Code:    "DESTINATION_UNREACHABLE",
-			Message: "The destination cannot be reached before the day ends; change the destination or the end of the day",
-		}}})
-	}
-	entries, finish, err := w.arrange(ctx, s, transit, problem, repair, order, admissible(catalog, req.Constraints), p.newID)
-	if err != nil {
-		return domain.RecomputeResult{}, err
-	}
-	if len(w.history) == 0 && len(entries) == 0 {
-		return done(domain.RecomputeResult{Status: domain.RecomputeConflict, Conflicts: []domain.Conflict{{Code: "NO_FEASIBLE_ROUTE", Message: "No visits fit in the remaining day; choose another time interval"}}})
-	}
-	candidate, in, err := w.plan(policy, entries, finish, degraded, data)
-	if err != nil {
-		return domain.RecomputeResult{}, err
-	}
-	if violations := validation.Check(candidate, in); len(violations) > 0 {
-		rejectedPlans.WithLabelValues(violations[0].Code).Inc()
-		p.log.Error("recomputed plan failed validation", zap.Any("violations", violations))
-		return domain.RecomputeResult{}, errors.New("recomputed plan failed validation")
-	}
-	w.recordChanges(candidate)
-	if len(w.changes) == 0 {
-		return done(domain.RecomputeResult{Status: domain.RecomputeUnchanged})
-	}
-	return done(domain.RecomputeResult{Status: domain.RecomputeProposed, Candidate: &candidate, Changes: w.changes})
+	return catalog, data, nil
 }
 
 // rework is one recompute: what already happened, what is still ahead, and what changed.
@@ -150,21 +114,146 @@ type ahead struct {
 	gap bool
 }
 
-func newRework(req domain.RecomputeRequest) (*rework, error) {
-	w := &rework{req: req, executions: make(map[domain.VisitID]domain.VisitExecution, len(req.History))}
+func (w *rework) prepareAnchors(
+	catalog []domain.Candidate,
+	policy *pricing.Policy,
+	newID func() domain.VisitID,
+) ([]solver.Anchor, *domain.RecomputeResult, error) {
+	if locErr := w.locate(catalog); locErr != nil {
+		return nil, nil, locErr
+	}
+	w.applyTrigger(newID)
+	w.resolve(catalog)
+	anchors := w.anchors(catalog)
+	if len(w.conflicts) > 0 {
+		return nil, &domain.RecomputeResult{Status: domain.RecomputeConflict, Conflicts: w.conflicts}, nil
+	}
+	if w.historyOverBudget(policy) {
+		return nil, &domain.RecomputeResult{Status: domain.RecomputeConflict, Conflicts: []domain.Conflict{{
+			Code:    "BUDGET_EXCEEDED",
+			Message: "Completed visits already exceed the strict budget",
+		}}}, nil
+	}
+	return anchors, nil, nil
+}
+
+func (p *Planner) executeRecompute(
+	ctx context.Context,
+	req *domain.RecomputeRequest,
+	w *rework,
+	policy *pricing.Policy,
+	catalog []domain.Candidate,
+	anchors []solver.Anchor,
+	data domain.DataFreshness,
+	done func(domain.RecomputeResult) (domain.RecomputeResult, error),
+) (domain.RecomputeResult, error) {
+	transit, degraded, err := p.transit.Transit(ctx, req.City, w.points(req, catalog), req.Constraints.MovementModes)
+	if err != nil {
+		return domain.RecomputeResult{}, err
+	}
+	s, err := solver.New(
+		solver.Config{BeamWidth: p.cfg.BeamWidth, Parallelism: p.cfg.Parallelism},
+		solver.DefaultScoreParams(),
+		transit,
+		solver.WindowPlacement{},
+	)
+	if err != nil {
+		return domain.RecomputeResult{}, err
+	}
+	problem := solver.Problem{
+		Start: w.start, End: req.Base.End, Origin: w.position, Destination: req.Base.Destination,
+		Interests: req.Constraints.InterestMask, Archetype: req.Base.Archetype, Modes: req.Constraints.MovementModes,
+		Pricing: w.leftover(policy, nil), Anchors: anchors, Visited: w.historyPlaces(),
+		Load: solver.ProfileFor(req.Constraints.LoadProfile),
+	}
+	steps, order := w.repairSteps()
+	repair, err := s.Repair(ctx, &problem, steps)
+	if err != nil {
+		return domain.RecomputeResult{}, err
+	}
+	if res, conflict := w.repairConflict(repair); conflict {
+		return done(res)
+	}
+	entries, finish, err := w.arrange(
+		ctx,
+		s,
+		transit,
+		&problem,
+		repair,
+		order,
+		admissible(catalog, &req.Constraints),
+		p.newID,
+	)
+	if err != nil {
+		return domain.RecomputeResult{}, err
+	}
+	if len(w.history) == 0 && len(entries) == 0 {
+		return done(
+			domain.RecomputeResult{
+				Status: domain.RecomputeConflict,
+				Conflicts: []domain.Conflict{
+					{
+						Code:    "NO_FEASIBLE_ROUTE",
+						Message: "No visits fit in the remaining day; choose another time interval",
+					},
+				},
+			},
+		)
+	}
+	candidate, in, err := w.plan(policy, entries, finish, degraded, data)
+	if err != nil {
+		return domain.RecomputeResult{}, err
+	}
+	if violations := validation.Check(&candidate, &in); len(violations) > 0 {
+		rejectedPlans.WithLabelValues(violations[0].Code).Inc()
+		p.log.Error("recomputed plan failed validation", zap.Any("violations", violations))
+		return domain.RecomputeResult{}, errors.New("recomputed plan failed validation")
+	}
+	w.recordChanges(&candidate)
+	if len(w.changes) == 0 {
+		return done(domain.RecomputeResult{Status: domain.RecomputeUnchanged})
+	}
+	return done(domain.RecomputeResult{Status: domain.RecomputeProposed, Candidate: &candidate, Changes: w.changes})
+}
+
+func (w *rework) repairConflict(repair solver.Repair) (domain.RecomputeResult, bool) {
+	switch {
+	case repair.Unreachable != nil:
+		return domain.RecomputeResult{
+			Status:    domain.RecomputeConflict,
+			Conflicts: []domain.Conflict{w.unreachable(repair.Unreachable)},
+		}, true
+	case repair.DestinationUnreachable:
+		return domain.RecomputeResult{
+			Status: domain.RecomputeConflict,
+			Conflicts: []domain.Conflict{
+				{
+					Code:    "DESTINATION_UNREACHABLE",
+					Message: "The destination cannot be reached before the day ends; change the destination or the end of the day",
+				},
+			},
+		}, true
+	default:
+		return domain.RecomputeResult{}, false
+	}
+}
+
+func newRework(req *domain.RecomputeRequest) (*rework, error) {
+	w := &rework{req: *req, executions: make(map[domain.VisitID]domain.VisitExecution, len(req.History))}
 	for _, e := range req.History {
 		w.executions[e.VisitID] = e
 	}
 	w.start, w.position, w.located = req.Base.Start, req.Base.Origin, true
-	for _, step := range req.Base.Steps {
+	for i := range req.Base.Steps {
+		step := &req.Base.Steps[i]
 		e, executed := w.executions[step.VisitID]
 		switch {
 		case !executed:
-			w.future = append(w.future, ahead{step: step})
+			w.future = append(w.future, ahead{step: *step})
 		case e.Status == domain.ExecutionSkipped:
 			w.remove(step.VisitID, "The visit was skipped")
 		default:
-			done := step
+			done := *step
 			done.MinDuration = min(done.MinDuration, e.ActualEnd.Sub(*e.ActualStart))
 			done.ArrivalAt, done.VisitStartAt, done.VisitEndAt, done.DepartureAt = *e.ActualStart, *e.ActualStart, *e.ActualEnd, *e.ActualEnd
 			if n := len(w.history); n > 0 && done.ArrivalAt.Before(w.history[n-1].DepartureAt) {
@@ -172,7 +261,7 @@ func newRework(req domain.RecomputeRequest) (*rework, error) {
 			}
 			w.history = append(w.history, done)
 			w.start = done.DepartureAt
-			if pos, ok := arrivedAt(req.Base, done.VisitID); ok {
+			if pos, ok := arrivedAt(&req.Base, done.VisitID); ok {
 				w.position, w.located = pos, true
 			} else if done.Kind == domain.StepVisit {
 				w.located = false
@@ -187,8 +276,11 @@ func newRework(req domain.RecomputeRequest) (*rework, error) {
 }
 
 // arrivedAt is where the plan's travel to the visit ends; a plan without that geometry leaves it to the catalog.
-func arrivedAt(plan domain.Plan, id domain.VisitID) (domain.Coordinate, bool) {
-	i := slices.IndexFunc(plan.Legs, func(l domain.Leg) bool { return l.ToVisitID != nil && *l.ToVisitID == id && len(l.Geometry) > 0 })
+func arrivedAt(plan *domain.Plan, id domain.VisitID) (domain.Coordinate, bool) {
+	i := slices.IndexFunc(
+		plan.Legs,
+		func(l domain.Leg) bool { return l.ToVisitID != nil && *l.ToVisitID == id && len(l.Geometry) > 0 },
+	)
 	if i < 0 {
 		return domain.Coordinate{}, false
 	}
@@ -202,10 +294,11 @@ func (w *rework) locate(catalog []domain.Candidate) error {
 		return nil
 	}
 	for i := len(w.history) - 1; i >= 0; i-- {
-		if w.history[i].Catalog == nil {
+		v := &w.history[i]
+		if v.Catalog == nil {
 			continue
 		}
-		j := slices.IndexFunc(catalog, func(c domain.Candidate) bool { return c.Place.ID == w.history[i].Catalog.PlaceID })
+		j := slices.IndexFunc(catalog, func(c domain.Candidate) bool { return c.Place.ID == v.Catalog.PlaceID })
 		if j < 0 {
 			return fmt.Errorf("%w: the place of the last visit is unknown", ErrInvalidRequest)
 		}
@@ -220,7 +313,10 @@ func (w *rework) remove(id domain.VisitID, message string) {
 	w.changes = slices.DeleteFunc(w.changes, func(c domain.RouteChange) bool {
 		return c.Kind == domain.ChangeKept && c.BeforeVisitID != nil && *c.BeforeVisitID == id
 	})
-	w.changes = append(w.changes, domain.RouteChange{Kind: domain.ChangeRemoved, Scope: domain.ScopeVisit, BeforeVisitID: &id, Message: message})
+	w.changes = append(
+		w.changes,
+		domain.RouteChange{Kind: domain.ChangeRemoved, Scope: domain.ScopeVisit, BeforeVisitID: &id, Message: message},
+	)
 }
 
 func (w *rework) index(id domain.VisitID) int {
@@ -236,44 +332,65 @@ func (w *rework) applyTrigger(newID func() domain.VisitID) {
 			}
 		}
 	case domain.RemovalTrigger:
-		i := w.index(t.VisitID)
-		if i < 0 {
-			return
-		}
-		old := w.future[i].step
-		if t.Mode == domain.RemovalRebuild {
-			w.future[i].gap = true
-			w.remove(old.VisitID, "The visit was removed at the user's request")
-			return
-		}
-		pause := domain.Step{
-			VisitID: newID(), Kind: domain.StepFreeTime,
-			ArrivalAt: old.VisitStartAt, VisitStartAt: old.VisitStartAt, VisitEndAt: old.VisitEndAt, DepartureAt: old.VisitEndAt,
-			Participation: domain.Participation{Status: domain.ParticipationNotRequired, Evidence: domain.EvidenceNone},
-		}
-		w.future[i] = ahead{step: pause}
-		w.changes = append(w.changes, domain.RouteChange{
-			Kind: domain.ChangeReplaced, Scope: domain.ScopeVisit, BeforeVisitID: &old.VisitID, AfterVisitID: &pause.VisitID,
-			Message: "The visit was removed and its time left free",
-		})
+		w.applyRemovalTrigger(t, newID)
 	case domain.PinTrigger:
-		i := w.index(t.VisitID)
-		if i < 0 || w.future[i].step.Kind != domain.StepVisit {
-			return
-		}
-		step := &w.future[i].step
-		step.Pinned = t.Kind != domain.PinNone
-		step.Obligation = t.Kind == domain.PinObligation || w.committed(step)
-		if !step.Obligation {
-			step.AppliedConstraints = slices.DeleteFunc(slices.Clone(step.AppliedConstraints), func(c domain.AppliedConstraint) bool {
-				return c.Code == "OBLIGATION_REACHABLE"
-			})
-		}
-		w.changes = append(w.changes, domain.RouteChange{
-			Kind: domain.ChangeKept, Scope: domain.ScopeVisit, BeforeVisitID: &step.VisitID, AfterVisitID: &step.VisitID,
-			Message: pinMessage(t.Kind),
-		})
+		w.applyPinTrigger(t)
 	}
+}
+
+func (w *rework) applyRemovalTrigger(t domain.RemovalTrigger, newID func() domain.VisitID) {
+	i := w.index(t.VisitID)
+	if i < 0 {
+		return
+	}
+	old := w.future[i].step
+	if t.Mode == domain.RemovalRebuild {
+		w.future[i].gap = true
+		w.remove(old.VisitID, "The visit was removed at the user's request")
+		return
+	}
+	pause := domain.Step{
+		VisitID:       newID(),
+		Kind:          domain.StepFreeTime,
+		ArrivalAt:     old.VisitStartAt,
+		VisitStartAt:  old.VisitStartAt,
+		VisitEndAt:    old.VisitEndAt,
+		DepartureAt:   old.VisitEndAt,
+		Participation: domain.Participation{Status: domain.ParticipationNotRequired, Evidence: domain.EvidenceNone},
+	}
+	w.future[i] = ahead{step: pause}
+	w.changes = append(w.changes, domain.RouteChange{
+		Kind:          domain.ChangeReplaced,
+		Scope:         domain.ScopeVisit,
+		BeforeVisitID: &old.VisitID,
+		AfterVisitID:  &pause.VisitID,
+		Message:       "The visit was removed and its time left free",
+	})
+}
+
+func (w *rework) applyPinTrigger(t domain.PinTrigger) {
+	i := w.index(t.VisitID)
+	if i < 0 || w.future[i].step.Kind != domain.StepVisit {
+		return
+	}
+	step := &w.future[i].step
+	step.Pinned = t.Kind != domain.PinNone
+	step.Obligation = t.Kind == domain.PinObligation || w.committed(step)
+	if !step.Obligation {
+		step.AppliedConstraints = slices.DeleteFunc(
+			slices.Clone(step.AppliedConstraints),
+			func(c domain.AppliedConstraint) bool {
+				return c.Code == obligationReachable
+			},
+		)
+	}
+	w.changes = append(w.changes, domain.RouteChange{
+		Kind:          domain.ChangeKept,
+		Scope:         domain.ScopeVisit,
+		BeforeVisitID: &step.VisitID,
+		AfterVisitID:  &step.VisitID,
+		Message:       pinMessage(t.Kind),
+	})
 }
 
 func pinMessage(kind domain.PinKind) string {
@@ -282,19 +399,24 @@ func pinMessage(kind domain.PinKind) string {
 		return "The visit is now a commitment and stays in every recompute"
 	case domain.PinPreferred:
 		return "The visit is preferred; it may be replaced with an explanation"
+	case domain.PinNone:
+		return "The visit is no longer pinned"
 	default:
 		return "The visit is no longer pinned"
 	}
 }
 
 // committed tells whether the request's own obligations hold the step's session.
-func obligationMatches(o domain.Obligation, step domain.Step) bool {
+func obligationMatches(o domain.Obligation, step *domain.Step) bool {
 	return (o.VisitID != nil && *o.VisitID == step.VisitID) ||
 		(o.SessionID != nil && step.Catalog != nil && step.Catalog.SessionID != nil && *o.SessionID == *step.Catalog.SessionID)
 }
 
 func (w *rework) committed(step *domain.Step) bool {
-	return slices.ContainsFunc(w.req.Constraints.Obligations, func(o domain.Obligation) bool { return obligationMatches(o, *step) })
+	return slices.ContainsFunc(
+		w.req.Constraints.Obligations,
+		func(o domain.Obligation) bool { return obligationMatches(o, step) },
+	)
 }
 
 // cancel takes the step out; a cancelled commitment is removed only by an explicit change the user
@@ -305,8 +427,11 @@ func (w *rework) cancel(i int) {
 	if step.Obligation || w.committed(&step) {
 		w.remove(step.VisitID, "The committed session was cancelled by its organiser")
 		w.changes = append(w.changes, domain.RouteChange{
-			Kind: domain.ChangeParticipationAction, Scope: domain.ScopeVisit, BeforeVisitID: &step.VisitID,
-			Message: "Ask the organiser for a refund or another session", Details: domain.ParticipationAction{Action: "refund_or_rebook"},
+			Kind:          domain.ChangeParticipationAction,
+			Scope:         domain.ScopeVisit,
+			BeforeVisitID: &step.VisitID,
+			Message:       "Ask the organiser for a refund or another session",
+			Details:       domain.ParticipationAction{Action: "refund_or_rebook"},
 		})
 		return
 	}
@@ -320,20 +445,20 @@ func (w *rework) resolve(catalog []domain.Candidate) {
 		if a.gap || a.step.Kind != domain.StepVisit {
 			continue
 		}
-		j := slices.IndexFunc(catalog, func(c domain.Candidate) bool { return sameVisitAs(c, a.step.Catalog) })
+		j := slices.IndexFunc(catalog, func(c domain.Candidate) bool { return sameVisitAs(&c, a.step.Catalog) })
 		switch {
 		case j < 0 && (a.step.Obligation || w.committed(&a.step)):
 			w.conflicts = append(w.conflicts, visitConflict("OBLIGATION_UNAVAILABLE",
-				"The committed session is no longer in the catalog; check it with the organiser", a.step))
+				"The committed session is no longer in the catalog; check it with the organiser", &a.step))
 		case j < 0:
 			a.gap = true
 			w.remove(a.step.VisitID, "The visit is no longer in the catalog")
-		case catalog[j].Window.HoursUnknown && !isLunch(a.step):
+		case catalog[j].Window.HoursUnknown && !isLunch(&a.step):
 			a.gap = true
 			w.remove(a.step.VisitID, "The place no longer states its opening hours")
 		case catalog[j].Session != nil && catalog[j].Session.Availability == domain.AvailabilityCancelled:
 			w.cancel(i)
-		case !a.step.Obligation && !w.committed(&a.step) && len(admissible(catalog[j:j+1], w.req.Constraints)) == 0:
+		case !a.step.Obligation && !w.committed(&a.step) && len(admissible(catalog[j:j+1], &w.req.Constraints)) == 0:
 			a.gap = true
 			w.remove(a.step.VisitID, "The visit is no longer available under the route constraints")
 		default:
@@ -344,11 +469,14 @@ func (w *rework) resolve(catalog []domain.Candidate) {
 }
 
 // isLunch is true for the step that holds the route's lunch; only lunch may rest on assumed hours.
-func isLunch(s domain.Step) bool {
-	return slices.ContainsFunc(s.AppliedConstraints, func(c domain.AppliedConstraint) bool { return c.Code == "LUNCH_WINDOW" })
+func isLunch(s *domain.Step) bool {
+	return slices.ContainsFunc(
+		s.AppliedConstraints,
+		func(c domain.AppliedConstraint) bool { return c.Code == lunchWindowCode },
+	)
 }
 
-func sameVisitAs(c domain.Candidate, s *domain.CatalogSnapshot) bool {
+func sameVisitAs(c *domain.Candidate, s *domain.CatalogSnapshot) bool {
 	if c.Place.ID != s.PlaceID || (c.Session == nil) != (s.SessionID == nil) {
 		return false
 	}
@@ -358,45 +486,16 @@ func sameVisitAs(c domain.Candidate, s *domain.CatalogSnapshot) bool {
 // anchors turns every commitment still ahead into an anchor with its own window.
 func (w *rework) anchors(catalog []domain.Candidate) []solver.Anchor {
 	var anchors []solver.Anchor
-	for _, o := range w.req.Constraints.Obligations {
-		if !slices.ContainsFunc(w.req.Base.Steps, func(step domain.Step) bool { return step.Kind == domain.StepVisit && obligationMatches(o, step) }) {
-			w.conflicts = append(w.conflicts, domain.Conflict{Code: "OBLIGATION_UNAVAILABLE", Message: "The committed visit is not in the base plan"})
-		}
-	}
-	add := func(step *domain.Step) (domain.Obligation, bool) {
-		if step.Kind != domain.StepVisit {
-			step.Obligation = false
-			return domain.Obligation{}, false
-		}
-		i := slices.IndexFunc(w.req.Constraints.Obligations, func(o domain.Obligation) bool { return obligationMatches(o, *step) })
-		if i < 0 && !step.Obligation {
-			return domain.Obligation{}, false
-		}
-		o := domain.Obligation{VisitID: &step.VisitID, Participation: step.Participation.Status}
-		if step.Catalog != nil {
-			o.SessionID = step.Catalog.SessionID
-		}
-		if i >= 0 {
-			o = w.req.Constraints.Obligations[i]
-			o.VisitID = &step.VisitID
-			if step.Catalog != nil {
-				o.SessionID = step.Catalog.SessionID
-			}
-			step.Participation = participation(nil, &o)
-		}
-		step.Obligation = true
-		w.obligations = append(w.obligations, o)
-		return o, true
-	}
+	w.checkMissingObligations()
 	for i := range w.history {
-		add(&w.history[i])
+		w.addStepObligation(&w.history[i])
 	}
 	for i := range w.future {
 		a := &w.future[i]
 		if a.gap {
 			continue
 		}
-		o, required := add(&a.step)
+		o, required := w.addStepObligation(&a.step)
 		if !required || a.candidate == nil {
 			continue
 		}
@@ -413,8 +512,54 @@ func (w *rework) anchors(catalog []domain.Candidate) []solver.Anchor {
 	return anchors
 }
 
+func (w *rework) checkMissingObligations() {
+	for _, o := range w.req.Constraints.Obligations {
+		if !slices.ContainsFunc(
+			w.req.Base.Steps,
+			func(step domain.Step) bool { return step.Kind == domain.StepVisit && obligationMatches(o, &step) },
+		) {
+			w.conflicts = append(
+				w.conflicts,
+				domain.Conflict{Code: "OBLIGATION_UNAVAILABLE", Message: "The committed visit is not in the base plan"},
+			)
+		}
+	}
+}
+
+func (w *rework) addStepObligation(step *domain.Step) (domain.Obligation, bool) {
+	if step.Kind != domain.StepVisit {
+		step.Obligation = false
+		return domain.Obligation{}, false
+	}
+	i := slices.IndexFunc(
+		w.req.Constraints.Obligations,
+		func(o domain.Obligation) bool { return obligationMatches(o, step) },
+	)
+	if i < 0 && !step.Obligation {
+		return domain.Obligation{}, false
+	}
+	o := domain.Obligation{VisitID: &step.VisitID, Participation: step.Participation.Status}
+	if step.Catalog != nil {
+		o.SessionID = step.Catalog.SessionID
+	}
+	if i >= 0 {
+		o = w.req.Constraints.Obligations[i]
+		o.VisitID = &step.VisitID
+		if step.Catalog != nil {
+			o.SessionID = step.Catalog.SessionID
+		}
+		step.Participation = participation(nil, &o)
+	}
+	step.Obligation = true
+	w.obligations = append(w.obligations, o)
+	return o, true
+}
+
 func (w *rework) unreachable(a *solver.Anchor) domain.Conflict {
-	c := domain.Conflict{Code: "OBLIGATION_UNREACHABLE", Message: "The committed visit can no longer be reached in time; choose another visit or unpin it"}
+	c := domain.Conflict{
+		Code:    "OBLIGATION_UNREACHABLE",
+		Message: "The committed visit can no longer be reached in time; choose another visit or unpin it",
+	}
 	if a.Obligation.VisitID != nil {
 		c.VisitIDs = []domain.VisitID{*a.Obligation.VisitID}
 	}
@@ -424,7 +569,7 @@ func (w *rework) unreachable(a *solver.Anchor) domain.Conflict {
 	return c
 }
 
-func visitConflict(code, message string, step domain.Step) domain.Conflict {
+func visitConflict(code, message string, step *domain.Step) domain.Conflict {
 	c := domain.Conflict{Code: code, Message: message, VisitIDs: []domain.VisitID{step.VisitID}}
 	if step.Catalog != nil && step.Catalog.SessionID != nil {
 		c.SessionIDs = []domain.SessionID{*step.Catalog.SessionID}
@@ -434,7 +579,8 @@ func visitConflict(code, message string, step domain.Step) domain.Conflict {
 
 func (w *rework) historyPlaces() []domain.PlaceID {
 	var places []domain.PlaceID
-	for _, s := range w.history {
+	for i := range w.history {
+		s := &w.history[i]
 		if s.Catalog != nil {
 			places = append(places, s.Catalog.PlaceID)
 		}
@@ -444,11 +590,10 @@ func (w *rework) historyPlaces() []domain.PlaceID {
 
 // repairSteps are the steps still in the route, in order. Only a delay may move them earlier than
 // planned; after any other change the plan keeps its times where it can.
-func (w *rework) repairSteps() ([]solver.RepairStep, []int) {
+func (w *rework) repairSteps() (steps []solver.RepairStep, order []int) {
 	_, delayed := w.req.Trigger.(domain.DelayTrigger)
-	var steps []solver.RepairStep
-	var order []int
-	for i, a := range w.future {
+	for i := range w.future {
+		a := &w.future[i]
 		if a.gap {
 			continue
 		}
@@ -465,13 +610,13 @@ func (w *rework) repairSteps() ([]solver.RepairStep, []int) {
 	return steps, order
 }
 
-func (w *rework) points(req domain.RecomputeRequest, catalog []domain.Candidate) []domain.Coordinate {
+func (w *rework) points(req *domain.RecomputeRequest, catalog []domain.Candidate) []domain.Coordinate {
 	out := []domain.Coordinate{w.position}
 	if req.Base.Destination != nil {
 		out = append(out, *req.Base.Destination)
 	}
-	for _, c := range catalog {
-		out = append(out, c.Place.Location)
+	for i := range catalog {
+		out = append(out, catalog[i].Place.Location)
 	}
 	slices.SortFunc(out, func(a, b domain.Coordinate) int {
 		if c := cmp.Compare(a.Longitude, b.Longitude); c != 0 {
@@ -482,42 +627,85 @@ func (w *rework) points(req domain.RecomputeRequest, catalog []domain.Candidate)
 	return slices.Compact(out)
 }
 
-func (w *rework) recordChanges(plan domain.Plan) {
-	for _, step := range plan.Steps {
-		i := slices.IndexFunc(w.req.Base.Steps, func(s domain.Step) bool { return s.VisitID == step.VisitID })
-		if i < 0 {
-			continue
-		}
-		old := w.req.Base.Steps[i]
-		costChanged := old.Cost != nil && step.Cost != nil && (!reflect.DeepEqual(old.Cost.Price, step.Cost.Price) || !reflect.DeepEqual(old.Cost.PersonalAmount, step.Cost.PersonalAmount) || !reflect.DeepEqual(old.Cost.ProgramAmount, step.Cost.ProgramAmount))
-		changed := costChanged || !old.ArrivalAt.Equal(step.ArrivalAt) || !old.VisitStartAt.Equal(step.VisitStartAt) || !old.VisitEndAt.Equal(step.VisitEndAt) || !old.DepartureAt.Equal(step.DepartureAt) || old.Pinned != step.Pinned || old.Obligation != step.Obligation || !reflect.DeepEqual(old.Catalog, step.Catalog)
-		if !changed || slices.ContainsFunc(w.changes, func(c domain.RouteChange) bool { return c.BeforeVisitID != nil && *c.BeforeVisitID == step.VisitID }) {
-			continue
-		}
-		id := step.VisitID
-		c := domain.RouteChange{Kind: domain.ChangeKept, Scope: domain.ScopeVisit, BeforeVisitID: &id, AfterVisitID: &id, Message: "The retained visit has updated times or catalog information"}
-		if costChanged {
-			before, bok := old.Cost.Price.UpperBound()
-			after, aok := step.Cost.Price.UpperBound()
-			if bok && aok {
-				c.Kind = domain.ChangeCostChanged
-				c.Details = domain.CostChange{Before: before, After: after}
-				c.Message = "The visit price changed"
-			}
-		}
-		w.changes = append(w.changes, c)
+func (w *rework) recordChanges(plan *domain.Plan) {
+	for i := range plan.Steps {
+		w.recordStepChange(&plan.Steps[i])
 	}
 	if len(w.changes) > 0 {
 		return
 	}
-	for i, l := range plan.Legs {
+	w.recordLegChanges(plan)
+}
+
+func (w *rework) recordStepChange(step *domain.Step) {
+	i := slices.IndexFunc(w.req.Base.Steps, func(s domain.Step) bool { return s.VisitID == step.VisitID })
+	if i < 0 {
+		return
+	}
+	old := &w.req.Base.Steps[i]
+	costChanged := old.Cost != nil && step.Cost != nil &&
+		(!reflect.DeepEqual(old.Cost.Price, step.Cost.Price) ||
+			!reflect.DeepEqual(old.Cost.PersonalAmount, step.Cost.PersonalAmount) ||
+			!reflect.DeepEqual(old.Cost.ProgramAmount, step.Cost.ProgramAmount))
+	changed := costChanged || stepTimingOrMetaChanged(old, step)
+	if !changed ||
+		slices.ContainsFunc(
+			w.changes,
+			func(c domain.RouteChange) bool { return c.BeforeVisitID != nil && *c.BeforeVisitID == step.VisitID },
+		) {
+		return
+	}
+	id := step.VisitID
+	c := domain.RouteChange{
+		Kind:          domain.ChangeKept,
+		Scope:         domain.ScopeVisit,
+		BeforeVisitID: &id,
+		AfterVisitID:  &id,
+		Message:       "The retained visit has updated times or catalog information",
+	}
+	if costChanged {
+		before, bok := old.Cost.Price.UpperBound()
+		after, aok := step.Cost.Price.UpperBound()
+		if bok && aok {
+			c.Kind = domain.ChangeCostChanged
+			c.Details = domain.CostChange{Before: before, After: after}
+			c.Message = "The visit price changed"
+		}
+	}
+	w.changes = append(w.changes, c)
+}
+
+func stepTimingOrMetaChanged(old, step *domain.Step) bool {
+	return !old.ArrivalAt.Equal(step.ArrivalAt) ||
+		!old.VisitStartAt.Equal(step.VisitStartAt) ||
+		!old.VisitEndAt.Equal(step.VisitEndAt) ||
+		!old.DepartureAt.Equal(step.DepartureAt) ||
+		old.Pinned != step.Pinned ||
+		old.Obligation != step.Obligation ||
+		!reflect.DeepEqual(old.Catalog, step.Catalog)
+}
+
+func (w *rework) recordLegChanges(plan *domain.Plan) {
+	for i := range plan.Legs {
 		if i >= len(w.req.Base.Legs) {
 			continue
 		}
-		old := w.req.Base.Legs[i]
-		if !l.DepartureAt.Equal(old.DepartureAt) || !l.ArrivalAt.Equal(old.ArrivalAt) || l.Mode != old.Mode || l.Verification != old.Verification || !slices.Equal(l.Geometry, old.Geometry) {
+		l := &plan.Legs[i]
+		old := &w.req.Base.Legs[i]
+		if !l.DepartureAt.Equal(old.DepartureAt) || !l.ArrivalAt.Equal(old.ArrivalAt) || l.Mode != old.Mode ||
+			l.Verification != old.Verification ||
+			!slices.Equal(l.Geometry, old.Geometry) {
 			id := plan.Steps[min(i, len(plan.Steps)-1)].VisitID
-			w.changes = append(w.changes, domain.RouteChange{Kind: domain.ChangeKept, Scope: domain.ScopeVisit, BeforeVisitID: &id, AfterVisitID: &id, Message: "The travel connected to this visit changed"})
+			w.changes = append(
+				w.changes,
+				domain.RouteChange{
+					Kind:          domain.ChangeKept,
+					Scope:         domain.ScopeVisit,
+					BeforeVisitID: &id,
+					AfterVisitID:  &id,
+					Message:       "The travel connected to this visit changed",
+				},
+			)
 			return
 		}
 	}

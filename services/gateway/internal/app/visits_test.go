@@ -10,11 +10,15 @@ import (
 
 func TestVisitInputValidation(t *testing.T) {
 	reference := strings.Repeat("я", 2048)
-	if err := validateParticipationInput(ParticipationInput{Action: "user_reported_confirmed", PrivateReference: &reference}); err != nil {
+	if err := validateParticipationInput(
+		ParticipationInput{Action: "user_reported_confirmed", PrivateReference: &reference},
+	); err != nil {
 		t.Fatalf("valid Unicode reference rejected: %v", err)
 	}
 	reference += "я"
-	if err := validateParticipationInput(ParticipationInput{Action: "user_reported_confirmed", PrivateReference: &reference}); err == nil {
+	if err := validateParticipationInput(
+		ParticipationInput{Action: "user_reported_confirmed", PrivateReference: &reference},
+	); err == nil {
 		t.Fatal("oversized private reference accepted")
 	}
 	if err := validateParticipationInput(ParticipationInput{Action: "provider_confirmed"}); err == nil {

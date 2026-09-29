@@ -14,7 +14,11 @@ import (
 )
 
 func TestClientPreservesOptionsAndHandlesUninitialized(t *testing.T) {
-	c := NewClient(zap.NewNop(), &client.Options{Identity: "test-worker"}, &config.Temporal{HostPort: "localhost:7233", Namespace: "default"})
+	c := NewClient(
+		zap.NewNop(),
+		&client.Options{Identity: "test-worker"},
+		&config.Temporal{HostPort: "localhost:7233", Namespace: "default"},
+	)
 	if c.temporalConf.Identity != "test-worker" {
 		t.Fatal("SDK options discarded")
 	}
@@ -64,7 +68,12 @@ type stubWorker struct {
 func (w *stubWorker) Start() error { return w.start() }
 func (w *stubWorker) Stop()        {}
 func TestWorkerReportsFatalError(t *testing.T) {
-	w, err := NewWorker(zap.NewNop(), &Client{}, &config.Temporal{QueueName: "test", WorkerCount: 1}, func(worker.Registry) {})
+	w, err := NewWorker(
+		zap.NewNop(),
+		&Client{},
+		&config.Temporal{QueueName: "test", WorkerCount: 1},
+		func(worker.Registry) {},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

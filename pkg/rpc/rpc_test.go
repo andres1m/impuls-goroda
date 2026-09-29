@@ -39,7 +39,11 @@ func TestServerRoundTripAndBoundedStop(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- s.Run(context.Background()) }()
 	defer s.server.Stop()
-	conn, err := grpc.NewClient(s.lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithNoProxy())
+	conn, err := grpc.NewClient(
+		s.lis.Addr().String(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithNoProxy(),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +106,7 @@ func TestClientStopIsIdempotent(t *testing.T) {
 	if err := c.Init(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if err := c.Stop(context.Background()); err != nil {
 			t.Fatal(err)
 		}
@@ -120,7 +124,12 @@ func TestServerRunsUnaryInterceptorsInOrder(t *testing.T) {
 			return handler(ctx, req)
 		}
 	}
-	s := NewServer("test", zap.NewNop(), &config.GRPCServer{Port: 0}, WithUnaryInterceptors(record("first"), record("second")))
+	s := NewServer(
+		"test",
+		zap.NewNop(),
+		&config.GRPCServer{Port: 0},
+		WithUnaryInterceptors(record("first"), record("second")),
+	)
 	h := health.NewServer()
 	s.OnInit(func(s *Server) { pb.RegisterHealthServer(s.GetServer(), h) })
 	if err := s.Init(context.Background()); err != nil {
@@ -128,7 +137,11 @@ func TestServerRunsUnaryInterceptorsInOrder(t *testing.T) {
 	}
 	go func() { _ = s.Run(context.Background()) }()
 	defer s.server.Stop()
-	conn, err := grpc.NewClient(s.lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithNoProxy())
+	conn, err := grpc.NewClient(
+		s.lis.Addr().String(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithNoProxy(),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

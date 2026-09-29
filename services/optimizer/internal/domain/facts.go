@@ -8,12 +8,13 @@ import (
 )
 
 type Coordinate struct {
-	Longitude float64
-	Latitude  float64
+	Longitude float64 `json:"Longitude"`
+	Latitude  float64 `json:"Latitude"`
 }
 
 func (c Coordinate) Validate() error {
-	if !finite(c.Longitude) || !finite(c.Latitude) || c.Longitude < -180 || c.Longitude > 180 || c.Latitude < -90 || c.Latitude > 90 {
+	if !finite(c.Longitude) || !finite(c.Latitude) || c.Longitude < -180 || c.Longitude > 180 || c.Latitude < -90 ||
+		c.Latitude > 90 {
 		return errors.New("coordinate is outside the valid range")
 	}
 	return nil
@@ -31,16 +32,23 @@ const (
 	DataSynthetic DataMode = "synthetic"
 )
 
+const (
+	trustInvalid = iota
+	trustSynthetic
+	trustPrepared
+	trustLive
+)
+
 func (m DataMode) trust() int {
 	switch m {
 	case DataLive:
-		return 3
+		return trustLive
 	case DataPrepared:
-		return 2
+		return trustPrepared
 	case DataSynthetic:
-		return 1
+		return trustSynthetic
 	default:
-		return 0
+		return trustInvalid
 	}
 }
 
@@ -60,12 +68,12 @@ func Weakest(a, b DataMode) DataMode {
 }
 
 type Provenance struct {
-	SourceName      string
-	SourceURL       *string
-	SourceRecordID  *SourceRecordID
-	SourceUpdatedAt *time.Time
-	FetchedAt       time.Time
-	VerifiedAt      *time.Time
+	SourceName      string          `json:"SourceName"`
+	SourceURL       *string         `json:"SourceURL"`
+	SourceRecordID  *SourceRecordID `json:"SourceRecordID"`
+	SourceUpdatedAt *time.Time      `json:"SourceUpdatedAt"`
+	FetchedAt       time.Time       `json:"FetchedAt"`
+	VerifiedAt      *time.Time      `json:"VerifiedAt"`
 }
 
 func (p Provenance) Validate() error {
@@ -100,7 +108,11 @@ const (
 
 func (a Availability) Validate() error {
 	switch a {
-	case AvailabilityAvailable, AvailabilityRegistrationRequired, AvailabilitySoldOut, AvailabilityCancelled, AvailabilityUnknown:
+	case AvailabilityAvailable,
+		AvailabilityRegistrationRequired,
+		AvailabilitySoldOut,
+		AvailabilityCancelled,
+		AvailabilityUnknown:
 		return nil
 	default:
 		return errors.New("invalid availability")

@@ -102,13 +102,13 @@ func (c *PostgresClient) Stop(ctx context.Context) error {
 	case <-c.stopped:
 		return nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("stop database: %w", ctx.Err())
 	}
 }
 
 type AfterRun func(ctx context.Context, pool *pgxpool.Pool) error
 
-func NewDb(log *zap.Logger, conf config.Database) (*PostgresClient, error) {
+func NewDB(log *zap.Logger, conf config.Database) (*PostgresClient, error) {
 	cfg, err := pgxpool.ParseConfig(conf.Host)
 	if err != nil {
 		return nil, errors.New("invalid database connection configuration")

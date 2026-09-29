@@ -55,7 +55,7 @@ type RouteChange struct {
 	Details       ChangeDetails
 }
 
-func (c RouteChange) Validate() error {
+func (c *RouteChange) Validate() error {
 	if strings.TrimSpace(c.Message) == "" {
 		return errors.New("route change message is required")
 	}
@@ -81,7 +81,7 @@ func (c RouteChange) Validate() error {
 	return c.validateDetails()
 }
 
-func (c RouteChange) validateScope() error {
+func (c *RouteChange) validateScope() error {
 	if err := optionalID(c.BeforeVisitID, "visit"); err != nil {
 		return err
 	}
@@ -108,7 +108,7 @@ func (c RouteChange) validateScope() error {
 	return nil
 }
 
-func (c RouteChange) validateVisits() error {
+func (c *RouteChange) validateVisits() error {
 	switch c.Kind {
 	case ChangeRemoved:
 		if c.AfterVisitID != nil {
@@ -122,48 +122,58 @@ func (c RouteChange) validateVisits() error {
 		if c.BeforeVisitID == nil {
 			return errors.New("kept change requires the previous visit")
 		}
+	case ChangeTimeShifted, ChangeCostChanged, ChangeParticipationAction, ChangeVerificationChanged:
 	}
 	return nil
 }
 
-func (c RouteChange) validateDetails() error {
+func (c *RouteChange) validateDetails() error {
 	switch c.Kind {
 	case ChangeTimeShifted:
 		if _, ok := c.Details.(TimeShift); !ok {
 			return errors.New("time shift change requires a delta")
 		}
 	case ChangeCostChanged:
-		d, ok := c.Details.(CostChange)
-		if !ok {
-			return errors.New("cost change requires before and after amounts")
-		}
-		if err := d.Before.Validate(); err != nil {
-			return err
-		}
-		if err := d.After.Validate(); err != nil {
-			return err
-		}
-		if d.Before.Currency != d.After.Currency {
-			return errors.New("cost change currencies differ")
-		}
+		return validateCostChangeDetails(c.Details)
 	case ChangeParticipationAction:
 		d, ok := c.Details.(ParticipationAction)
 		if !ok || strings.TrimSpace(d.Action) == "" {
 			return errors.New("participation change requires an action")
 		}
 	case ChangeVerificationChanged:
-		d, ok := c.Details.(VerificationChange)
-		if !ok {
-			return errors.New("verification change requires before and after states")
-		}
-		if err := d.Before.Validate(); err != nil {
-			return err
-		}
-		return d.After.Validate()
-	default:
+		return validateVerificationChangeDetails(c.Details)
+	case ChangeKept, ChangeRemoved, ChangeReplaced:
 		if c.Details != nil {
 			return errors.New("route change kind does not carry details")
 		}
 	}
 	return nil
+}
+
+func validateCostChangeDetails(details ChangeDetails) error {
+	d, ok := details.(CostChange)
+	if !ok {
+		return errors.New("cost change requires before and after amounts")
+	}
+	if err := d.Before.Validate(); err != nil {
+		return err
+	}
+	if err := d.After.Validate(); err != nil {
+		return err
+	}
+	if d.Before.Currency != d.After.Currency {
+		return errors.New("cost change currencies differ")
+	}
+	return nil
+}
+
+func validateVerificationChangeDetails(details ChangeDetails) error {
+	d, ok := details.(VerificationChange)
+	if !ok {
+		return errors.New("verification change requires before and after states")
+	}
+	if err := d.Before.Validate(); err != nil {
+		return err
+	}
+	return d.After.Validate()
 }

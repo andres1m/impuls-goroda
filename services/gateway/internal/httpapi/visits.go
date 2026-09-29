@@ -33,8 +33,20 @@ func NewVisitRouter(runtime VisitRuntime) *VisitRouter { return &VisitRouter{run
 
 func (r *VisitRouter) Routes() []router.Route {
 	return []router.Route{
-		router.NewRoute(http.MethodPost, "/routes/:route_id/visits/:visit_id/participation", r.participation, Authenticate(r.runtime), AuthenticatedRateLimit(r.runtime)),
-		router.NewRoute(http.MethodPost, "/routes/:route_id/visits/:visit_id/execution", r.execution, Authenticate(r.runtime), AuthenticatedRateLimit(r.runtime)),
+		router.NewRoute(
+			http.MethodPost,
+			"/routes/:route_id/visits/:visit_id/participation",
+			r.participation,
+			Authenticate(r.runtime),
+			AuthenticatedRateLimit(r.runtime),
+		),
+		router.NewRoute(
+			http.MethodPost,
+			"/routes/:route_id/visits/:visit_id/execution",
+			r.execution,
+			Authenticate(r.runtime),
+			AuthenticatedRateLimit(r.runtime),
+		),
 	}
 }
 
@@ -45,14 +57,14 @@ func (r *VisitRouter) participation() echo.HandlerFunc {
 			return err
 		}
 		var input app.ParticipationInput
-		if err := decodeVisitBody(c, &input); err != nil {
-			return err
+		if decodeErr := decodeVisitBody(c, &input); decodeErr != nil {
+			return decodeErr
 		}
 		result, err := r.runtime.UpdateParticipation(c.Request().Context(), target, input)
 		if err != nil {
 			return MapCommandError(err)
 		}
-		return sendVisitResult(c, result)
+		return sendVisitResult(c, &result)
 	}
 }
 
@@ -63,14 +75,14 @@ func (r *VisitRouter) execution() echo.HandlerFunc {
 			return err
 		}
 		var input app.ExecutionInput
-		if err := decodeVisitBody(c, &input); err != nil {
-			return err
+		if decodeErr := decodeVisitBody(c, &input); decodeErr != nil {
+			return decodeErr
 		}
 		result, err := r.runtime.UpdateExecution(c.Request().Context(), target, input)
 		if err != nil {
 			return MapCommandError(err)
 		}
-		return sendVisitResult(c, result)
+		return sendVisitResult(c, &result)
 	}
 }
 
@@ -129,7 +141,7 @@ func decodeVisitBody(c *echo.Context, destination any) error {
 	return nil
 }
 
-func sendVisitResult(c *echo.Context, result command.Result) error {
+func sendVisitResult(c *echo.Context, result *command.Result) error {
 	var body map[string]json.RawMessage
 	if err := json.Unmarshal(result.ResponseBody, &body); err != nil {
 		return err

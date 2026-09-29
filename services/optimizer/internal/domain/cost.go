@@ -39,7 +39,7 @@ type CostSnapshot struct {
 	Provenance        Provenance
 }
 
-func (s CostSnapshot) Validate() error {
+func (s *CostSnapshot) Validate() error {
 	if err := optionalID(s.PriceOfferID, "price offer"); err != nil {
 		return err
 	}
@@ -90,7 +90,7 @@ type CostSummary struct {
 	BudgetConclusion  BudgetConclusion
 }
 
-func (s CostSummary) Validate() error {
+func (s *CostSummary) Validate() error {
 	currency := s.KnownPersonal.Currency
 	for _, amount := range []Money{s.KnownPersonal, s.KnownTransport, s.ProgramAmount} {
 		if err := amount.Validate(); err != nil {
@@ -103,21 +103,8 @@ func (s CostSummary) Validate() error {
 	if s.KnownTransport.AmountMinor > s.KnownPersonal.AmountMinor {
 		return errors.New("transport cost must be part of personal cost")
 	}
-	if (s.TotalLower == nil) != (s.TotalUpper == nil) {
-		return errors.New("total cost bounds must be given together")
-	}
-	if s.TotalLower != nil {
-		for _, bound := range []*Money{s.TotalLower, s.TotalUpper} {
-			if err := bound.Validate(); err != nil {
-				return err
-			}
-			if bound.Currency != currency {
-				return errors.New("route cost must use one currency")
-			}
-		}
-		if s.TotalUpper.AmountMinor < s.TotalLower.AmountMinor {
-			return errors.New("total cost range is inverted")
-		}
+	if err := s.validateBounds(currency); err != nil {
+		return err
 	}
 	for _, component := range s.UnknownComponents {
 		if err := component.Validate(); err != nil {
@@ -130,4 +117,25 @@ func (s CostSummary) Validate() error {
 	default:
 		return errors.New("invalid budget conclusion")
 	}
+}
+
+func (s *CostSummary) validateBounds(currency string) error {
+	if (s.TotalLower == nil) != (s.TotalUpper == nil) {
+		return errors.New("total cost bounds must be given together")
+	}
+	if s.TotalLower == nil {
+		return nil
+	}
+	for _, bound := range []*Money{s.TotalLower, s.TotalUpper} {
+		if err := bound.Validate(); err != nil {
+			return err
+		}
+		if bound.Currency != currency {
+			return errors.New("route cost must use one currency")
+		}
+	}
+	if s.TotalUpper.AmountMinor < s.TotalLower.AmountMinor {
+		return errors.New("total cost range is inverted")
+	}
+	return nil
 }

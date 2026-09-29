@@ -6,7 +6,27 @@ import (
 	"strings"
 )
 
-var osmDays = map[string]int{"Mo": 0, "Tu": 1, "We": 2, "Th": 3, "Fr": 4, "Sa": 5, "Su": 6}
+const (
+	dayMon = iota
+	dayTue
+	dayWed
+	dayThu
+	dayFri
+	daySat
+	daySun
+	daysPerWeek  = 7
+	dayAbbrevLen = 2
+)
+
+var osmDays = map[string]int{
+	"Mo": dayMon,
+	"Tu": dayTue,
+	"We": dayWed,
+	"Th": dayThu,
+	"Fr": dayFri,
+	"Sa": daySat,
+	"Su": daySun,
+}
 
 type interval struct{ start, end int }
 
@@ -18,53 +38,58 @@ func ParseOpeningHours(value string) (rules OpeningRules, ok bool) {
 	if value == "" {
 		return OpeningRules{}, false
 	}
-	var week [7][]interval
+	var week [daysPerWeek][]interval
 	if value == "24/7" {
 		for d := range week {
-			week[d] = []interval{{0, 24 * 60}}
+			week[d] = []interval{{0, minutesPerDay}}
 		}
-		return build(week, value), true
+		return build(&week, value), true
 	}
 	// Spans past midnight add to the next day whatever later rules say about that day.
-	var spill [7][]interval
-	for _, rule := range strings.Split(value, ";") {
+	var spill [daysPerWeek][]interval
+	for rule := range strings.SplitSeq(value, ";") {
 		rule = strings.TrimSpace(rule)
 		if rule == "" {
 			continue
 		}
-		selected, spans, ok := parseRule(rule)
-		if !ok {
+		selected, spans, valid := parseRule(rule)
+		if !valid {
 			return OpeningRules{}, false
 		}
-		for _, d := range selected {
-			week[d] = nil
-			spill[(d+1)%7] = nil
-			for _, s := range spans {
-				if s.end > s.start {
-					week[d] = append(week[d], s)
-					continue
-				}
-				week[d] = append(week[d], interval{s.start, 24 * 60})
-				if s.end > 0 {
-					spill[(d+1)%7] = append(spill[(d+1)%7], interval{0, s.end})
-				}
-			}
-		}
+		applyRuleToWeek(&week, &spill, selected, spans)
 	}
 	for d := range week {
 		week[d] = merged(append(week[d], spill[d]...))
 	}
-	rules = build(week, value)
+	rules = build(&week, value)
 	if rules.Validate() != nil {
 		return OpeningRules{}, false
 	}
 	return rules, true
 }
 
+func applyRuleToWeek(week, spill *[daysPerWeek][]interval, selected []int, spans []interval) {
+	for _, d := range selected {
+		week[d] = nil
+		nextDay := (d + 1) % daysPerWeek
+		spill[nextDay] = nil
+		for _, s := range spans {
+			if s.end > s.start {
+				week[d] = append(week[d], s)
+				continue
+			}
+			week[d] = append(week[d], interval{s.start, minutesPerDay})
+			if s.end > 0 {
+				spill[nextDay] = append(spill[nextDay], interval{0, s.end})
+			}
+		}
+	}
+}
+
 // parseRule returns the days a rule covers and its spans; an off rule has no spans.
 func parseRule(rule string) (selected []int, spans []interval, ok bool) {
 	selector, times, found := strings.Cut(rule, " ")
-	if _, isDay := osmDays[selector[:min(2, len(selector))]]; !found && isDay {
+	if _, isDay := osmDays[selector[:min(dayAbbrevLen, len(selector))]]; !found && isDay {
 		return nil, nil, false
 	}
 	if found && startsWithDay(selector) {
@@ -73,15 +98,15 @@ func parseRule(rule string) (selected []int, spans []interval, ok bool) {
 		}
 		times = strings.TrimSpace(times)
 	} else {
-		selected = []int{0, 1, 2, 3, 4, 5, 6}
+		selected = []int{dayMon, dayTue, dayWed, dayThu, dayFri, daySat, daySun}
 		times = rule
 	}
 	if times == "off" || times == "closed" {
 		return selected, nil, true
 	}
-	for _, part := range strings.Split(times, ",") {
-		s, ok := parseSpan(strings.TrimSpace(part))
-		if !ok {
+	for part := range strings.SplitSeq(times, ",") {
+		s, valid := parseSpan(strings.TrimSpace(part))
+		if !valid {
 			return nil, nil, false
 		}
 		spans = append(spans, s)
@@ -90,13 +115,13 @@ func parseRule(rule string) (selected []int, spans []interval, ok bool) {
 }
 
 func startsWithDay(s string) bool {
-	_, ok := osmDays[s[:min(2, len(s))]]
+	_, ok := osmDays[s[:min(dayAbbrevLen, len(s))]]
 	return ok
 }
 
 func parseDays(selector string) ([]int, bool) {
 	var out []int
-	for _, part := range strings.Split(selector, ",") {
+	for part := range strings.SplitSeq(selector, ",") {
 		from, to, isRange := strings.Cut(part, "-")
 		first, ok := osmDays[from]
 		if !ok {
@@ -108,7 +133,7 @@ func parseDays(selector string) ([]int, bool) {
 				return nil, false
 			}
 		}
-		for d := first; ; d = (d + 1) % 7 {
+		for d := first; ; d = (d + 1) % daysPerWeek {
 			out = append(out, d)
 			if d == last {
 				break
@@ -148,7 +173,7 @@ func merged(in []interval) []interval {
 	return out
 }
 
-func build(week [7][]interval, source string) OpeningRules {
+func build(week *[daysPerWeek][]interval, source string) OpeningRules {
 	weekly := make(map[string][][2]string, len(Weekdays))
 	for d, day := range Weekdays {
 		weekly[day] = [][2]string{}
@@ -160,5 +185,5 @@ func build(week [7][]interval, source string) OpeningRules {
 }
 
 func clock(minutes int) string {
-	return fmt.Sprintf("%02d:%02d", minutes/60, minutes%60)
+	return fmt.Sprintf("%02d:%02d", minutes/minutesPerHour, minutes%minutesPerHour)
 }

@@ -79,7 +79,7 @@ func (v *InitDataVerifier) Verify(raw string) (InitData, error) {
 	}
 	decoder := json.NewDecoder(strings.NewReader(values["user"]))
 	decoder.UseNumber()
-	if err := decoder.Decode(&user); err != nil || user.ID == "" {
+	if decodeErr := decoder.Decode(&user); decodeErr != nil || user.ID == "" {
 		return InitData{}, ErrInvalidInitData
 	}
 	userID, err := strconv.ParseUint(user.ID.String(), 10, 64)
@@ -90,42 +90,42 @@ func (v *InitDataVerifier) Verify(raw string) (InitData, error) {
 	return InitData{MaxUserID: strconv.FormatUint(userID, 10), AuthDate: authDate}, nil
 }
 
-func parseInitData(raw string) (map[string]string, string, string, error) {
+func parseInitData(raw string) (values map[string]string, hash, dataCheck string, err error) {
 	if raw == "" {
 		return nil, "", "", ErrInvalidInitData
 	}
-	values := make(map[string]string)
-	for _, pair := range strings.Split(raw, "&") {
+	parsed := make(map[string]string)
+	for pair := range strings.SplitSeq(raw, "&") {
 		key, encodedValue, ok := strings.Cut(pair, "=")
 		if !ok || key == "" {
 			return nil, "", "", ErrInvalidInitData
 		}
-		if _, exists := values[key]; exists {
+		if _, exists := parsed[key]; exists {
 			return nil, "", "", ErrInvalidInitData
 		}
-		value, err := url.QueryUnescape(encodedValue)
-		if err != nil {
+		value, unescapeErr := url.QueryUnescape(encodedValue)
+		if unescapeErr != nil {
 			return nil, "", "", ErrInvalidInitData
 		}
-		values[key] = value
+		parsed[key] = value
 	}
-	hash, ok := values["hash"]
+	parsedHash, ok := parsed["hash"]
 	if !ok {
 		return nil, "", "", ErrInvalidInitData
 	}
-	delete(values, "hash")
-	if values["auth_date"] == "" || values["user"] == "" {
+	delete(parsed, "hash")
+	if parsed["auth_date"] == "" || parsed["user"] == "" {
 		return nil, "", "", ErrInvalidInitData
 	}
 
-	keys := make([]string, 0, len(values))
-	for key := range values {
+	keys := make([]string, 0, len(parsed))
+	for key := range parsed {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 	parts := make([]string, 0, len(keys))
 	for _, key := range keys {
-		parts = append(parts, fmt.Sprintf("%s=%s", key, values[key]))
+		parts = append(parts, fmt.Sprintf("%s=%s", key, parsed[key]))
 	}
-	return values, hash, strings.Join(parts, "\n"), nil
+	return parsed, parsedHash, strings.Join(parts, "\n"), nil
 }

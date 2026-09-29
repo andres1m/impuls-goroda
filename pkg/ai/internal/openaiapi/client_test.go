@@ -36,7 +36,8 @@ func TestEmbeddingsSendsRequestAndOrdersByIndex(t *testing.T) {
 			t.Errorf("authorization %q", got)
 		}
 		body := decode(t, r)
-		if body["model"] != "openai/text-embedding-3-small" || body["dimensions"] != float64(384) || body["encoding_format"] != "float" {
+		if body["model"] != "openai/text-embedding-3-small" || body["dimensions"] != float64(384) ||
+			body["encoding_format"] != "float" {
 			t.Errorf("body %v", body)
 		}
 		if input, _ := body["input"].([]any); len(input) != 2 || input[0] != "a" || input[1] != "b" {
@@ -87,7 +88,8 @@ func TestErrorsCarryStatusAndMessageWithoutKey(t *testing.T) {
 			})
 			_, err := c.Embeddings(context.Background(), "m", []string{"a"}, 1)
 			var statusErr *StatusError
-			if !errors.As(err, &statusErr) || statusErr.Provider != "acme" || statusErr.Status != tc.status || statusErr.Message != tc.message {
+			if !errors.As(err, &statusErr) || statusErr.Provider != "acme" || statusErr.Status != tc.status ||
+				statusErr.Message != tc.message {
 				t.Fatalf("error %#v", err)
 			}
 			if !strings.HasPrefix(err.Error(), "acme responded") {
@@ -119,7 +121,8 @@ func TestCompleteReturnsFirstChoice(t *testing.T) {
 		}
 		first, _ := messages[0].(map[string]any)
 		second, _ := messages[1].(map[string]any)
-		if first["role"] != "system" || first["content"] != "be brief" || second["role"] != "user" || second["content"] != "hi" {
+		if first["role"] != "system" || first["content"] != "be brief" || second["role"] != "user" ||
+			second["content"] != "hi" {
 			t.Errorf("messages %v", messages)
 		}
 		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"hello"}}]}`)
@@ -162,7 +165,12 @@ func TestGetSendsKeyAndDecodes(t *testing.T) {
 	var resp struct {
 		Data []Model `json:"data"`
 	}
-	if err := c.Get(context.Background(), "/models?type=embedding", &resp); err != nil || len(resp.Data) != 1 || resp.Data[0].ID != "e/one" {
+	if err := c.Get(
+		context.Background(),
+		"/models?type=embedding",
+		&resp,
+	); err != nil || len(resp.Data) != 1 ||
+		resp.Data[0].ID != "e/one" {
 		t.Fatalf("models %v, %v", resp.Data, err)
 	}
 }

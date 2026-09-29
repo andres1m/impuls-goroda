@@ -100,13 +100,20 @@ type completionResponse struct {
 }
 
 func (c *Client) Complete(ctx context.Context, model, system, user string) (string, error) {
-	messages := make([]message, 0, 2)
+	const initialMessageCapacity = 2
+	messages := make([]message, 0, initialMessageCapacity)
 	if system != "" {
 		messages = append(messages, message{Role: "system", Content: system})
 	}
 	messages = append(messages, message{Role: "user", Content: user})
 	var resp completionResponse
-	if err := c.do(ctx, http.MethodPost, "/chat/completions", completionRequest{Model: model, Messages: messages}, &resp); err != nil {
+	if err := c.do(
+		ctx,
+		http.MethodPost,
+		"/chat/completions",
+		completionRequest{Model: model, Messages: messages},
+		&resp,
+	); err != nil {
 		return "", err
 	}
 	if len(resp.Choices) == 0 {
@@ -158,9 +165,9 @@ func (c *Client) statusError(resp *http.Response) error {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
+	data, readErr := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
 	message := http.StatusText(resp.StatusCode)
-	if json.Unmarshal(data, &payload) == nil && payload.Error.Message != "" {
+	if readErr == nil && json.Unmarshal(data, &payload) == nil && payload.Error.Message != "" {
 		message = payload.Error.Message
 	}
 	return &StatusError{Provider: c.provider, Status: resp.StatusCode, Message: message}

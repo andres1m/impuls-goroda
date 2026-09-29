@@ -15,14 +15,17 @@ import (
 )
 
 // Hosted embedding APIs cap the inputs of one request; 2048 is the common ceiling.
-const maxEmbedBatch = 2048
+const (
+	maxEmbedBatch     = 2048
+	defaultEmbedBatch = 64
+)
 
 func parseEmbedArgs(args []string) ([]domain.City, int, error) {
 	usage := errors.New("usage: syncer embed [--city moscow|perm] [--batch 1..2048]")
 	flags := flag.NewFlagSet("embed", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	city := flags.String("city", "", "")
-	batch := flags.Int("batch", 64, "")
+	batch := flags.Int("batch", defaultEmbedBatch, "")
 	if err := flags.Parse(args); err != nil {
 		return nil, 0, errors.Join(err, usage)
 	}
@@ -39,14 +42,14 @@ func parseEmbedArgs(args []string) ([]domain.City, int, error) {
 	return []domain.City{parsed}, *batch, nil
 }
 
-func runEmbed(ctx context.Context, args []string) error {
+func runEmbed(ctx context.Context, args []string) (retErr error) {
 	cities, batch, err := parseEmbedArgs(args)
 	if err != nil {
 		return err
 	}
 	var cfg appConfig
-	if err := config.Load(configPath, &cfg); err != nil {
-		return fmt.Errorf("load config: %w", err)
+	if loadErr := config.Load(configPath, &cfg); loadErr != nil {
+		return fmt.Errorf("load config: %w", loadErr)
 	}
 	models, err := ai.New(cfg.AI)
 	if err != nil {
@@ -56,16 +59,25 @@ func runEmbed(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer database.Stop(context.Background())
+	defer func() {
+		retErr = errors.Join(retErr, database.Stop(context.Background()))
+	}()
 
 	embedder := models.Embedder()
 	for _, city := range cities {
-		result, err := embedCity(ctx, database.Pool, embedder, city, batch)
-		if err != nil {
-			return fmt.Errorf("embed %s: %w", city, err)
+		result, embedErr := embedCity(ctx, database.Pool, embedder, city, batch)
+		if embedErr != nil {
+			return fmt.Errorf("embed %s: %w", city, embedErr)
 		}
 		space := embedder.Space()
-		fmt.Printf("%s: entities %d, embedded %d, space %s %s\n", city, result.Entities, result.Embedded, space.Key, space.Version)
+		fmt.Printf(
+			"%s: entities %d, embedded %d, space %s %s\n",
+			city,
+			result.Entities,
+			result.Embedded,
+			space.Key,
+			space.Version,
+		)
 	}
 	return nil
 }
@@ -76,7 +88,13 @@ type embedResult struct {
 
 // embedCity writes each vector as soon as its batch returns, so an interrupted run resumes
 // where it stopped.
-func embedCity(ctx context.Context, db postgres.EmbeddingDB, embedder ai.Embedder, city domain.City, batch int) (embedResult, error) {
+func embedCity(
+	ctx context.Context,
+	db postgres.EmbeddingDB,
+	embedder ai.Embedder,
+	city domain.City,
+	batch int,
+) (embedResult, error) {
 	space := embedder.Space()
 	entities, err := postgres.EmbeddingEntities(ctx, db, string(city), space)
 	if err != nil {
@@ -87,8 +105,8 @@ func embedCity(ctx context.Context, db postgres.EmbeddingDB, embedder ai.Embedde
 	for start := 0; start < len(stale); start += batch {
 		chunk := stale[start:min(start+batch, len(stale))]
 		texts := make([]string, len(chunk))
-		for i, p := range chunk {
-			texts[i] = p.Text
+		for i := range chunk {
+			texts[i] = chunk[i].Text
 		}
 		got, err := embedder.Embed(ctx, texts)
 		if err != nil {
@@ -98,8 +116,8 @@ func embedCity(ctx context.Context, db postgres.EmbeddingDB, embedder ai.Embedde
 			return result, fmt.Errorf("embedder answered %d vectors in %s %s for %d texts in %s %s",
 				len(got.Vectors), got.Space.Key, got.Space.Version, len(chunk), space.Key, space.Version)
 		}
-		for i, p := range chunk {
-			if err := postgres.UpsertEmbedding(ctx, db, space, p, got.Vectors[i]); err != nil {
+		for i := range chunk {
+			if err := postgres.UpsertEmbedding(ctx, db, space, &chunk[i], got.Vectors[i]); err != nil {
 				return result, err
 			}
 			result.Embedded++

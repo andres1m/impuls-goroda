@@ -37,14 +37,18 @@ type Participation struct {
 
 func validParticipationStatus(status ParticipationStatus) bool {
 	switch status {
-	case ParticipationNotRequired, ParticipationActionRequired, ParticipationUserReported, ParticipationProviderConfirmed, ParticipationUnavailable:
+	case ParticipationNotRequired,
+		ParticipationActionRequired,
+		ParticipationUserReported,
+		ParticipationProviderConfirmed,
+		ParticipationUnavailable:
 		return true
 	default:
 		return false
 	}
 }
 
-func (p Participation) Validate() error {
+func (p *Participation) Validate() error {
 	if err := requiredID([16]byte(p.RouteID)); err != nil {
 		return err
 	}

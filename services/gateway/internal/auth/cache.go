@@ -2,14 +2,20 @@ package auth
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/dgraph-io/ristretto/v2"
 )
 
+const (
+	cacheCountersMultiplier = 10
+	cacheBufferItems        = 64
+)
+
 type SessionCache interface {
 	Get([32]byte) (SessionAccount, bool)
-	Set([32]byte, SessionAccount, time.Duration) bool
+	Set([32]byte, *SessionAccount, time.Duration) bool
 	Delete([32]byte)
 	Close()
 }
@@ -23,13 +29,13 @@ func NewRistrettoCache(maxEntries int64) (*RistrettoCache, error) {
 		return nil, errors.New("session cache capacity must be positive")
 	}
 	cache, err := ristretto.NewCache(&ristretto.Config[string, SessionAccount]{
-		NumCounters:        maxEntries * 10,
+		NumCounters:        maxEntries * cacheCountersMultiplier,
 		MaxCost:            maxEntries,
-		BufferItems:        64,
+		BufferItems:        cacheBufferItems,
 		IgnoreInternalCost: true,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create session cache: %w", err)
 	}
 	return &RistrettoCache{cache: cache}, nil
 }
@@ -38,8 +44,11 @@ func (c *RistrettoCache) Get(hash [32]byte) (SessionAccount, bool) {
 	return c.cache.Get(string(hash[:]))
 }
 
-func (c *RistrettoCache) Set(hash [32]byte, value SessionAccount, ttl time.Duration) bool {
-	return c.cache.SetWithTTL(string(hash[:]), value, 1, ttl)
+func (c *RistrettoCache) Set(hash [32]byte, value *SessionAccount, ttl time.Duration) bool {
+	if value == nil {
+		return false
+	}
+	return c.cache.SetWithTTL(string(hash[:]), *value, 1, ttl)
 }
 
 func (c *RistrettoCache) Delete(hash [32]byte) {

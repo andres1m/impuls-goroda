@@ -19,28 +19,32 @@ func at(hour, minute int) time.Time {
 	return day.Add(time.Duration(hour)*time.Hour + time.Duration(minute)*time.Minute)
 }
 
-func ptr[T any](v T) *T {
-	return &v
-}
-
 func rub(amount int64) domain.Money {
 	return domain.Money{AmountMinor: amount, Currency: "RUB"}
 }
 
 func fixed(amount int64) domain.Price {
-	return domain.Price{Status: domain.PriceFixed, Currency: "RUB", LowerMinor: ptr(amount), UpperMinor: ptr(amount)}
+	return domain.Price{Status: domain.PriceFixed, Currency: "RUB", LowerMinor: new(amount), UpperMinor: new(amount)}
 }
 
 func free() domain.Price {
-	return domain.Price{Status: domain.PriceFree, Currency: "RUB", LowerMinor: ptr(int64(0)), UpperMinor: ptr(int64(0))}
+	return domain.Price{Status: domain.PriceFree, Currency: "RUB", LowerMinor: new(int64(0)), UpperMinor: new(int64(0))}
 }
 
 func museum() domain.Candidate {
 	category := domain.CategoryCulture
 	return domain.Candidate{
 		Place: domain.Place{
-			ID: domain.PlaceID{1}, City: "perm", Title: "Museum", Category: &category,
-			Location: domain.Coordinate{Longitude: 56.2310, Latitude: 58.0110}, DataMode: domain.DataSynthetic, Provenance: source,
+			ID:       domain.PlaceID{1},
+			City:     "perm",
+			Title:    "Museum",
+			Category: &category,
+			Location: domain.Coordinate{
+				Longitude: 56.2310,
+				Latitude:  58.0110,
+			},
+			DataMode:   domain.DataSynthetic,
+			Provenance: source,
 		},
 		Window: domain.VisitWindow{
 			Kind: domain.WindowContinuous, Start: at(9, 0), End: at(20, 0),
@@ -58,10 +62,25 @@ func concert() domain.Candidate {
 	}
 	c := domain.Candidate{
 		Place: domain.Place{
-			ID: domain.PlaceID{2}, City: "perm", Title: "Hall", Category: &category,
-			Location: domain.Coordinate{Longitude: 56.2330, Latitude: 58.0115}, DataMode: domain.DataSynthetic, Provenance: source,
+			ID:       domain.PlaceID{2},
+			City:     "perm",
+			Title:    "Hall",
+			Category: &category,
+			Location: domain.Coordinate{
+				Longitude: 56.2330,
+				Latitude:  58.0115,
+			},
+			DataMode:   domain.DataSynthetic,
+			Provenance: source,
 		},
-		Event: &domain.Event{ID: domain.EventID{2}, PlaceID: domain.PlaceID{2}, Title: "Concert", Category: domain.CategoryCulture, DataMode: domain.DataSynthetic, Provenance: source},
+		Event: &domain.Event{
+			ID:         domain.EventID{2},
+			PlaceID:    domain.PlaceID{2},
+			Title:      "Concert",
+			Category:   domain.CategoryCulture,
+			DataMode:   domain.DataSynthetic,
+			Provenance: source,
+		},
 		Session: &domain.Session{
 			ID: domain.SessionID{2}, EventID: domain.EventID{2}, Window: window, Access: domain.AccessTicket,
 			Availability: domain.AvailabilityAvailable, Version: 1, DataMode: domain.DataSynthetic, Provenance: source,
@@ -76,7 +95,7 @@ func concert() domain.Candidate {
 	return c
 }
 
-func snapshot(c domain.Candidate) *domain.CatalogSnapshot {
+func snapshot(c *domain.Candidate) *domain.CatalogSnapshot {
 	s := &domain.CatalogSnapshot{
 		PlaceID: c.Place.ID, Title: c.Place.Title, Category: c.Category(), InterestMask: c.InterestMask(),
 		Availability: domain.AvailabilityAvailable, DataMode: c.DataMode(), Provenance: c.Place.Provenance,
@@ -92,10 +111,31 @@ func snapshot(c domain.Candidate) *domain.CatalogSnapshot {
 
 func walk(position int, from, to *domain.VisitID, departure, arrival time.Time) domain.Leg {
 	leg := domain.Leg{
-		Position: position, From: domain.EndpointVisit, To: domain.EndpointVisit, FromVisitID: from, ToVisitID: to,
-		DepartureAt: departure, ArrivalAt: arrival, Mode: domain.MovementWalk, Verification: domain.VerificationEstimated,
-		Evidence: domain.LegEvidence{Provider: "osrm", Method: "osm_foot_network", ObservedAt: day, Mode: "walk", Limitations: []string{"time_is_modelled"}},
-		Cost:     domain.CostSnapshot{Price: domain.Price{Status: domain.PriceFree, Currency: "RUB", LowerMinor: ptr(int64(0)), UpperMinor: ptr(int64(0))}, Provenance: source},
+		Position:     position,
+		From:         domain.EndpointVisit,
+		To:           domain.EndpointVisit,
+		FromVisitID:  from,
+		ToVisitID:    to,
+		DepartureAt:  departure,
+		ArrivalAt:    arrival,
+		Mode:         domain.MovementWalk,
+		Verification: domain.VerificationEstimated,
+		Evidence: domain.LegEvidence{
+			Provider:    "osrm",
+			Method:      "osm_foot_network",
+			ObservedAt:  day,
+			Mode:        "walk",
+			Limitations: []string{"time_is_modelled"},
+		},
+		Cost: domain.CostSnapshot{
+			Price: domain.Price{
+				Status:     domain.PriceFree,
+				Currency:   "RUB",
+				LowerMinor: new(int64(0)),
+				UpperMinor: new(int64(0)),
+			},
+			Provenance: source,
+		},
 	}
 	if from == nil {
 		leg.From = domain.EndpointOrigin
@@ -114,30 +154,60 @@ func validPlan() (domain.Plan, Input) {
 		Archetype: domain.ArchetypeHistoryHeritage, Start: at(10, 0), End: at(18, 0),
 		Origin: origin, Destination: &destination, CatalogRevision: 1, Result: domain.ResultReady,
 		Cost: domain.CostSummary{
-			KnownPersonal: rub(50000), KnownTransport: rub(0), ProgramAmount: rub(0),
-			UnknownComponents: []domain.UnknownCostComponent{{Code: "PRICE_UNKNOWN", Message: "Ticket price is unknown"}},
-			BudgetConclusion:  domain.BudgetNotApplicable,
+			KnownPersonal:  rub(50000),
+			KnownTransport: rub(0),
+			ProgramAmount:  rub(0),
+			UnknownComponents: []domain.UnknownCostComponent{
+				{Code: "PRICE_UNKNOWN", Message: "Ticket price is unknown"},
+			},
+			BudgetConclusion: domain.BudgetNotApplicable,
 		},
 		Steps: []domain.Step{
 			{
-				VisitID: museumVisit, Kind: domain.StepVisit, Position: 1,
-				ArrivalAt: at(10, 10), VisitStartAt: at(10, 10), VisitEndAt: at(11, 10), DepartureAt: at(11, 10), MinDuration: 30 * time.Minute,
-				Participation: domain.Participation{Status: domain.ParticipationNotRequired, Evidence: domain.EvidenceNone},
-				Catalog:       snapshot(m),
+				VisitID:  museumVisit,
+				Kind:     domain.StepVisit,
+				Position: 1,
+				ArrivalAt: at(
+					10,
+					10,
+				),
+				VisitStartAt: at(10, 10),
+				VisitEndAt:   at(11, 10),
+				DepartureAt:  at(11, 10),
+				MinDuration:  30 * time.Minute,
+				Participation: domain.Participation{
+					Status:   domain.ParticipationNotRequired,
+					Evidence: domain.EvidenceNone,
+				},
+				Catalog: snapshot(&m),
 				Cost: &domain.CostSnapshot{
-					Price:             domain.Price{Status: domain.PriceUnknown, Currency: "RUB"},
-					UnknownComponents: []domain.UnknownCostComponent{{Code: "PRICE_UNKNOWN", Message: "Ticket price is unknown"}},
-					Provenance:        source,
+					Price: domain.Price{Status: domain.PriceUnknown, Currency: "RUB"},
+					UnknownComponents: []domain.UnknownCostComponent{
+						{Code: "PRICE_UNKNOWN", Message: "Ticket price is unknown"},
+					},
+					Provenance: source,
 				},
 			},
 			{
-				VisitID: concertVisit, Kind: domain.StepVisit, Position: 2,
-				ArrivalAt: at(11, 25), VisitStartAt: at(13, 0), VisitEndAt: at(14, 30), DepartureAt: at(14, 30), MinDuration: 90 * time.Minute,
-				Participation: domain.Participation{Status: domain.ParticipationActionRequired, Evidence: domain.EvidenceNone},
-				Catalog:       snapshot(c),
+				VisitID:  concertVisit,
+				Kind:     domain.StepVisit,
+				Position: 2,
+				ArrivalAt: at(
+					11,
+					25,
+				),
+				VisitStartAt: at(13, 0),
+				VisitEndAt:   at(14, 30),
+				DepartureAt:  at(14, 30),
+				MinDuration:  90 * time.Minute,
+				Participation: domain.Participation{
+					Status:   domain.ParticipationActionRequired,
+					Evidence: domain.EvidenceNone,
+				},
+				Catalog: snapshot(&c),
 				Cost: &domain.CostSnapshot{
 					PriceOfferID: &c.Offers[0].ID, Audience: domain.AudienceGeneral, Price: fixed(50000),
-					PersonalAmount: ptr(rub(50000)), Provenance: source,
+					PersonalAmount: new(rub(50000)), Provenance: source,
 				},
 			},
 		},

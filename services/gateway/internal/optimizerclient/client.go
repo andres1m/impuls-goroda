@@ -16,8 +16,8 @@ type Client struct {
 	optimizer optimizerv1.OptimizerServiceClient
 }
 
-func New(log *zap.Logger, cfg config.GRPCClient) *Client {
-	return &Client{transport: rpc.NewClient("optimizer", log, &cfg)}
+func New(log *zap.Logger, cfg *config.GRPCClient) *Client {
+	return &Client{transport: rpc.NewClient("optimizer", log, cfg)}
 }
 
 func (c *Client) Name() string { return c.transport.Name() }

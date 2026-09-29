@@ -30,12 +30,12 @@ type fakePlanner struct {
 	recompute func(context.Context, domain.RecomputeRequest) (domain.RecomputeResult, error)
 }
 
-func (f fakePlanner) Optimize(ctx context.Context, r domain.OptimizeRequest) (domain.OptimizeResult, error) {
-	return f.optimize(ctx, r)
+func (f fakePlanner) Optimize(ctx context.Context, r *domain.OptimizeRequest) (domain.OptimizeResult, error) {
+	return f.optimize(ctx, *r)
 }
 
-func (f fakePlanner) Recompute(ctx context.Context, r domain.RecomputeRequest) (domain.RecomputeResult, error) {
-	return f.recompute(ctx, r)
+func (f fakePlanner) Recompute(ctx context.Context, r *domain.RecomputeRequest) (domain.RecomputeResult, error) {
+	return f.recompute(ctx, *r)
 }
 
 type testServer struct {
@@ -48,7 +48,12 @@ func startServer(t *testing.T, planner Planner) testServer {
 	t.Helper()
 	core, logs := observer.New(zap.DebugLevel)
 	log := zap.New(core)
-	server := rpc.NewServer("optimizer", log, &config.GRPCServer{}, rpc.WithUnaryInterceptors(RequestLogging(log), Recovery(log)))
+	server := rpc.NewServer(
+		"optimizer",
+		log,
+		&config.GRPCServer{},
+		rpc.WithUnaryInterceptors(RequestLogging(log), Recovery(log)),
+	)
 	server.OnInit(func(s *rpc.Server) { NewHandler(log, planner).Register(s.GetServer()) })
 	if err := server.Init(context.Background()); err != nil {
 		t.Fatal(err)
@@ -83,7 +88,8 @@ func requireViolation(t *testing.T, err error, field string) {
 	t.Helper()
 	st := requireCode(t, err, codes.InvalidArgument)
 	for _, d := range st.Details() {
-		if br, ok := d.(*errdetails.BadRequest); ok && len(br.GetFieldViolations()) == 1 && br.GetFieldViolations()[0].GetField() == field {
+		if br, ok := d.(*errdetails.BadRequest); ok && len(br.GetFieldViolations()) == 1 &&
+			br.GetFieldViolations()[0].GetField() == field {
 			return
 		}
 	}
@@ -108,6 +114,7 @@ func validRecomputeResult() domain.RecomputeResult {
 	}
 }
 
+//nolint:gocritic // test fixture captures immutable result values
 func returning(o domain.OptimizeResult, r domain.RecomputeResult) fakePlanner {
 	return fakePlanner{
 		optimize:  func(context.Context, domain.OptimizeRequest) (domain.OptimizeResult, error) { return o, nil },
@@ -169,7 +176,7 @@ func TestServerReturnsPlannerResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !proto.Equal(out, optimizeResponseToProto(validOptimizeResult())) {
+	if !proto.Equal(out, optimizeResponseToProto(new(validOptimizeResult()))) {
 		t.Fatalf("optimize response = %v", out)
 	}
 	if gotOptimize.City != "moscow" || len(gotOptimize.Constraints.Obligations) != 2 {
@@ -180,7 +187,7 @@ func TestServerReturnsPlannerResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !proto.Equal(rout, recomputeResponseToProto(validRecomputeResult())) {
+	if !proto.Equal(rout, recomputeResponseToProto(new(validRecomputeResult()))) {
 		t.Fatalf("recompute response = %v", rout)
 	}
 	if _, ok := gotRecompute.Trigger.(domain.PinTrigger); !ok || len(gotRecompute.Base.Steps) != 2 {
@@ -302,7 +309,8 @@ func TestServerLogsRequests(t *testing.T) {
 		t.Fatalf("request logs = %+v", entries)
 	}
 	first := entries[0].ContextMap()
-	if first["request_id"] != "req-42" || first["code"] != codes.FailedPrecondition.String() || first["method"] != pb.OptimizerService_Optimize_FullMethodName {
+	if first["request_id"] != "req-42" || first["code"] != codes.FailedPrecondition.String() ||
+		first["method"] != pb.OptimizerService_Optimize_FullMethodName {
 		t.Fatalf("first log = %v", first)
 	}
 	if _, ok := first["duration"]; !ok {
@@ -325,14 +333,24 @@ func TestServerLogsRequests(t *testing.T) {
 
 type noTransit struct{}
 
-func (noTransit) Transit(context.Context, string, []domain.Coordinate, []domain.MovementMode) (solver.Transit, bool, error) {
+func (noTransit) Transit(
+	context.Context,
+	string,
+	[]domain.Coordinate,
+	[]domain.MovementMode,
+) (solver.Transit, bool, error) {
 	return nil, false, errors.New("no routing in this test")
 }
 
 // catalogNotReady is the planner the service runs until the catalog can be read.
 func catalogNotReady(t *testing.T) *usecase.Planner {
 	t.Helper()
-	p, err := usecase.NewPlanner(usecase.Config{Currency: "RUB", BeamWidth: 4, Parallelism: 1}, usecase.CatalogNotReady{}, noTransit{}, zap.NewNop())
+	p, err := usecase.NewPlanner(
+		usecase.Config{Currency: "RUB", BeamWidth: 4, Parallelism: 1},
+		usecase.CatalogNotReady{},
+		noTransit{},
+		zap.NewNop(),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

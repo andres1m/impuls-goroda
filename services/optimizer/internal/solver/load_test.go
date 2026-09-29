@@ -16,10 +16,14 @@ func TestProfileForKnownAndUnknownNames(t *testing.T) {
 			t.Errorf("%q: visit hours %v, want %v", name, got, hours)
 		}
 	}
-	if ProfileFor("intense").WalkLimit != 0 || ProfileFor("relaxed").WalkLimit != 45*time.Minute || ProfileFor("moderate").WalkLimit != 90*time.Minute {
+	if ProfileFor("intense").WalkLimit != 0 || ProfileFor("relaxed").WalkLimit != 45*time.Minute ||
+		ProfileFor("moderate").WalkLimit != 90*time.Minute {
 		t.Fatal("walk limits")
 	}
-	if r := ProfileFor("relaxed"); r.RestEvery != 2 || r.Rest != 15*time.Minute || ProfileFor("moderate").RestEvery != 0 {
+	if r := ProfileFor(
+		"relaxed",
+	); r.RestEvery != 2 || r.Rest != 15*time.Minute ||
+		ProfileFor("moderate").RestEvery != 0 {
 		t.Fatal("rests")
 	}
 }
@@ -64,7 +68,12 @@ func TestOverWalk(t *testing.T) {
 }
 
 func TestSearchKeepsVisitsNearTheNorm(t *testing.T) {
-	categories := []domain.Category{domain.CategoryCulture, domain.CategoryWalk, domain.CategorySport, domain.CategoryTourism}
+	categories := []domain.Category{
+		domain.CategoryCulture,
+		domain.CategoryWalk,
+		domain.CategorySport,
+		domain.CategoryTourism,
+	}
 	var pool []domain.Candidate
 	for i := byte(1); i <= 12; i++ {
 		c := place(i, categories[int(i)%len(categories)], 0, north(origin, float64(i)*60))
@@ -77,7 +86,8 @@ func TestSearchKeepsVisitsNearTheNorm(t *testing.T) {
 		p.Load = ProfileFor(name)
 		visits[name] = len(search(t, wide, p, pool)[0].Visits)
 	}
-	if !(visits["relaxed"] < visits["moderate"] && visits["moderate"] < visits["intense"]) || visits["relaxed"] > 4 || visits["intense"] > 8 {
+	if (visits["relaxed"] >= visits["moderate"] || visits["moderate"] >= visits["intense"]) || visits["relaxed"] > 4 ||
+		visits["intense"] > 8 {
 		t.Fatalf("visits per profile %v", visits)
 	}
 }
@@ -88,7 +98,7 @@ func TestSearchDoesNotChargeAnchorsOverTheNorm(t *testing.T) {
 	p := problem()
 	p.End = at(13, 0)
 	p.Load = LoadProfile{VisitHours: 3, OverVisitWeight: 1000}
-	p.Anchors = []Anchor{anchor(concert)}
+	p.Anchors = []Anchor{anchor(&concert)}
 	b := search(t, greedy, p, []domain.Candidate{first, concert})[0]
 	if len(b.Visits) != 2 || b.Score < 0 {
 		t.Fatalf("visits %v score %v", placeIDs(b), b.Score)
@@ -129,7 +139,15 @@ func TestIntenseVisitsAreShorter(t *testing.T) {
 func TestRepairKeepsTrimmedVisitLengths(t *testing.T) {
 	var pool []domain.Candidate
 	for i := byte(1); i <= 4; i++ {
-		pool = append(pool, place(i, []domain.Category{domain.CategoryCulture, domain.CategoryWalk, domain.CategorySport, domain.CategoryTourism}[i-1], 0, north(origin, float64(i)*100)))
+		pool = append(
+			pool,
+			place(
+				i,
+				[]domain.Category{domain.CategoryCulture, domain.CategoryWalk, domain.CategorySport, domain.CategoryTourism}[i-1],
+				0,
+				north(origin, float64(i)*100),
+			),
+		)
 	}
 	p := problem()
 	p.Load = ProfileFor("intense")
@@ -137,7 +155,9 @@ func TestRepairKeepsTrimmedVisitLengths(t *testing.T) {
 	steps := make([]RepairStep, len(planned.Visits))
 	for i, v := range planned.Visits {
 		// the repair gets the catalog's candidates, not the search's trimmed copies
-		steps[i] = RepairStep{Candidate: &pool[slices.IndexFunc(pool, func(c domain.Candidate) bool { return c.Place.ID == v.Candidate.Place.ID })]}
+		steps[i] = RepairStep{
+			Candidate: &pool[slices.IndexFunc(pool, func(c domain.Candidate) bool { return c.Place.ID == v.Candidate.Place.ID })],
+		}
 	}
 	r := repair(t, p, steps...)
 	if len(r.Stops) != len(planned.Visits) {
@@ -145,7 +165,14 @@ func TestRepairKeepsTrimmedVisitLengths(t *testing.T) {
 	}
 	for i, stop := range r.Stops {
 		if !stop.Visit.StartAt.Equal(planned.Visits[i].StartAt) || !stop.Visit.EndAt.Equal(planned.Visits[i].EndAt) {
-			t.Fatalf("visit %d moved from %s-%s to %s-%s", i, planned.Visits[i].StartAt.Format("15:04"), planned.Visits[i].EndAt.Format("15:04"), stop.Visit.StartAt.Format("15:04"), stop.Visit.EndAt.Format("15:04"))
+			t.Fatalf(
+				"visit %d moved from %s-%s to %s-%s",
+				i,
+				planned.Visits[i].StartAt.Format("15:04"),
+				planned.Visits[i].EndAt.Format("15:04"),
+				stop.Visit.StartAt.Format("15:04"),
+				stop.Visit.EndAt.Format("15:04"),
+			)
 		}
 	}
 }
@@ -164,7 +191,10 @@ func TestSearchRejectsMalformedCandidateAtAnyPace(t *testing.T) {
 
 func TestIntenseKeepsTheLengthOfACommitment(t *testing.T) {
 	museum := place(1, domain.CategoryCulture, 0, north(origin, 100))
-	committed := Anchor{Candidate: museum, Obligation: domain.Obligation{VisitID: &domain.VisitID{9}, Participation: domain.ParticipationUserReported}}
+	committed := Anchor{
+		Candidate:  museum,
+		Obligation: domain.Obligation{VisitID: &domain.VisitID{9}, Participation: domain.ParticipationUserReported},
+	}
 	p := problem()
 	p.Load = ProfileFor("intense")
 	p.Anchors = []Anchor{committed}

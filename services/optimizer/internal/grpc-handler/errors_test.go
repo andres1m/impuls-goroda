@@ -24,8 +24,18 @@ func TestToStatusCodes(t *testing.T) {
 		message string
 	}{
 		{"not implemented", usecase.ErrNotImplemented, codes.Unimplemented, usecase.ErrNotImplemented.Error()},
-		{"wrapped not implemented", wrap(usecase.ErrNotImplemented), codes.Unimplemented, usecase.ErrNotImplemented.Error()},
-		{"catalog not ready", wrap(usecase.ErrCatalogNotReady), codes.FailedPrecondition, usecase.ErrCatalogNotReady.Error()},
+		{
+			"wrapped not implemented",
+			wrap(usecase.ErrNotImplemented),
+			codes.Unimplemented,
+			usecase.ErrNotImplemented.Error(),
+		},
+		{
+			"catalog not ready",
+			wrap(usecase.ErrCatalogNotReady),
+			codes.FailedPrecondition,
+			usecase.ErrCatalogNotReady.Error(),
+		},
 		{"stale catalog", wrap(usecase.ErrStaleCatalog), codes.FailedPrecondition, usecase.ErrStaleCatalog.Error()},
 		{"unavailable", wrap(usecase.ErrUnavailable), codes.Unavailable, usecase.ErrUnavailable.Error()},
 		{"overloaded", wrap(usecase.ErrOverloaded), codes.ResourceExhausted, usecase.ErrOverloaded.Error()},
@@ -48,7 +58,8 @@ func TestToStatusLogsInternalCause(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	toStatus(zap.New(core), "/optimizer.v1.OptimizerService/Recompute", errors.New("boom"))
 	entries := logs.All()
-	if len(entries) != 1 || entries[0].ContextMap()["error"] != "boom" || entries[0].ContextMap()["method"] != "/optimizer.v1.OptimizerService/Recompute" {
+	if len(entries) != 1 || entries[0].ContextMap()["error"] != "boom" ||
+		entries[0].ContextMap()["method"] != "/optimizer.v1.OptimizerService/Recompute" {
 		t.Fatalf("logged %+v", entries)
 	}
 	core, logs = observer.New(zap.DebugLevel)
@@ -65,8 +76,18 @@ func TestInvalidArgumentDetails(t *testing.T) {
 		field  string
 		reason string
 	}{
-		{"field error", &fieldError{Field: "constraints.budget.mode", Reason: reasonUnsupported}, "constraints.budget.mode", reasonUnsupported},
-		{"validation error", invalidRequest("base_plan", errors.New("plan interval is invalid")), "base_plan", "plan interval is invalid"},
+		{
+			"field error",
+			&fieldError{Field: "constraints.budget.mode", Reason: reasonUnsupported},
+			"constraints.budget.mode",
+			reasonUnsupported,
+		},
+		{
+			"validation error",
+			invalidRequest("base_plan", errors.New("plan interval is invalid")),
+			"base_plan",
+			"plan interval is invalid",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

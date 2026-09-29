@@ -52,17 +52,35 @@ func (r *AuthRouter) exchangeMax() echo.HandlerFunc {
 		decoder := json.NewDecoder(body)
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&request); err != nil || request.InitData == "" {
-			return &Error{Status: http.StatusBadRequest, Code: "MALFORMED_REQUEST", Message: "Request cannot be parsed"}
+			return &Error{
+				Status:  http.StatusBadRequest,
+				Code:    codeMalformedRequest,
+				Message: msgMalformedRequest,
+			}
 		}
 		if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-			return &Error{Status: http.StatusBadRequest, Code: "MALFORMED_REQUEST", Message: "Request cannot be parsed"}
+			return &Error{
+				Status:  http.StatusBadRequest,
+				Code:    codeMalformedRequest,
+				Message: msgMalformedRequest,
+			}
 		}
 		issued, err := r.runtime.ExchangeMax(c.Request().Context(), request.InitData)
 		if err != nil {
 			if errors.Is(err, auth.ErrAuthRequired) {
-				return &Error{Status: http.StatusUnauthorized, Code: "AUTH_REQUIRED", Message: "Authentication is required"}
+				return &Error{
+					Status:  http.StatusUnauthorized,
+					Code:    codeAuthRequired,
+					Message: "Authentication is required",
+				}
 			}
-			return &Error{Status: http.StatusServiceUnavailable, Code: "AUTH_UNAVAILABLE", Message: "Authentication is temporarily unavailable", Retryable: true, Cause: err}
+			return &Error{
+				Status:    http.StatusServiceUnavailable,
+				Code:      "AUTH_UNAVAILABLE",
+				Message:   "Authentication is temporarily unavailable",
+				Retryable: true,
+				Cause:     err,
+			}
 		}
 		return c.JSON(http.StatusOK, authResponse{
 			AccessToken: issued.AccessToken,

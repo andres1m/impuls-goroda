@@ -5,6 +5,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
+const (
+	buildBucketStart         = 0.005
+	buildBucketFactor        = 2
+	buildBucketCount         = 12
+	invalidationBucketStart  = 0.05
+	invalidationBucketFactor = 2
+	invalidationBucketCount  = 10
+)
+
 var (
 	sliceHits = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "optimizer_catalog_slice_hits_total",
@@ -17,7 +26,7 @@ var (
 	buildSeconds = promauto.NewHistogram(prometheus.HistogramOpts{
 		Name:    "optimizer_catalog_slice_build_seconds",
 		Help:    "Time to read a city's catalog slice from the database.",
-		Buckets: prometheus.ExponentialBuckets(0.005, 2, 12),
+		Buckets: prometheus.ExponentialBuckets(buildBucketStart, buildBucketFactor, buildBucketCount),
 	})
 	sliceRevision = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "optimizer_catalog_slice_revision",
@@ -32,9 +41,13 @@ var (
 		Help: "Revision comparisons with the database by result: match, behind (a slice was older), gone (the city left the catalog) or error.",
 	}, []string{"result"})
 	invalidationLag = promauto.NewHistogram(prometheus.HistogramOpts{
-		Name:    "optimizer_catalog_invalidation_lag_seconds",
-		Help:    "Time from a catalog publication to its announcement reaching the optimizer.",
-		Buckets: prometheus.ExponentialBuckets(0.05, 2, 10),
+		Name: "optimizer_catalog_invalidation_lag_seconds",
+		Help: "Time from a catalog publication to its announcement reaching the optimizer.",
+		Buckets: prometheus.ExponentialBuckets(
+			invalidationBucketStart,
+			invalidationBucketFactor,
+			invalidationBucketCount,
+		),
 	})
 	invalidationErrors = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "optimizer_catalog_invalidation_errors_total",

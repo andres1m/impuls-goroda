@@ -28,30 +28,44 @@ type staticTransitProvider struct {
 	transit solver.Transit
 }
 
-func (p staticTransitProvider) Transit(context.Context, string, []domain.Coordinate, []domain.MovementMode) (solver.Transit, bool, error) {
+func (p staticTransitProvider) Transit(
+	context.Context,
+	string,
+	[]domain.Coordinate,
+	[]domain.MovementMode,
+) (solver.Transit, bool, error) {
 	return p.transit, false, nil
 }
 
 // savepointDB runs the catalog inside a test's fixture transaction: its snapshots become savepoints.
 type savepointDB struct{ pgx.Tx }
 
+//nolint:gocritic // pgx BeginTx interface requires TxOptions by value
 func (d savepointDB) BeginTx(ctx context.Context, _ pgx.TxOptions) (pgx.Tx, error) {
 	return d.Begin(ctx)
 }
 
+//nolint:cyclop // integration fixture asserts several linked catalog outcomes
 func TestCatalogCandidatesAndPlannerIntegration(t *testing.T) {
 	ctx, tx := fixtureTx(t)
 
-	if _, err := tx.Exec(ctx, `TRUNCATE catalog.price_offer, catalog.session, catalog.event, catalog.place_entrance, catalog.leisure_poi, catalog.place CASCADE`); err != nil {
+	if _, err := tx.Exec(
+		ctx,
+		`TRUNCATE catalog.price_offer, catalog.session, catalog.event, catalog.place_entrance, catalog.leisure_poi, catalog.place CASCADE`,
+	); err != nil {
 		t.Fatal(err)
 	}
 
-	loc, err := time.LoadLocation("Asia/Yekaterinburg")
-	if err != nil {
-		t.Fatal(err)
+	loc, locationErr := time.LoadLocation("Asia/Yekaterinburg")
+	if locationErr != nil {
+		t.Fatal(locationErr)
 	}
 	cityUpdated := time.Date(2026, 9, 28, 7, 0, 0, 0, time.UTC)
-	if _, err := tx.Exec(ctx, `UPDATE ref.city SET catalog_revision = 11, updated_at = $1 WHERE code = 'perm'`, cityUpdated); err != nil {
+	if _, err := tx.Exec(
+		ctx,
+		`UPDATE ref.city SET catalog_revision = 11, updated_at = $1 WHERE code = 'perm'`,
+		cityUpdated,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -187,9 +201,9 @@ func TestCatalogCandidatesAndPlannerIntegration(t *testing.T) {
 		Participation: domain.ParticipationUserReported,
 	}}
 
-	candidates, freshness, err := catalog.Candidates(ctx, req)
-	if err != nil {
-		t.Fatalf("Candidates under impuls_optimizer role: %v", err)
+	candidates, freshness, candidateErr := catalog.Candidates(ctx, req)
+	if candidateErr != nil {
+		t.Fatalf("Candidates under impuls_optimizer role: %v", candidateErr)
 	}
 	if err := freshness.Validate(); err != nil {
 		t.Fatalf("freshness validate: %v", err)
@@ -198,9 +212,15 @@ func TestCatalogCandidatesAndPlannerIntegration(t *testing.T) {
 		t.Fatalf("unexpected freshness: %+v", freshness)
 	}
 	if len(candidates) != 4 {
-		t.Fatalf("expected 4 candidates (1 park window + 1 in-window session + 2 obligated sessions outside the day), got %d", len(candidates))
+		t.Fatalf(
+			"expected 4 candidates (1 park window + 1 in-window session + 2 obligated sessions outside the day), got %d",
+			len(candidates),
+		)
 	}
-	if !slices.ContainsFunc(candidates, func(c domain.Candidate) bool { return c.Session != nil && c.Session.ID == sessionPastID }) {
+	if !slices.ContainsFunc(
+		candidates,
+		func(c domain.Candidate) bool { return c.Session != nil && c.Session.ID == sessionPastID },
+	) {
 		t.Fatal("the obligation that ended before the day is not read")
 	}
 	for i, c := range candidates {
@@ -216,7 +236,10 @@ func TestCatalogCandidatesAndPlannerIntegration(t *testing.T) {
 	}
 
 	// Verify in-window session candidate has both offers (including defaulted RUB currency on unknown offer).
-	sessIdx := slices.IndexFunc(candidates, func(c domain.Candidate) bool { return c.Session != nil && c.Session.ID == sessionInWindowID })
+	sessIdx := slices.IndexFunc(
+		candidates,
+		func(c domain.Candidate) bool { return c.Session != nil && c.Session.ID == sessionInWindowID },
+	)
 	if sessIdx < 0 || len(candidates[sessIdx].Offers) != 2 {
 		t.Fatalf("session candidate missing offers: %+v", candidates)
 	}

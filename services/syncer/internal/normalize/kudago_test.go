@@ -96,12 +96,20 @@ func TestKudaGoCategories(t *testing.T) {
 		"table order wins":  {[]any{"tour", "exhibition"}, "culture", []string{"excursions"}},
 		"interests are all": {[]any{"education", "cinema"}, "culture", []string{"cinema", "lectures_workshops"}},
 	} {
-		d, err := KudaGoEvent(domain.Moscow, "event:1", kudagoPayload(t, func(e map[string]any) { e["categories"] = tc.categories }), now)
+		d, err := KudaGoEvent(
+			domain.Moscow,
+			"event:1",
+			kudagoPayload(t, func(e map[string]any) { e["categories"] = tc.categories }),
+			now,
+		)
 		if err != nil || d.Event.Category != tc.category || !slices.Equal(d.Event.Tags, tc.tags) {
 			t.Errorf("%s: %+v %v", name, d.Event, err)
 		}
 	}
-	if code := kudagoCode(t, kudagoPayload(t, func(e map[string]any) { e["categories"] = []any{"entertainment", "party", "kids"} })); code != "unmapped_category" {
+	if code := kudagoCode(
+		t,
+		kudagoPayload(t, func(e map[string]any) { e["categories"] = []any{"entertainment", "party", "kids"} }),
+	); code != "unmapped_category" {
 		t.Fatalf("unmapped: %s", code)
 	}
 }
@@ -130,14 +138,24 @@ func TestKudaGoPlaceAndTitle(t *testing.T) {
 			t.Errorf("%s: %s", name, code)
 		}
 	}
-	d, err := KudaGoEvent(domain.Moscow, "event:1", kudagoPayload(t, func(e map[string]any) { e["short_title"] = "" }), now)
+	d, err := KudaGoEvent(
+		domain.Moscow,
+		"event:1",
+		kudagoPayload(t, func(e map[string]any) { e["short_title"] = "" }),
+		now,
+	)
 	if err != nil || d.Event.Title != "большой стендап-концерт" {
 		t.Fatalf("falls back to title: %+v %v", d.Event, err)
 	}
 }
 
 func TestKudaGoWithoutDatesInHorizonKeepsTheEvent(t *testing.T) {
-	d, err := KudaGoEvent(domain.Moscow, "event:1", kudagoPayload(t, func(e map[string]any) { e["dates"] = []any{} }), now)
+	d, err := KudaGoEvent(
+		domain.Moscow,
+		"event:1",
+		kudagoPayload(t, func(e map[string]any) { e["dates"] = []any{} }),
+		now,
+	)
 	if err != nil || d.Event == nil || d.Event.Sessions != nil {
 		t.Fatalf("event %+v %v", d.Event, err)
 	}
@@ -145,7 +163,12 @@ func TestKudaGoWithoutDatesInHorizonKeepsTheEvent(t *testing.T) {
 
 func TestKudaGoAge(t *testing.T) {
 	for raw, want := range map[any]*int16{"18+": ptr16(18), "6+": ptr16(6), 0: ptr16(0), nil: nil, "": nil, "abc": nil, "-3+": nil} {
-		d, err := KudaGoEvent(domain.Moscow, "event:1", kudagoPayload(t, func(e map[string]any) { e["age_restriction"] = raw }), now)
+		d, err := KudaGoEvent(
+			domain.Moscow,
+			"event:1",
+			kudagoPayload(t, func(e map[string]any) { e["age_restriction"] = raw }),
+			now,
+		)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -155,7 +178,7 @@ func TestKudaGoAge(t *testing.T) {
 	}
 }
 
-func ptr16(v int16) *int16 { return &v }
+func ptr16(v int16) *int16 { return new(v) }
 
 func TestKudaGoPrice(t *testing.T) {
 	for text, want := range map[string]PriceDraft{
@@ -173,15 +196,21 @@ func TestKudaGoPrice(t *testing.T) {
 		"":   unknownPrice(""),
 	} {
 		got := kudagoPrice(false, text)
-		if got.Status != want.Status || !sameAmount(got.AmountMin, want.AmountMin) || !sameAmount(got.AmountMax, want.AmountMax) ||
-			(got.TariffLabel == nil) != (want.TariffLabel == nil) || (got.TariffLabel != nil && *got.TariffLabel != *want.TariffLabel) {
+		if got.Status != want.Status || !sameAmount(got.AmountMin, want.AmountMin) ||
+			!sameAmount(got.AmountMax, want.AmountMax) ||
+			(got.TariffLabel == nil) != (want.TariffLabel == nil) ||
+			(got.TariffLabel != nil && *got.TariffLabel != *want.TariffLabel) {
 			t.Errorf("%q: %+v", text, got)
 		}
 	}
 	if got := kudagoPrice(false, "800 рублей"); *got.AmountMin != 80000 {
 		t.Fatalf("kopecks: %+v", got)
 	}
-	if got := kudagoPrice(false, "99999999999999999 рублей"); got.Status != "unknown" || *got.TariffLabel != "99999999999999999 рублей" {
+	if got := kudagoPrice(
+		false,
+		"99999999999999999 рублей",
+	); got.Status != "unknown" ||
+		*got.TariffLabel != "99999999999999999 рублей" {
 		t.Fatalf("overflowing sum: %+v", got)
 	}
 	if got := kudagoPrice(true, "вход бесплатный, депозит на еду — 700 рублей"); got.Status != "free" {

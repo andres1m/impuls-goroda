@@ -35,7 +35,7 @@ type CatalogSnapshot struct {
 	Provenance          Provenance
 }
 
-func (s CatalogSnapshot) Validate() error {
+func (s *CatalogSnapshot) Validate() error {
 	if err := requireID(s.PlaceID, "place"); err != nil {
 		return err
 	}
@@ -158,36 +158,22 @@ type Step struct {
 	AppliedConstraints []AppliedConstraint
 }
 
-func (s Step) Validate() error {
+func (s *Step) Validate() error {
 	if err := requireID(s.VisitID, "visit"); err != nil {
 		return err
 	}
 	if s.Position < 1 || s.MinDuration < 0 {
 		return errors.New("step position or minimum duration is invalid")
 	}
-	if s.ArrivalAt.IsZero() || s.VisitStartAt.Before(s.ArrivalAt) || !s.VisitEndAt.After(s.VisitStartAt) || s.DepartureAt.Before(s.VisitEndAt) {
+	if s.ArrivalAt.IsZero() || s.VisitStartAt.Before(s.ArrivalAt) || !s.VisitEndAt.After(s.VisitStartAt) ||
+		s.DepartureAt.Before(s.VisitEndAt) {
 		return errors.New("step interval is invalid")
 	}
 	if s.VisitEndAt.Sub(s.VisitStartAt) < s.MinDuration {
 		return errors.New("step is shorter than its minimum duration")
 	}
-	switch s.Kind {
-	case StepVisit:
-		if s.Catalog == nil || s.Cost == nil || s.MinDuration == 0 {
-			return errors.New("visit step requires catalog, cost and minimum duration")
-		}
-		if err := s.Catalog.Validate(); err != nil {
-			return err
-		}
-		if err := s.Cost.Validate(); err != nil {
-			return err
-		}
-	case StepFreeTime:
-		if s.Catalog != nil || s.Cost != nil {
-			return errors.New("free time step must not have catalog or cost")
-		}
-	default:
-		return errors.New("invalid step kind")
+	if err := s.validateKind(); err != nil {
+		return err
 	}
 	if err := s.Participation.Validate(); err != nil {
 		return err
@@ -198,6 +184,26 @@ func (s Step) Validate() error {
 		}
 	}
 	return nil
+}
+
+func (s *Step) validateKind() error {
+	switch s.Kind {
+	case StepVisit:
+		if s.Catalog == nil || s.Cost == nil || s.MinDuration == 0 {
+			return errors.New("visit step requires catalog, cost and minimum duration")
+		}
+		if err := s.Catalog.Validate(); err != nil {
+			return err
+		}
+		return s.Cost.Validate()
+	case StepFreeTime:
+		if s.Catalog != nil || s.Cost != nil {
+			return errors.New("free time step must not have catalog or cost")
+		}
+		return nil
+	default:
+		return errors.New("invalid step kind")
+	}
 }
 
 type LegEndpoint string
@@ -216,8 +222,9 @@ type LegEvidence struct {
 	Limitations []string
 }
 
-func (e LegEvidence) Validate() error {
-	if strings.TrimSpace(e.Provider) == "" || strings.TrimSpace(e.Method) == "" || e.ObservedAt.IsZero() || strings.TrimSpace(e.Mode) == "" {
+func (e *LegEvidence) Validate() error {
+	if strings.TrimSpace(e.Provider) == "" || strings.TrimSpace(e.Method) == "" || e.ObservedAt.IsZero() ||
+		strings.TrimSpace(e.Mode) == "" {
 		return errors.New("leg evidence is incomplete")
 	}
 	return requireNonBlank(e.Limitations, "leg limitation")
@@ -240,36 +247,15 @@ type Leg struct {
 	Cost         CostSnapshot
 }
 
-func (l Leg) Validate() error {
+func (l *Leg) Validate() error {
 	if l.Position < 1 || l.DepartureAt.IsZero() || l.ArrivalAt.Before(l.DepartureAt) {
 		return errors.New("leg position or interval is invalid")
 	}
 	if err := l.Mode.Validate(); err != nil {
 		return err
 	}
-	switch l.From {
-	case EndpointOrigin:
-		if l.FromVisitID != nil {
-			return errors.New("leg from origin must not have a source visit")
-		}
-	case EndpointVisit:
-		if err := requireEndpointVisit(l.FromVisitID); err != nil {
-			return err
-		}
-	default:
-		return errors.New("invalid leg source")
-	}
-	switch l.To {
-	case EndpointDestination:
-		if l.ToVisitID != nil {
-			return errors.New("leg to destination must not have a target visit")
-		}
-	case EndpointVisit:
-		if err := requireEndpointVisit(l.ToVisitID); err != nil {
-			return err
-		}
-	default:
-		return errors.New("invalid leg target")
+	if err := l.validateEndpoints(); err != nil {
+		return err
 	}
 	if l.DistanceMeters != nil && (!finite(*l.DistanceMeters) || *l.DistanceMeters < 0) {
 		return errors.New("leg distance must be finite and non-negative")
@@ -286,6 +272,38 @@ func (l Leg) Validate() error {
 		return err
 	}
 	return l.Cost.Validate()
+}
+
+func (l *Leg) validateEndpoints() error {
+	switch l.From {
+	case EndpointOrigin:
+		if l.FromVisitID != nil {
+			return errors.New("leg from origin must not have a source visit")
+		}
+	case EndpointVisit:
+		if err := requireEndpointVisit(l.FromVisitID); err != nil {
+			return err
+		}
+	case EndpointDestination:
+		return errors.New("invalid leg source")
+	default:
+		return errors.New("invalid leg source")
+	}
+	switch l.To {
+	case EndpointDestination:
+		if l.ToVisitID != nil {
+			return errors.New("leg to destination must not have a target visit")
+		}
+	case EndpointVisit:
+		if err := requireEndpointVisit(l.ToVisitID); err != nil {
+			return err
+		}
+	case EndpointOrigin:
+		return errors.New("invalid leg target")
+	default:
+		return errors.New("invalid leg target")
+	}
+	return nil
 }
 
 func requireEndpointVisit(id *VisitID) error {
@@ -344,7 +362,7 @@ type Conflict struct {
 	Message    string
 }
 
-func (c Conflict) Validate() error {
+func (c *Conflict) Validate() error {
 	if err := validateCodeMessage(c.Code, c.Message, "conflict"); err != nil {
 		return err
 	}
@@ -377,7 +395,36 @@ type Plan struct {
 	Legs            []Leg
 }
 
-func (p Plan) Validate() error {
+func (p *Plan) Validate() error {
+	if err := p.validateHeader(); err != nil {
+		return err
+	}
+	if err := p.validateResult(); err != nil {
+		return err
+	}
+	if err := p.Cost.Validate(); err != nil {
+		return err
+	}
+	for _, point := range p.Geometry {
+		if err := point.Validate(); err != nil {
+			return err
+		}
+	}
+	for i := range p.Conflicts {
+		if err := p.Conflicts[i].Validate(); err != nil {
+			return err
+		}
+	}
+	if err := p.validateSteps(); err != nil {
+		return err
+	}
+	if err := p.validateLegs(); err != nil {
+		return err
+	}
+	return p.validateWarnings()
+}
+
+func (p *Plan) validateHeader() error {
 	if err := p.Archetype.Validate(); err != nil {
 		return err
 	}
@@ -392,35 +439,10 @@ func (p Plan) Validate() error {
 			return err
 		}
 	}
-	if err := p.CatalogRevision.Validate(); err != nil {
-		return err
-	}
-	if err := p.validateResult(); err != nil {
-		return err
-	}
-	if err := p.Cost.Validate(); err != nil {
-		return err
-	}
-	for _, point := range p.Geometry {
-		if err := point.Validate(); err != nil {
-			return err
-		}
-	}
-	for _, conflict := range p.Conflicts {
-		if err := conflict.Validate(); err != nil {
-			return err
-		}
-	}
-	if err := p.validateSteps(); err != nil {
-		return err
-	}
-	if err := p.validateLegs(); err != nil {
-		return err
-	}
-	return p.validateWarnings()
+	return p.CatalogRevision.Validate()
 }
 
-func (p Plan) validateResult() error {
+func (p *Plan) validateResult() error {
 	switch p.Result {
 	case ResultReady, ResultPartial:
 		if len(p.Steps) == 0 {
@@ -439,10 +461,11 @@ func (p Plan) validateResult() error {
 	return nil
 }
 
-func (p Plan) validateSteps() error {
+func (p *Plan) validateSteps() error {
 	currency := p.Cost.KnownPersonal.Currency
 	visits := make(map[VisitID]struct{}, len(p.Steps))
-	for i, step := range p.Steps {
+	for i := range p.Steps {
+		step := &p.Steps[i]
 		if err := step.Validate(); err != nil {
 			return fmt.Errorf("step %d: %w", i+1, err)
 		}
@@ -465,7 +488,7 @@ func (p Plan) validateSteps() error {
 	return nil
 }
 
-func (p Plan) validateLegs() error {
+func (p *Plan) validateLegs() error {
 	want := 0
 	if len(p.Steps) > 0 {
 		want = len(p.Steps)
@@ -476,7 +499,8 @@ func (p Plan) validateLegs() error {
 	if len(p.Legs) != want {
 		return fmt.Errorf("plan requires %d legs, got %d", want, len(p.Legs))
 	}
-	for i, leg := range p.Legs {
+	for i := range p.Legs {
+		leg := &p.Legs[i]
 		if err := leg.Validate(); err != nil {
 			return fmt.Errorf("leg %d: %w", i+1, err)
 		}
@@ -494,14 +518,14 @@ func (p Plan) validateLegs() error {
 }
 
 // validateLegEnds checks that leg i connects the end of the previous stop to the next one in time.
-func (p Plan) validateLegEnds(i int, leg Leg) error {
+func (p *Plan) validateLegEnds(i int, leg *Leg) error {
 	earliest := p.Start
 	if i == 0 {
 		if leg.From != EndpointOrigin {
 			return errors.New("first leg must start at the origin")
 		}
 	} else {
-		previous := p.Steps[i-1]
+		previous := &p.Steps[i-1]
 		if leg.From != EndpointVisit || *leg.FromVisitID != previous.VisitID {
 			return errors.New("leg must start at the previous visit")
 		}
@@ -519,7 +543,7 @@ func (p Plan) validateLegEnds(i int, leg Leg) error {
 		}
 		return nil
 	}
-	next := p.Steps[i]
+	next := &p.Steps[i]
 	if leg.To != EndpointVisit || *leg.ToVisitID != next.VisitID {
 		return errors.New("leg must end at the next visit")
 	}
@@ -529,7 +553,7 @@ func (p Plan) validateLegEnds(i int, leg Leg) error {
 	return nil
 }
 
-func (p Plan) validateWarnings() error {
+func (p *Plan) validateWarnings() error {
 	for _, warning := range p.Warnings {
 		if err := warning.Validate(); err != nil {
 			return err
@@ -544,9 +568,9 @@ func (p Plan) validateWarnings() error {
 	return nil
 }
 
-func (p Plan) hasVisit(id VisitID) bool {
-	for _, step := range p.Steps {
-		if step.VisitID == id {
+func (p *Plan) hasVisit(id VisitID) bool {
+	for i := range p.Steps {
+		if p.Steps[i].VisitID == id {
 			return true
 		}
 	}
@@ -555,7 +579,7 @@ func (p Plan) hasVisit(id VisitID) bool {
 
 // ValidateBudget checks the cost conclusion against the route budget; an unknown
 // component never lets a strict budget be reported as resolved.
-func (p Plan) ValidateBudget(b Budget) error {
+func (p *Plan) ValidateBudget(b Budget) error {
 	if err := b.Validate(); err != nil {
 		return err
 	}

@@ -11,7 +11,7 @@ func TestRateLimiterBurstRefillAndCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if allowed, _ := limiter.Allow("user", now); !allowed {
 			t.Fatalf("burst request %d rejected", i)
 		}

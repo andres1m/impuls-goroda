@@ -24,15 +24,27 @@ func populatedBranch() *Branch {
 	plan := validPlan()
 	b := NewBranch(plan.Origin, plan.Start, rub)
 	candidate := validEventCandidate()
-	b.Visits = []SearchVisit{{
-		Candidate: &candidate,
-		Transit:   TransitEstimate{Mode: MovementWalk, DistanceMeters: 800, Duration: 13 * time.Minute, Verification: VerificationEstimated},
-		ArrivalAt: at(10, 3),
-		Buffer:    10 * time.Minute,
-		StartAt:   at(10, 13),
-		EndAt:     at(11, 0),
-	}}
-	b.Finish = &TransitEstimate{Mode: MovementWalk, DistanceMeters: 400, Duration: 7 * time.Minute, Verification: VerificationEstimated}
+	b.Visits = []SearchVisit{
+		{
+			Candidate: &candidate,
+			Transit: TransitEstimate{
+				Mode:           MovementWalk,
+				DistanceMeters: 800,
+				Duration:       13 * time.Minute,
+				Verification:   VerificationEstimated,
+			},
+			ArrivalAt: at(10, 3),
+			Buffer:    10 * time.Minute,
+			StartAt:   at(10, 13),
+			EndAt:     at(11, 0),
+		},
+	}
+	b.Finish = &TransitEstimate{
+		Mode:           MovementWalk,
+		DistanceMeters: 400,
+		Duration:       7 * time.Minute,
+		Verification:   VerificationEstimated,
+	}
 	b.Position = Coordinate{Longitude: 37.6, Latitude: 55.7}
 	b.Now = at(11, 0)
 	b.VisitedPlaces[PlaceID{1}] = struct{}{}

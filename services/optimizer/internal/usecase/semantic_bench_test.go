@@ -32,7 +32,7 @@ func BenchmarkOptimizeSemantic(b *testing.B) {
 	req.Constraints.SemanticQuery = "прогулка и музей"
 	b.ResetTimer()
 	for b.Loop() {
-		if _, err := p.Optimize(context.Background(), req); err != nil {
+		if _, err := p.Optimize(context.Background(), &req); err != nil {
 			b.Fatal(err)
 		}
 	}

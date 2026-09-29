@@ -19,7 +19,11 @@ func newAdmin(t *testing.T, key string) (*Admin, *Models) {
 	return NewAdmin(m, AdminConfig{Enabled: true}, zap.NewNop()), m
 }
 
-func call(t *testing.T, h http.Handler, method, target, body string) (int, map[string]any, string) {
+func call(
+	t *testing.T,
+	h http.Handler,
+	method, target, body string,
+) (status int, data map[string]any, responseBody string) {
 	t.Helper()
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(method, target, strings.NewReader(body)))
@@ -63,8 +67,9 @@ func TestAdminStateReportsMissingKeyPerKind(t *testing.T) {
 func TestAdminPage(t *testing.T) {
 	a, _ := newAdmin(t, "k")
 	rec := httptest.NewRecorder()
-	a.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Header().Get("Content-Type"), "text/html") || !strings.Contains(rec.Body.String(), "/api/selection") {
+	a.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Header().Get("Content-Type"), "text/html") ||
+		!strings.Contains(rec.Body.String(), "/api/selection") {
 		t.Fatalf("page %d %q", rec.Code, rec.Header().Get("Content-Type"))
 	}
 }
@@ -72,9 +77,13 @@ func TestAdminPage(t *testing.T) {
 func TestAdminModels(t *testing.T) {
 	a, _ := newAdmin(t, "")
 	rec := httptest.NewRecorder()
-	a.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/models?kind=embedding", nil))
+	a.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/models?kind=embedding", http.NoBody))
 	var models []ModelInfo
-	if err := json.Unmarshal(rec.Body.Bytes(), &models); rec.Code != http.StatusOK || err != nil || len(models) != 1 || models[0].ID != "e/one" {
+	if err := json.Unmarshal(
+		rec.Body.Bytes(),
+		&models,
+	); rec.Code != http.StatusOK || err != nil || len(models) != 1 ||
+		models[0].ID != "e/one" {
 		t.Fatalf("models %d %s", rec.Code, rec.Body.String())
 	}
 	if code, _, _ := call(t, a.Handler(), http.MethodGet, "/api/models?kind=image", ""); code != http.StatusBadRequest {
@@ -86,16 +95,32 @@ func TestAdminModelsOfLocalProviderAreEmptyList(t *testing.T) {
 	cfg := openRouterConfig("", "")
 	cfg.Embedding.Provider = ProviderLocal
 	a := NewAdmin(mustNew(t, cfg), AdminConfig{}, zap.NewNop())
-	if code, _, body := call(t, a.Handler(), http.MethodGet, "/api/models?kind=embedding", ""); code != http.StatusOK || strings.TrimSpace(body) != "[]" {
+	if code, _, body := call(
+		t,
+		a.Handler(),
+		http.MethodGet,
+		"/api/models?kind=embedding",
+		"",
+	); code != http.StatusOK ||
+		strings.TrimSpace(body) != "[]" {
 		t.Fatalf("models %d %s", code, body)
 	}
 }
 
 func TestAdminModelsProviderFailure(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusBadGateway) }))
+	srv := httptest.NewServer(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusBadGateway) }),
+	)
 	t.Cleanup(srv.Close)
 	a := NewAdmin(mustNew(t, openRouterConfig(srv.URL, "k")), AdminConfig{}, zap.NewNop())
-	if code, payload, _ := call(t, a.Handler(), http.MethodGet, "/api/models?kind=text", ""); code != http.StatusBadGateway || payload["error"] == nil {
+	if code, payload, _ := call(
+		t,
+		a.Handler(),
+		http.MethodGet,
+		"/api/models?kind=text",
+		"",
+	); code != http.StatusBadGateway ||
+		payload["error"] == nil {
 		t.Fatalf("status %d %v", code, payload)
 	}
 }
@@ -144,8 +169,8 @@ func TestAdminListensOnLoopbackByDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = a.Stop(context.Background()) })
-	host, _, err := net.SplitHostPort(a.Addr().String())
-	if err != nil || host != "127.0.0.1" {
+	host, _, splitErr := net.SplitHostPort(a.Addr().String())
+	if splitErr != nil || host != "127.0.0.1" {
 		t.Fatalf("listening on %v", a.Addr())
 	}
 	if err := a.HealthCheck(context.Background()); err != nil {

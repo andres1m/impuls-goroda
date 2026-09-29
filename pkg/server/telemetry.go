@@ -37,9 +37,15 @@ func instrument(server string) echo.MiddlewareFunc {
 			req := c.Request()
 			method := metricMethod(req.Method)
 			ctx := otel.GetTextMapPropagator().Extract(req.Context(), propagation.HeaderCarrier(req.Header))
-			ctx, span := tracer.Start(ctx, method+" "+route,
+			ctx, span := tracer.Start(
+				ctx,
+				method+" "+route,
 				trace.WithSpanKind(trace.SpanKindServer),
-				trace.WithAttributes(attribute.String("http.request.method", method), attribute.String("http.route", route)))
+				trace.WithAttributes(
+					attribute.String("http.request.method", method),
+					attribute.String("http.route", route),
+				),
+			)
 			defer span.End()
 			c.SetRequest(req.WithContext(ctx))
 
@@ -50,7 +56,8 @@ func instrument(server string) echo.MiddlewareFunc {
 			if status >= http.StatusInternalServerError {
 				span.SetStatus(codes.Error, http.StatusText(status))
 			}
-			requestDuration.WithLabelValues(server, method, route, strconv.Itoa(status)).Observe(time.Since(start).Seconds())
+			requestDuration.WithLabelValues(server, method, route, strconv.Itoa(status)).
+				Observe(time.Since(start).Seconds())
 			return err
 		}
 	}

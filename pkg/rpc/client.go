@@ -16,10 +16,14 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
+
+const defaultDialTimeout = 5 * time.Second
 
 type Client struct {
 	log  *zap.Logger
@@ -47,7 +51,7 @@ func (c *Client) HealthCheck(ctx context.Context) error {
 	if c.conn == nil {
 		return errors.New("grpc client is not initialized")
 	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, defaultDialTimeout)
 	defer cancel()
 	c.conn.Connect()
 	for {
@@ -80,33 +84,11 @@ func (c *Client) Init(ctx context.Context) error {
 		opts = append(opts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(c.cfg.MaxRecvMsgSize)))
 	}
 
-	if c.cfg.UseTLS {
-		cert, err := tls.LoadX509KeyPair(c.cfg.TLS.ClientCertPath, c.cfg.TLS.ClientKeyPath)
-		if err != nil {
-			return fmt.Errorf("failed to load x509 key pair: %w", err)
-		}
-
-		caCertPool := x509.NewCertPool()
-
-		caBytes, err := os.ReadFile(c.cfg.TLS.CaCertPath)
-		if err != nil {
-			return fmt.Errorf("failed to read ca cert: %w", err)
-		}
-
-		if ok := caCertPool.AppendCertsFromPEM(caBytes); !ok {
-			return fmt.Errorf("failed to append ca cert")
-		}
-
-		tlsConfig := &tls.Config{
-			Certificates: []tls.Certificate{cert},
-			RootCAs:      caCertPool,
-			MinVersion:   tls.VersionTLS13,
-		}
-
-		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
-	} else {
-		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	transport, err := clientTransportCredentials(c.cfg)
+	if err != nil {
+		return err
 	}
+	opts = append(opts, grpc.WithTransportCredentials(transport))
 
 	conn, err := grpc.NewClient(
 		net.JoinHostPort(c.cfg.Host, strconv.Itoa(c.cfg.Port)),
@@ -128,18 +110,39 @@ func (c *Client) Init(ctx context.Context) error {
 }
 
 func (c *Client) Name() string {
-	return fmt.Sprintf("grpc-client-%s", c.name)
+	return "grpc-client-" + c.name
 }
 
 func (c *Client) Run(ctx context.Context) error {
 	return nil
 }
 
+func clientTransportCredentials(cfg *config.GRPCClient) (credentials.TransportCredentials, error) {
+	if !cfg.UseTLS {
+		return insecure.NewCredentials(), nil
+	}
+	cert, err := tls.LoadX509KeyPair(cfg.TLS.ClientCertPath, cfg.TLS.ClientKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load x509 key pair: %w", err)
+	}
+	caBytes, err := os.ReadFile(cfg.TLS.CaCertPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read ca cert: %w", err)
+	}
+	caCertPool := x509.NewCertPool()
+	if !caCertPool.AppendCertsFromPEM(caBytes) {
+		return nil, errors.New("failed to append ca cert")
+	}
+	return credentials.NewTLS(
+		&tls.Config{Certificates: []tls.Certificate{cert}, RootCAs: caCertPool, MinVersion: tls.VersionTLS13},
+	), nil
+}
+
 func (c *Client) Stop(ctx context.Context) error {
 	if c.conn == nil {
 		return nil
 	}
-	if err := c.conn.Close(); err != nil && !errors.Is(err, grpc.ErrClientConnClosing) {
+	if err := c.conn.Close(); err != nil && status.Code(err) != codes.Canceled {
 		return fmt.Errorf("failed to close grpc client: %w", err)
 	}
 

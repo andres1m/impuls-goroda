@@ -28,11 +28,11 @@ type rowQuerier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-func (l *Landing) EnsureSource(ctx context.Context, source domain.Source) (ingest.SourceID, error) {
+func (l *Landing) EnsureSource(ctx context.Context, source *domain.Source) (ingest.SourceID, error) {
 	return upsertSource(ctx, l.pool, source)
 }
 
-func upsertSource(ctx context.Context, q rowQuerier, source domain.Source) (ingest.SourceID, error) {
+func upsertSource(ctx context.Context, q rowQuerier, source *domain.Source) (ingest.SourceID, error) {
 	var id pgtype.UUID
 	err := q.QueryRow(ctx, `
 		INSERT INTO integration.source
@@ -69,7 +69,14 @@ func (l *Landing) Cursor(ctx context.Context, source ingest.SourceID, city domai
 	return cursor, nil
 }
 
-func (l *Landing) SaveRecord(ctx context.Context, source ingest.SourceID, city domain.City, mode domain.DataMode, record domain.RawRecord, fetchedAt time.Time) (bool, error) {
+func (l *Landing) SaveRecord(
+	ctx context.Context,
+	source ingest.SourceID,
+	city domain.City,
+	mode domain.DataMode,
+	record *domain.RawRecord,
+	fetchedAt time.Time,
+) (bool, error) {
 	hash := record.ContentHash
 	if hash == nil {
 		sum := sha256.Sum256(record.Payload)
@@ -78,7 +85,7 @@ func (l *Landing) SaveRecord(ctx context.Context, source ingest.SourceID, city d
 	inserted := false
 	err := pgx.BeginFunc(ctx, l.pool, func(tx pgx.Tx) error {
 		var recordID pgtype.UUID
-		err := tx.QueryRow(ctx, `
+		txErr := tx.QueryRow(ctx, `
 			INSERT INTO integration.source_record
 				(id, source_id, city, external_id, source_url, last_seen_at, source_updated_at, provider_version, data_mode)
 			VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8)
@@ -93,40 +100,47 @@ func (l *Landing) SaveRecord(ctx context.Context, source ingest.SourceID, city d
 			uuidParam(source), string(city), record.ExternalID, record.SourceURL, fetchedAt,
 			record.SourceUpdatedAt, nullIfEmpty(record.ProviderVersion), string(mode),
 		).Scan(&recordID)
-		if err != nil {
-			return fmt.Errorf("upsert source record: %w", err)
+		if txErr != nil {
+			return fmt.Errorf("upsert source record: %w", txErr)
 		}
 
 		var lastHash []byte
-		err = tx.QueryRow(ctx, `
+		txErr = tx.QueryRow(ctx, `
 			SELECT content_hash FROM integration.raw_ingest
 			WHERE source_record_id = $1
 			ORDER BY fetched_at DESC
 			LIMIT 1`, recordID,
 		).Scan(&lastHash)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("read last hash: %w", err)
+		if txErr != nil && !errors.Is(txErr, pgx.ErrNoRows) {
+			return fmt.Errorf("read last hash: %w", txErr)
 		}
 		if bytes.Equal(lastHash, hash) {
 			return nil
 		}
 
-		_, err = tx.Exec(ctx, `
+		_, txErr = tx.Exec(ctx, `
 			INSERT INTO integration.raw_ingest
 				(id, source_record_id, raw_payload, content_type, content_hash, fetched_at, source_updated_at, data_mode, processing_state)
 			VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, 'pending')`,
 			recordID, record.Payload, record.ContentType, hash, fetchedAt, record.SourceUpdatedAt, string(mode),
 		)
-		if err != nil {
-			return fmt.Errorf("insert raw ingest: %w", err)
+		if txErr != nil {
+			return fmt.Errorf("insert raw ingest: %w", txErr)
 		}
 		inserted = true
 		return nil
 	})
-	return inserted, err
+	if err != nil {
+		return false, fmt.Errorf("save record tx: %w", err)
+	}
+	return inserted, nil
 }
 
-func (l *Landing) Unpublished(ctx context.Context, source ingest.SourceID, city domain.City) ([]ingest.Envelope, error) {
+func (l *Landing) Unpublished(
+	ctx context.Context,
+	source ingest.SourceID,
+	city domain.City,
+) ([]ingest.Envelope, error) {
 	rows, err := l.pool.Query(ctx, `
 		SELECT ri.id::text, s.source_key, sr.city, sr.external_id, encode(ri.content_hash, 'hex'),
 			ri.fetched_at, ri.data_mode, s.schema_version
@@ -145,9 +159,27 @@ func (l *Landing) Unpublished(ctx context.Context, source ingest.SourceID, city 
 	envelopes, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (ingest.Envelope, error) {
 		var sourceKey, recordCity, mode string
 		e := ingest.Envelope{Version: ingest.EnvelopeVersion}
-		err := row.Scan(&e.RawIngestID, &sourceKey, &recordCity, &e.ExternalID, &e.ContentHash, &e.FetchedAt, &mode, &e.SchemaVersion)
-		e.Source, e.City, e.DataMode, e.FetchedAt = domain.SourceKey(sourceKey), domain.City(recordCity), domain.DataMode(mode), e.FetchedAt.UTC()
-		return e, err
+		scanErr := row.Scan(
+			&e.RawIngestID,
+			&sourceKey,
+			&recordCity,
+			&e.ExternalID,
+			&e.ContentHash,
+			&e.FetchedAt,
+			&mode,
+			&e.SchemaVersion,
+		)
+		if scanErr != nil {
+			return e, fmt.Errorf("scan unpublished envelope: %w", scanErr)
+		}
+		e.Source, e.City, e.DataMode, e.FetchedAt = domain.SourceKey(
+			sourceKey,
+		), domain.City(
+			recordCity,
+		), domain.DataMode(
+			mode,
+		), e.FetchedAt.UTC()
+		return e, nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("read unpublished: %w", err)
@@ -168,7 +200,7 @@ func (l *Landing) AdvancePublished(ctx context.Context, source ingest.SourceID, 
 	return nil
 }
 
-func (l *Landing) FinishRun(ctx context.Context, run ingest.Run) error {
+func (l *Landing) FinishRun(ctx context.Context, run *ingest.Run) error {
 	if run.ErrorCode != "" {
 		_, err := l.pool.Exec(ctx, `
 			INSERT INTO integration.sync_cursor (source_id, city, fetch_cursor, last_attempt_at, last_error_code)
@@ -179,7 +211,10 @@ func (l *Landing) FinishRun(ctx context.Context, run ingest.Run) error {
 				last_error_code = EXCLUDED.last_error_code`,
 			uuidParam(run.SourceID), string(run.City), cursorParam(run.Cursor), run.AttemptAt, run.ErrorCode,
 		)
-		return err
+		if err != nil {
+			return fmt.Errorf("finish failed run: %w", err)
+		}
+		return nil
 	}
 	_, err := l.pool.Exec(ctx, `
 		INSERT INTO integration.sync_cursor (source_id, city, fetch_cursor, last_attempt_at, last_success_at, last_error_code)
@@ -191,7 +226,10 @@ func (l *Landing) FinishRun(ctx context.Context, run ingest.Run) error {
 			last_error_code = NULL`,
 		uuidParam(run.SourceID), string(run.City), cursorParam(run.Cursor), run.AttemptAt,
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("finish run: %w", err)
+	}
+	return nil
 }
 
 func uuidParam(id ingest.SourceID) pgtype.UUID {

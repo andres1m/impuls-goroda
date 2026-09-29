@@ -23,7 +23,15 @@ import (
 
 // buildTimeout bounds a slice build. Builds belong to the cache, not to the request that started
 // them: a cancelled request does not waste a build others are waiting for.
-const buildTimeout = 30 * time.Second
+const (
+	buildTimeout          = 30 * time.Second
+	defaultL1MaxBytes     = 256 << 20
+	defaultL2TTL          = 24 * time.Hour
+	defaultSessionHorizon = 24 * time.Hour
+	defaultHealthInterval = 5 * time.Second
+	l1NumCounters         = 1000
+	l1BufferItems         = 64
+)
 
 type Loader interface {
 	Revision(ctx context.Context, city string) (domain.CatalogRevision, error)
@@ -48,16 +56,16 @@ type Config struct {
 
 func (c Config) withDefaults() Config {
 	if c.L1MaxBytes == 0 {
-		c.L1MaxBytes = 256 << 20
+		c.L1MaxBytes = defaultL1MaxBytes
 	}
 	if c.L2TTL == 0 {
-		c.L2TTL = 24 * time.Hour
+		c.L2TTL = defaultL2TTL
 	}
 	if c.SessionHorizon == 0 {
-		c.SessionHorizon = 24 * time.Hour
+		c.SessionHorizon = defaultSessionHorizon
 	}
 	if c.HealthInterval == 0 {
-		c.HealthInterval = 5 * time.Second
+		c.HealthInterval = defaultHealthInterval
 	}
 	if c.ReconcileInterval == 0 {
 		c.ReconcileInterval = time.Minute
@@ -111,12 +119,20 @@ func New(cfg Config, loader Loader, l2 SliceStore, log *zap.Logger, opts ...Opti
 		return nil, errors.New("catalog cache needs a loader, a shared store and a logger")
 	}
 	l1, err := ristretto.NewCache(&ristretto.Config[string, *catalogslice.Slice]{
-		NumCounters: 1000, MaxCost: cfg.L1MaxBytes, BufferItems: 64, IgnoreInternalCost: true,
+		NumCounters: l1NumCounters, MaxCost: cfg.L1MaxBytes, BufferItems: l1BufferItems, IgnoreInternalCost: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create catalog slice cache: %w", err)
 	}
-	c := &Cache{cfg: cfg, loader: loader, l2: l2, log: log, now: time.Now, l1: l1, known: map[string]domain.CatalogRevision{}}
+	c := &Cache{
+		cfg:    cfg,
+		loader: loader,
+		l2:     l2,
+		log:    log,
+		now:    time.Now,
+		l1:     l1,
+		known:  map[string]domain.CatalogRevision{},
+	}
 	c.warmCtx, c.stopWarm = context.WithCancel(context.Background())
 	for _, opt := range opts {
 		opt(c)
@@ -146,9 +162,12 @@ func (c *Cache) write(change func()) {
 }
 
 // Candidates expands the city's slice for the request.
-func (c *Cache) Candidates(ctx context.Context, req domain.OptimizeRequest) ([]domain.Candidate, domain.DataFreshness, error) {
+func (c *Cache) Candidates(
+	ctx context.Context,
+	req *domain.OptimizeRequest,
+) ([]domain.Candidate, domain.DataFreshness, error) {
 	if err := req.Validate(); err != nil {
-		return nil, domain.DataFreshness{}, fmt.Errorf("%w: %v", usecase.ErrInvalidRequest, err)
+		return nil, domain.DataFreshness{}, fmt.Errorf("%w: %w", usecase.ErrInvalidRequest, err)
 	}
 	slice, level, err := c.slice(ctx, req.City)
 	if err != nil {
@@ -211,14 +230,18 @@ type obtained struct {
 // build gets the slice of at least the revision from the shared store or the database. Requests for
 // the same revision share one build; a build for an older one is not joined, since it may have read
 // the catalog before the revision was published.
-func (c *Cache) build(ctx context.Context, city string, revision domain.CatalogRevision) (*catalogslice.Slice, string, error) {
+func (c *Cache) build(
+	ctx context.Context,
+	city string,
+	revision domain.CatalogRevision,
+) (*catalogslice.Slice, string, error) {
 	ch := c.builds.DoChan(fmt.Sprintf("%s:%d", city, revision), func() (any, error) {
 		if s, ok := c.l1.Get(city); ok && s.Revision >= revision {
 			return obtained{s, levelChecked}, nil
 		}
-		ctx, cancel := context.WithTimeout(c.warmCtx, buildTimeout)
+		buildCtx, cancel := context.WithTimeout(c.warmCtx, buildTimeout)
 		defer cancel()
-		if s, ok, err := c.l2.Get(ctx, city, revision); err != nil {
+		if s, ok, err := c.l2.Get(buildCtx, city, revision); err != nil {
 			l2Errors.WithLabelValues("get").Inc()
 			c.log.Warn("read catalog slice from the shared cache", zap.String("city", city), zap.Error(err))
 		} else if ok {
@@ -226,13 +249,13 @@ func (c *Cache) build(ctx context.Context, city string, revision domain.CatalogR
 			return obtained{s, levelL2}, nil
 		}
 		started := time.Now()
-		s, err := c.loader.LoadSlice(ctx, city, c.now().Add(-c.cfg.SessionHorizon))
+		s, err := c.loader.LoadSlice(buildCtx, city, c.now().Add(-c.cfg.SessionHorizon))
 		if err != nil {
 			return nil, err
 		}
 		buildSeconds.Observe(time.Since(started).Seconds())
 		c.keep(s)
-		if err := c.l2.Put(ctx, s); err != nil {
+		if err := c.l2.Put(buildCtx, s); err != nil {
 			l2Errors.WithLabelValues("put").Inc()
 			c.log.Warn("write catalog slice to the shared cache", zap.String("city", city), zap.Error(err))
 		}
@@ -240,12 +263,15 @@ func (c *Cache) build(ctx context.Context, city string, revision domain.CatalogR
 	})
 	select {
 	case <-ctx.Done():
-		return nil, "", ctx.Err()
+		return nil, "", fmt.Errorf("wait catalog slice build: %w", ctx.Err())
 	case r := <-ch:
 		if r.Err != nil {
 			return nil, "", r.Err
 		}
-		o := r.Val.(obtained)
+		o, ok := r.Val.(obtained)
+		if !ok {
+			return nil, "", errors.New("unexpected singleflight result")
+		}
 		return o.slice, o.level, nil
 	}
 }
@@ -325,7 +351,7 @@ func (c *Cache) forget(city string) {
 }
 
 // Announce takes a published revision: a city held in memory is rebuilt in the background.
-func (c *Cache) Announce(m catalogevent.Invalidation) {
+func (c *Cache) Announce(m *catalogevent.Invalidation) {
 	invalidationLag.Observe(c.now().Sub(m.PublishedAt).Seconds())
 	revision := domain.CatalogRevision(m.CatalogRevision)
 	c.Observe(m.City, revision)

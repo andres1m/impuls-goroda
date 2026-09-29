@@ -51,7 +51,7 @@ func NewMatches(list []Match) Matches {
 
 // Contains reports whether the candidate's session, event or place matched: a matched place
 // brings all of its visits, a matched event all of its sessions.
-func (m Matches) Contains(c domain.Candidate) bool {
+func (m Matches) Contains(c *domain.Candidate) bool {
 	if _, ok := m.places[c.Place.ID]; ok {
 		return true
 	}

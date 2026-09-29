@@ -15,7 +15,7 @@ type RouteShare struct {
 	ExpiresAt *time.Time
 }
 
-func (s RouteShare) Validate() error {
+func (s *RouteShare) Validate() error {
 	if err := requiredID([16]byte(s.ID)); err != nil {
 		return err
 	}
@@ -34,7 +34,7 @@ func (s RouteShare) Validate() error {
 	return nil
 }
 
-func (s RouteShare) ActiveAt(now time.Time) bool {
+func (s *RouteShare) ActiveAt(now time.Time) bool {
 	return s.Validate() == nil && !now.Before(s.CreatedAt) && s.RevokedAt == nil &&
 		(s.ExpiresAt == nil || now.Before(*s.ExpiresAt))
 }

@@ -21,6 +21,7 @@ import (
 var adminPage []byte
 
 const maxSelectionBody = 4 << 10
+const adminReadHeaderTimeout = 5 * time.Second
 
 // Admin serves the page that switches hosted models. It never changes the provider or the key.
 type Admin struct {
@@ -63,7 +64,7 @@ func (a *Admin) Init(ctx context.Context) error {
 		return fmt.Errorf("ai admin listen: %w", err)
 	}
 	a.lis = lis
-	a.server = &http.Server{Handler: a.mux, ReadHeaderTimeout: 5 * time.Second}
+	a.server = &http.Server{Handler: a.mux, ReadHeaderTimeout: adminReadHeaderTimeout}
 	a.log.Info("ai admin listening", zap.String("addr", lis.Addr().String()))
 	return nil
 }
@@ -126,7 +127,9 @@ type stateView struct {
 
 func (a *Admin) page(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(adminPage)
+	if _, err := w.Write(adminPage); err != nil {
+		a.log.Warn("write admin page", zap.Error(err))
+	}
 }
 
 func (a *Admin) state(w http.ResponseWriter, _ *http.Request) {
@@ -182,7 +185,12 @@ func (a *Admin) selection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.models.Select(r.Context(), req.Kind, req.Model); err != nil {
-		a.log.Warn("ai admin refused a model", zap.String("kind", string(req.Kind)), zap.String("model", req.Model), zap.Error(err))
+		a.log.Warn(
+			"ai admin refused a model",
+			zap.String("kind", string(req.Kind)),
+			zap.String("model", req.Model),
+			zap.Error(err),
+		)
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
 	}
@@ -193,7 +201,10 @@ func (a *Admin) selection(w http.ResponseWriter, r *http.Request) {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		// The response status has already been sent; the client sees the truncated body.
+		return
+	}
 }
 
 func writeError(w http.ResponseWriter, status int, err error) {

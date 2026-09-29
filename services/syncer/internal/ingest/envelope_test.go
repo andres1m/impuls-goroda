@@ -23,7 +23,8 @@ func validEnvelope() Envelope {
 }
 
 func TestEnvelopeKeyUsesCityAndExternalID(t *testing.T) {
-	if got := validEnvelope().Key(); got != "moscow:event:226287" {
+	env := validEnvelope()
+	if got := env.Key(); got != "moscow:event:226287" {
 		t.Fatalf("key = %q", got)
 	}
 }
@@ -64,7 +65,8 @@ func TestEnvelopeValidateRejects(t *testing.T) {
 			t.Errorf("%s: accepted %+v", name, e)
 		}
 	}
-	if err := validEnvelope().Validate(); err != nil {
+	valid := validEnvelope()
+	if err := valid.Validate(); err != nil {
 		t.Fatalf("valid envelope rejected: %v", err)
 	}
 }

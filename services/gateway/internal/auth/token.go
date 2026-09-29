@@ -5,18 +5,27 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 )
 
-const tokenBytes = 32
+const (
+	tokenBytes           = 32
+	uuidVersionByteIndex = 6
+	uuidVariantByteIndex = 8
+	uuidVersionMask      = 0x0f
+	uuidVersion4Bits     = 0x40
+	uuidVariantMask      = 0x3f
+	uuidRFC4122Bits      = 0x80
+)
 
-func newToken(source io.Reader) (string, [32]byte, error) {
+func newToken(source io.Reader) (token string, hash [32]byte, err error) {
 	if source == nil {
 		source = rand.Reader
 	}
 	raw := make([]byte, tokenBytes)
 	if _, err := io.ReadFull(source, raw); err != nil {
-		return "", [32]byte{}, err
+		return "", [32]byte{}, fmt.Errorf("read token bytes: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(raw), sha256.Sum256(raw), nil
 }
@@ -35,10 +44,10 @@ func newUUID(source io.Reader) ([16]byte, error) {
 	}
 	var id [16]byte
 	if _, err := io.ReadFull(source, id[:]); err != nil {
-		return [16]byte{}, err
+		return [16]byte{}, fmt.Errorf("read UUID bytes: %w", err)
 	}
-	id[6] = (id[6] & 0x0f) | 0x40
-	id[8] = (id[8] & 0x3f) | 0x80
+	id[uuidVersionByteIndex] = (id[uuidVersionByteIndex] & uuidVersionMask) | uuidVersion4Bits
+	id[uuidVariantByteIndex] = (id[uuidVariantByteIndex] & uuidVariantMask) | uuidRFC4122Bits
 	if id == ([16]byte{}) {
 		return [16]byte{}, errors.New("random UUID is empty")
 	}

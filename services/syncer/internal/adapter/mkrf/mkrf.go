@@ -7,6 +7,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -19,9 +20,11 @@ import (
 var eventsGzip []byte
 
 const (
-	datasetURL     = "https://opendata.mkrf.ru/opendata/7705851331-events"
-	datasetVersion = 12
-	maxRecordBytes = 16 << 20
+	datasetURL          = "https://opendata.mkrf.ru/opendata/7705851331-events"
+	datasetVersion      = 12
+	initialScanBufBytes = 1 << 20
+	maxRecordBytes      = 16 << 20
+	errCodeDecode       = "decode"
 )
 
 type Adapter struct{}
@@ -43,21 +46,21 @@ func (Adapter) Source() domain.Source {
 func (Adapter) Fetch(ctx context.Context, city domain.City, _ json.RawMessage) (ingest.Batch, error) {
 	unzipped, err := gzip.NewReader(bytes.NewReader(eventsGzip))
 	if err != nil {
-		return ingest.Batch{}, &ingest.FetchError{Code: "decode", Err: err}
+		return ingest.Batch{}, &ingest.FetchError{Code: errCodeDecode, Err: err}
 	}
 	defer unzipped.Close()
 
 	scanner := bufio.NewScanner(unzipped)
-	scanner.Buffer(make([]byte, 0, 1<<20), maxRecordBytes)
+	scanner.Buffer(make([]byte, 0, initialScanBufBytes), maxRecordBytes)
 	batch := ingest.Batch{Cursor: json.RawMessage(`{"dataset_version":` + strconv.Itoa(datasetVersion) + `}`)}
 	for scanner.Scan() {
-		if err := ctx.Err(); err != nil {
-			return ingest.Batch{}, err
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ingest.Batch{}, fmt.Errorf("mkrf scan context: %w", ctxErr)
 		}
 		line := scanner.Bytes()
 		var ev event
-		if err := json.Unmarshal(line, &ev); err != nil {
-			return ingest.Batch{}, &ingest.FetchError{Code: "decode", Err: err}
+		if unmarshalErr := json.Unmarshal(line, &ev); unmarshalErr != nil {
+			return ingest.Batch{}, &ingest.FetchError{Code: errCodeDecode, Err: unmarshalErr}
 		}
 		if ev.city() != city {
 			continue
@@ -68,8 +71,8 @@ func (Adapter) Fetch(ctx context.Context, city domain.City, _ json.RawMessage) (
 		}
 		batch.Records = append(batch.Records, ev.rawRecord(bytes.Clone(line)))
 	}
-	if err := scanner.Err(); err != nil {
-		return ingest.Batch{}, &ingest.FetchError{Code: "decode", Err: err}
+	if scanErr := scanner.Err(); scanErr != nil {
+		return ingest.Batch{}, &ingest.FetchError{Code: errCodeDecode, Err: scanErr}
 	}
 	return batch, nil
 }

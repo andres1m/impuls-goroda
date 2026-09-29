@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/url"
 	"sort"
 	"strings"
@@ -11,9 +12,11 @@ import (
 	"time"
 )
 
+const testBotToken = "bot-token"
+
 func TestInitDataVerifier(t *testing.T) {
 	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
-	verifier, err := NewInitDataVerifier("bot-token", time.Hour, time.Minute, func() time.Time { return now })
+	verifier, err := NewInitDataVerifier(testBotToken, time.Hour, time.Minute, func() time.Time { return now })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +24,7 @@ func TestInitDataVerifier(t *testing.T) {
 		"auth_date": "1790422200",
 		"query_id":  "query",
 		"user":      `{"id":67890,"first_name":"Max"}`,
-	}, "bot-token")
+	})
 	data, err := verifier.Verify(valid)
 	if err != nil {
 		t.Fatal(err)
@@ -35,31 +38,31 @@ func TestInitDataVerifier(t *testing.T) {
 		"duplicate hash": valid + "&hash=00",
 		"missing user": signedInitData(map[string]string{
 			"auth_date": "1790422200",
-		}, "bot-token"),
+		}),
 		"malformed escape": "auth_date=1&user=%ZZ&hash=00",
 		"old": signedInitData(map[string]string{
 			"auth_date": "1790418599",
 			"user":      `{"id":67890}`,
-		}, "bot-token"),
+		}),
 		"future": signedInitData(map[string]string{
 			"auth_date": "1790424061",
 			"user":      `{"id":67890}`,
-		}, "bot-token"),
+		}),
 		"zero user": signedInitData(map[string]string{
 			"auth_date": "1790422200",
 			"user":      `{"id":0}`,
-		}, "bot-token"),
+		}),
 	}
 	for name, raw := range tests {
 		t.Run(name, func(t *testing.T) {
-			if _, err := verifier.Verify(raw); err != ErrInvalidInitData {
+			if _, err := verifier.Verify(raw); !errors.Is(err, ErrInvalidInitData) {
 				t.Fatalf("error = %v", err)
 			}
 		})
 	}
 }
 
-func signedInitData(values map[string]string, botToken string) string {
+func signedInitData(values map[string]string) string {
 	keys := make([]string, 0, len(values))
 	for key := range values {
 		keys = append(keys, key)
@@ -70,7 +73,7 @@ func signedInitData(values map[string]string, botToken string) string {
 		parts = append(parts, key+"="+values[key])
 	}
 	secret := hmac.New(sha256.New, []byte("WebAppData"))
-	_, _ = secret.Write([]byte(botToken))
+	_, _ = secret.Write([]byte(testBotToken))
 	signature := hmac.New(sha256.New, secret.Sum(nil))
 	_, _ = signature.Write([]byte(strings.Join(parts, "\n")))
 

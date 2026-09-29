@@ -73,7 +73,13 @@ VALUES ($1, $2, $3, $4, $5, $6::vector, $7, now())
 ON CONFLICT (event_id, city, model_key, model_version) WHERE event_id IS NOT NULL
 DO UPDATE SET embedding = EXCLUDED.embedding, content_hash = EXCLUDED.content_hash, created_at = EXCLUDED.created_at`
 
-func UpsertEmbedding(ctx context.Context, db EmbeddingDB, space ai.Space, p embedding.Prepared, vector []float32) error {
+func UpsertEmbedding(
+	ctx context.Context,
+	db EmbeddingDB,
+	space ai.Space,
+	p *embedding.Prepared,
+	vector []float32,
+) error {
 	sql, id := upsertPlaceEmbeddingSQL, p.Entity.Place
 	if id == nil {
 		sql, id = upsertEventEmbeddingSQL, p.Entity.Event
@@ -81,7 +87,17 @@ func UpsertEmbedding(ctx context.Context, db EmbeddingDB, space ai.Space, p embe
 	if id == nil {
 		return fmt.Errorf("entity %q has neither a place nor an event", p.Entity.Title)
 	}
-	_, err := db.Exec(ctx, sql, uuid.New().String(), p.Entity.City, id.String(), space.Key, space.Version, vectorLiteral(vector), p.Hash)
+	_, err := db.Exec(
+		ctx,
+		sql,
+		uuid.New().String(),
+		p.Entity.City,
+		id.String(),
+		space.Key,
+		space.Version,
+		vectorLiteral(vector),
+		p.Hash,
+	)
 	if err != nil {
 		return fmt.Errorf("write embedding of %s: %w", id, err)
 	}

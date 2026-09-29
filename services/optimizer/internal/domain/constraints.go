@@ -57,7 +57,11 @@ const (
 
 func (s ParticipationStatus) Validate() error {
 	switch s {
-	case ParticipationNotRequired, ParticipationActionRequired, ParticipationUserReported, ParticipationProviderConfirmed, ParticipationUnavailable:
+	case ParticipationNotRequired,
+		ParticipationActionRequired,
+		ParticipationUserReported,
+		ParticipationProviderConfirmed,
+		ParticipationUnavailable:
 		return nil
 	default:
 		return errors.New("invalid participation status")
@@ -130,7 +134,7 @@ type RouteConstraints struct {
 // MaxSemanticQueryLength is counted in characters, not bytes.
 const MaxSemanticQueryLength = 1000
 
-func (c RouteConstraints) Validate() error {
+func (c *RouteConstraints) Validate() error {
 	for _, category := range c.ExcludedCategories {
 		if err := category.Validate(); err != nil {
 			return err
@@ -147,6 +151,34 @@ func (c RouteConstraints) Validate() error {
 	if err := c.Budget.Validate(); err != nil {
 		return err
 	}
+	if err := c.validateCodeLists(); err != nil {
+		return err
+	}
+	for _, obligation := range c.Obligations {
+		if err := obligation.Validate(); err != nil {
+			return err
+		}
+	}
+	if err := validateSemanticQuery(c.SemanticQuery); err != nil {
+		return err
+	}
+	if c.LunchWindow != nil {
+		return c.LunchWindow.Validate()
+	}
+	return nil
+}
+
+func validateSemanticQuery(query string) error {
+	if query != "" && strings.TrimSpace(query) == "" {
+		return errors.New("semantic query must not be blank")
+	}
+	if utf8.RuneCountInString(query) > MaxSemanticQueryLength {
+		return fmt.Errorf("semantic query exceeds %d characters", MaxSemanticQueryLength)
+	}
+	return nil
+}
+
+func (c *RouteConstraints) validateCodeLists() error {
 	for _, list := range []struct {
 		values []string
 		name   string
@@ -159,20 +191,6 @@ func (c RouteConstraints) Validate() error {
 		if err := requireNonBlank(list.values, list.name); err != nil {
 			return err
 		}
-	}
-	for _, obligation := range c.Obligations {
-		if err := obligation.Validate(); err != nil {
-			return err
-		}
-	}
-	if c.SemanticQuery != "" && strings.TrimSpace(c.SemanticQuery) == "" {
-		return errors.New("semantic query must not be blank")
-	}
-	if utf8.RuneCountInString(c.SemanticQuery) > MaxSemanticQueryLength {
-		return fmt.Errorf("semantic query exceeds %d characters", MaxSemanticQueryLength)
-	}
-	if c.LunchWindow != nil {
-		return c.LunchWindow.Validate()
 	}
 	return nil
 }

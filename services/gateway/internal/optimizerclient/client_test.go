@@ -8,7 +8,7 @@ import (
 )
 
 func TestClientStartsWithoutOptimizerServer(t *testing.T) {
-	client := New(nil, config.GRPCClient{Host: "127.0.0.1", Port: 1})
+	client := New(nil, &config.GRPCClient{Host: "127.0.0.1", Port: 1})
 	if client.RPC() != nil {
 		t.Fatal("RPC client available before initialization")
 	}

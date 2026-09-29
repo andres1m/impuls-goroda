@@ -60,13 +60,16 @@ func TestOSMPlaceMapsTagsInTableOrder(t *testing.T) {
 }
 
 func TestOSMPlaceFields(t *testing.T) {
-	way := []byte(`{"type":"way","id":7,"center":{"lat":58.04,"lon":56.32},"tags":{"name":"  Кофейня Ёлка ","amenity":"cafe",
-		"addr:street":"улица Ленина","addr:housenumber":"5","opening_hours":"Mo-Fr 08:00-20:00"}}`)
+	way := []byte(
+		`{"type":"way","id":7,"center":{"lat":58.04,"lon":56.32},"tags":{"name":"  Кофейня Ёлка ","amenity":"cafe",
+		"addr:street":"улица Ленина","addr:housenumber":"5","opening_hours":"Mo-Fr 08:00-20:00"}}`,
+	)
 	p, err := OSMPlace("way/7", way)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.ExternalID != "way/7" || p.Title != "Кофейня Ёлка" || p.NormalizedTitle != "кофейня елка" || p.Lat != 58.04 || p.Lon != 56.32 {
+	if p.ExternalID != "way/7" || p.Title != "Кофейня Ёлка" || p.NormalizedTitle != "кофейня елка" || p.Lat != 58.04 ||
+		p.Lon != 56.32 {
 		t.Fatalf("place %+v", p)
 	}
 	if p.Address == nil || *p.Address != "улица Ленина, 5" {

@@ -30,22 +30,51 @@ const (
 	overWalkWeight  = 1
 	// Skipping a rest that is due is allowed, but it has to buy more than a quarter hour of rest is worth.
 	restSkipWeight = 15
+
+	relaxedVisitHours   = 2.5
+	relaxedWalkMinutes  = 45
+	relaxedRestEvery    = 2
+	relaxedRestMinutes  = 15
+	intenseVisitHours   = 1
+	intenseVisitTrim    = 0.5
+	moderateVisitHours  = 1.5
+	moderateWalkMinutes = 90
 )
 
 // ProfileFor treats any name it does not know as moderate, so clients can send new names safely.
 func ProfileFor(name string) LoadProfile {
 	switch name {
 	case "relaxed":
-		return LoadProfile{VisitHours: 2.5, WalkLimit: 45 * time.Minute, RestEvery: 2, Rest: 15 * time.Minute, OverVisitWeight: overVisitWeight, OverWalkWeight: overWalkWeight}
+		return LoadProfile{
+			VisitHours:      relaxedVisitHours,
+			WalkLimit:       relaxedWalkMinutes * time.Minute,
+			RestEvery:       relaxedRestEvery,
+			Rest:            relaxedRestMinutes * time.Minute,
+			OverVisitWeight: overVisitWeight,
+			OverWalkWeight:  overWalkWeight,
+		}
 	case "intense":
-		return LoadProfile{VisitHours: 1, VisitTrim: 0.5, OverVisitWeight: overVisitWeight, OverWalkWeight: overWalkWeight}
+		return LoadProfile{
+			VisitHours:      intenseVisitHours,
+			VisitTrim:       intenseVisitTrim,
+			OverVisitWeight: overVisitWeight,
+			OverWalkWeight:  overWalkWeight,
+		}
 	default:
-		return LoadProfile{VisitHours: 1.5, WalkLimit: 90 * time.Minute, OverVisitWeight: overVisitWeight, OverWalkWeight: overWalkWeight}
+		return LoadProfile{
+			VisitHours:      moderateVisitHours,
+			WalkLimit:       moderateWalkMinutes * time.Minute,
+			OverVisitWeight: overVisitWeight,
+			OverWalkWeight:  overWalkWeight,
+		}
 	}
 }
 
 func (l LoadProfile) Validate() error {
-	if !nonNegative(l.VisitHours, l.VisitTrim, l.OverVisitWeight, l.OverWalkWeight) || l.VisitTrim > 1 || l.WalkLimit < 0 || l.RestEvery < 0 || l.Rest < 0 {
+	if !nonNegative(l.VisitHours, l.VisitTrim, l.OverVisitWeight, l.OverWalkWeight) || l.VisitTrim > 1 ||
+		l.WalkLimit < 0 ||
+		l.RestEvery < 0 ||
+		l.Rest < 0 {
 		return errors.New("load profile values must be finite and non-negative")
 	}
 	return nil
@@ -67,21 +96,22 @@ func (l LoadProfile) trim(pool []domain.Candidate, keep []bool) []domain.Candida
 	trimmed := slices.Clone(pool)
 	for i := range trimmed {
 		if !keep[i] {
-			trimmed[i] = l.trimOne(trimmed[i])
+			trimmed[i] = l.trimOne(&trimmed[i])
 		}
 	}
 	return trimmed
 }
 
 // trimOne is trim for one candidate; a repair uses it so a plan keeps the lengths its search chose.
-func (l LoadProfile) trimOne(c domain.Candidate) domain.Candidate {
-	w := &c.Window
+func (l LoadProfile) trimOne(c *domain.Candidate) domain.Candidate {
+	out := *c
+	w := &out.Window
 	if l.VisitTrim == 0 || w.Kind != domain.WindowContinuous {
-		return c
+		return out
 	}
 	cut := time.Duration(float64(w.RecommendedDuration-w.MinDuration) * l.VisitTrim)
 	w.RecommendedDuration = max(w.MinDuration, w.RecommendedDuration-cut.Round(time.Minute))
-	return c
+	return out
 }
 
 func (l LoadProfile) overWalk(minutes float64) float64 {

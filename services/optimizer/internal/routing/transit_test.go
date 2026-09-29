@@ -18,7 +18,6 @@ var (
 	points = []domain.Coordinate{origin, near, far}
 
 	graphTime = time.Date(2026, 9, 26, 20, 22, 51, 0, time.UTC)
-	gap       = math.NaN()
 )
 
 // table builds a routing table where NaN marks a pair without a path.
@@ -144,9 +143,9 @@ func TestMatrixTransitEvidence(t *testing.T) {
 		method     string
 		limitation string
 	}{
-		walk:    {near, "osm_foot_network", "time_is_modelled"},
-		transit: {far, "osm_road_network", "transit_estimated_from_road_distance"},
-		car:     {far, "osm_road_network", "no_live_traffic"},
+		domain.MovementWalk:    {near, "osm_foot_network", "time_is_modelled"},
+		domain.MovementTransit: {far, "osm_road_network", "transit_estimated_from_road_distance"},
+		domain.MovementCar:     {far, "osm_road_network", "no_live_traffic"},
 	}
 	for mode, tc := range cases {
 		got, ok := m.Estimate(origin, tc.to, graphTime.Add(time.Hour), modes(mode))
@@ -154,8 +153,11 @@ func TestMatrixTransitEvidence(t *testing.T) {
 			t.Fatalf("%s: %+v %v", mode, got, ok)
 		}
 		e := got.Evidence
-		if err := e.Validate(); err != nil || e.Provider != "osrm" || e.Method != tc.method || !e.ObservedAt.Equal(graphTime) ||
-			e.Mode != string(mode) || !slices.Contains(e.Limitations, tc.limitation) || !slices.Contains(e.Limitations, "osm_data_may_be_outdated") {
+		if err := e.Validate(); err != nil || e.Provider != "osrm" || e.Method != tc.method ||
+			!e.ObservedAt.Equal(graphTime) ||
+			e.Mode != string(mode) ||
+			!slices.Contains(e.Limitations, tc.limitation) ||
+			!slices.Contains(e.Limitations, "osm_data_may_be_outdated") {
 			t.Errorf("%s: evidence %+v: %v", mode, e, err)
 		}
 	}

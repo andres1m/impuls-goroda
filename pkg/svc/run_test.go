@@ -83,7 +83,7 @@ func TestRunFailureStopsDependencies(t *testing.T) {
 }
 
 func TestResourceOnlyRunWaitsForCancellation(t *testing.T) {
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		events := []string{}
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan error, 1)

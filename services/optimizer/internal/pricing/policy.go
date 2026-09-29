@@ -22,7 +22,7 @@ type Policy struct {
 	AcceptUnknownPrice bool
 }
 
-func PolicyFor(currency string, c domain.RouteConstraints) Policy {
+func PolicyFor(currency string, c *domain.RouteConstraints) Policy {
 	return Policy{
 		Currency:           currency,
 		Budget:             c.Budget,
@@ -33,7 +33,7 @@ func PolicyFor(currency string, c domain.RouteConstraints) Policy {
 	}
 }
 
-func (p Policy) Validate() error {
+func (p *Policy) Validate() error {
 	if err := (domain.Money{Currency: p.Currency}).Validate(); err != nil {
 		return err
 	}
@@ -56,7 +56,7 @@ type Quote struct {
 }
 
 // Quote prices the visit; false means the route's constraints exclude it.
-func (p Policy) Quote(c *domain.Candidate) (Quote, bool) {
+func (p *Policy) Quote(c *domain.Candidate) (Quote, bool) {
 	offers := p.applicable(c)
 	if p.PushkinCardOnly {
 		covered := slices.DeleteFunc(slices.Clone(offers), func(o *domain.PriceOffer) bool { return !coveredByCard(o) })
@@ -71,7 +71,8 @@ func (p Policy) Quote(c *domain.Candidate) (Quote, bool) {
 		q.Price = q.Offer.Price
 		q.Program = p.program(q.Offer)
 	}
-	if _, known := q.Price.UpperBound(); !known && !p.AcceptUnknownPrice && (p.Budget.Mode == domain.BudgetStrict || p.PushkinCardOnly) {
+	if _, known := q.Price.UpperBound(); !known && !p.AcceptUnknownPrice &&
+		(p.Budget.Mode == domain.BudgetStrict || p.PushkinCardOnly) {
 		return Quote{}, false
 	}
 	return q, true
@@ -79,7 +80,7 @@ func (p Policy) Quote(c *domain.Candidate) (Quote, bool) {
 
 // applicable keeps the offers the user can surely buy. The user's age is never known,
 // so an age-limited tariff cannot prove the price.
-func (p Policy) applicable(c *domain.Candidate) []*domain.PriceOffer {
+func (p *Policy) applicable(c *domain.Candidate) []*domain.PriceOffer {
 	var offers []*domain.PriceOffer
 	for i := range c.Offers {
 		o := &c.Offers[i]
@@ -122,7 +123,7 @@ func compareOffers(a, b *domain.PriceOffer) int {
 	return bytes.Compare(a.ID[:], b.ID[:])
 }
 
-func (p Policy) program(o *domain.PriceOffer) string {
+func (p *Policy) program(o *domain.PriceOffer) string {
 	for _, program := range p.Programs {
 		if slices.Contains(o.BenefitPrograms, program) {
 			return program
@@ -132,7 +133,7 @@ func (p Policy) program(o *domain.PriceOffer) string {
 }
 
 // Fits reports whether a strict budget still holds after spent plus this visit's upper price.
-func (p Policy) Fits(spent domain.Money, q Quote) bool {
+func (p *Policy) Fits(spent domain.Money, q Quote) bool {
 	upper, known := q.Price.UpperBound()
 	if p.Budget.Mode != domain.BudgetStrict || !known {
 		return true

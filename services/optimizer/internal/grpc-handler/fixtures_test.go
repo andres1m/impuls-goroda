@@ -20,8 +20,6 @@ func at(hour, minute int) time.Time {
 
 func ts(hour, minute int) *timestamppb.Timestamp { return timestamppb.New(at(hour, minute)) }
 
-func tptr(t time.Time) *time.Time { return &t }
-
 func id(b byte) []byte {
 	raw := make([]byte, 16)
 	raw[0] = b
@@ -40,7 +38,7 @@ func moneyPtr(amount int64) *domain.Money {
 func pbProvenance() *pb.Provenance {
 	return &pb.Provenance{
 		SourceName:      "kudago",
-		SourceUrl:       proto.String("https://example.org/event"),
+		SourceUrl:       new("https://example.org/event"),
 		SourceRecordId:  id(7),
 		SourceUpdatedAt: ts(6, 0),
 		FetchedAt:       ts(7, 0),
@@ -51,17 +49,22 @@ func pbProvenance() *pb.Provenance {
 func domainProvenance() domain.Provenance {
 	return domain.Provenance{
 		SourceName:      "kudago",
-		SourceURL:       proto.String("https://example.org/event"),
+		SourceURL:       new("https://example.org/event"),
 		SourceRecordID:  &domain.SourceRecordID{7},
-		SourceUpdatedAt: tptr(at(6, 0)),
+		SourceUpdatedAt: new(at(6, 0)),
 		FetchedAt:       at(7, 0),
-		VerifiedAt:      tptr(at(8, 0)),
+		VerifiedAt:      new(at(8, 0)),
 	}
 }
 
 func pbFreeCost() *pb.CostSnapshot {
 	return &pb.CostSnapshot{
-		Price:          &pb.Price{Status: pb.PriceStatus_PRICE_STATUS_FREE, Currency: "RUB", LowerMinor: proto.Int64(0), UpperMinor: proto.Int64(0)},
+		Price: &pb.Price{
+			Status:     pb.PriceStatus_PRICE_STATUS_FREE,
+			Currency:   "RUB",
+			LowerMinor: proto.Int64(0),
+			UpperMinor: proto.Int64(0),
+		},
 		PersonalAmount: pbMoney(0),
 		Provenance:     &pb.Provenance{SourceName: "optimizer", FetchedAt: ts(7, 0)},
 	}
@@ -69,13 +72,23 @@ func pbFreeCost() *pb.CostSnapshot {
 
 func domainFreeCost() domain.CostSnapshot {
 	return domain.CostSnapshot{
-		Price:          domain.Price{Status: domain.PriceFree, Currency: "RUB", LowerMinor: proto.Int64(0), UpperMinor: proto.Int64(0)},
+		Price: domain.Price{
+			Status:     domain.PriceFree,
+			Currency:   "RUB",
+			LowerMinor: proto.Int64(0),
+			UpperMinor: proto.Int64(0),
+		},
 		PersonalAmount: moneyPtr(0),
 		Provenance:     domain.Provenance{SourceName: "optimizer", FetchedAt: at(7, 0)},
 	}
 }
 
-func pbLeg(position uint32, from, to pb.LegEndpointKind, fromVisit, toVisit []byte, departure, arrival *timestamppb.Timestamp) *pb.RouteLeg {
+func pbLeg(
+	position uint32,
+	from, to pb.LegEndpointKind,
+	fromVisit, toVisit []byte,
+	departure, arrival *timestamppb.Timestamp,
+) *pb.RouteLeg {
 	return &pb.RouteLeg{
 		Position:       position,
 		FromKind:       from,
@@ -99,7 +112,12 @@ func pbLeg(position uint32, from, to pb.LegEndpointKind, fromVisit, toVisit []by
 	}
 }
 
-func domainLeg(position int, from, to domain.LegEndpoint, fromVisit, toVisit *domain.VisitID, departure, arrival time.Time) domain.Leg {
+func domainLeg(
+	position int,
+	from, to domain.LegEndpoint,
+	fromVisit, toVisit *domain.VisitID,
+	departure, arrival time.Time,
+) domain.Leg {
 	return domain.Leg{
 		Position:       position,
 		From:           from,
@@ -133,18 +151,37 @@ func pbPlan() *pb.RoutePlan {
 		CatalogRevision: 42,
 		Result:          pb.ResultStatus_RESULT_STATUS_PARTIAL,
 		Warnings: []*pb.Warning{
-			{Code: "LATE_ENTRY_UNCONFIRMED", Scope: pb.TargetScope_TARGET_SCOPE_VISIT, VisitId: id(1), Message: "Late entry is not confirmed"},
-			{Code: "ESTIMATED_TRANSIT", Scope: pb.TargetScope_TARGET_SCOPE_LEG, LegPosition: proto.Uint32(2), Message: "Transit time is estimated"},
+			{
+				Code:    "LATE_ENTRY_UNCONFIRMED",
+				Scope:   pb.TargetScope_TARGET_SCOPE_VISIT,
+				VisitId: id(1),
+				Message: "Late entry is not confirmed",
+			},
+			{
+				Code:        "ESTIMATED_TRANSIT",
+				Scope:       pb.TargetScope_TARGET_SCOPE_LEG,
+				LegPosition: proto.Uint32(2),
+				Message:     "Transit time is estimated",
+			},
 		},
-		Conflicts: []*pb.Conflict{{Code: "LUNCH_SHORTENED", VisitIds: [][]byte{id(2)}, SessionIds: [][]byte{id(3)}, Message: "Lunch is shorter"}},
+		Conflicts: []*pb.Conflict{
+			{
+				Code:       "LUNCH_SHORTENED",
+				VisitIds:   [][]byte{id(2)},
+				SessionIds: [][]byte{id(3)},
+				Message:    "Lunch is shorter",
+			},
+		},
 		Cost: &pb.CostSummary{
-			KnownPersonal:     pbMoney(50000),
-			KnownTransport:    pbMoney(0),
-			ProgramAmount:     pbMoney(20000),
-			TotalLower:        pbMoney(50000),
-			TotalUpper:        pbMoney(70000),
-			UnknownComponents: []*pb.UnknownCostComponent{{Code: "BENEFIT_UNCONFIRMED", Message: "Benefit is not confirmed"}},
-			BudgetConclusion:  pb.BudgetConclusion_BUDGET_CONCLUSION_UNKNOWN,
+			KnownPersonal:  pbMoney(50000),
+			KnownTransport: pbMoney(0),
+			ProgramAmount:  pbMoney(20000),
+			TotalLower:     pbMoney(50000),
+			TotalUpper:     pbMoney(70000),
+			UnknownComponents: []*pb.UnknownCostComponent{
+				{Code: "BENEFIT_UNCONFIRMED", Message: "Benefit is not confirmed"},
+			},
+			BudgetConclusion: pb.BudgetConclusion_BUDGET_CONCLUSION_UNKNOWN,
 		},
 		Geometry: []*pb.Coordinate{{Longitude: 37.59, Latitude: 55.69}, {Longitude: 37.62, Latitude: 55.72}},
 		Steps: []*pb.RouteStep{
@@ -181,13 +218,20 @@ func pbPlan() *pb.RoutePlan {
 					Provenance:          pbProvenance(),
 				},
 				Cost: &pb.CostSnapshot{
-					PriceOfferId:      id(15),
-					Audience:          "student",
-					Price:             &pb.Price{Status: pb.PriceStatus_PRICE_STATUS_RANGE, Currency: "RUB", LowerMinor: proto.Int64(50000), UpperMinor: proto.Int64(70000)},
-					PersonalAmount:    pbMoney(50000),
-					ProgramAmount:     pbMoney(20000),
-					UnknownComponents: []*pb.UnknownCostComponent{{Code: "BENEFIT_UNCONFIRMED", Message: "Benefit is not confirmed"}},
-					Provenance:        pbProvenance(),
+					PriceOfferId: id(15),
+					Audience:     "student",
+					Price: &pb.Price{
+						Status:     pb.PriceStatus_PRICE_STATUS_RANGE,
+						Currency:   "RUB",
+						LowerMinor: proto.Int64(50000),
+						UpperMinor: proto.Int64(70000),
+					},
+					PersonalAmount: pbMoney(50000),
+					ProgramAmount:  pbMoney(20000),
+					UnknownComponents: []*pb.UnknownCostComponent{
+						{Code: "BENEFIT_UNCONFIRMED", Message: "Benefit is not confirmed"},
+					},
+					Provenance: pbProvenance(),
 				},
 				AppliedConstraints: []*pb.AppliedConstraint{{
 					Code:     "FIXED_SESSION",
@@ -211,9 +255,33 @@ func pbPlan() *pb.RoutePlan {
 			},
 		},
 		Legs: []*pb.RouteLeg{
-			pbLeg(1, pb.LegEndpointKind_LEG_ENDPOINT_KIND_ORIGIN, pb.LegEndpointKind_LEG_ENDPOINT_KIND_VISIT, nil, id(1), ts(9, 40), ts(10, 0)),
-			pbLeg(2, pb.LegEndpointKind_LEG_ENDPOINT_KIND_VISIT, pb.LegEndpointKind_LEG_ENDPOINT_KIND_VISIT, id(1), id(2), ts(11, 0), ts(11, 20)),
-			pbLeg(3, pb.LegEndpointKind_LEG_ENDPOINT_KIND_VISIT, pb.LegEndpointKind_LEG_ENDPOINT_KIND_DESTINATION, id(2), nil, ts(12, 0), ts(12, 30)),
+			pbLeg(
+				1,
+				pb.LegEndpointKind_LEG_ENDPOINT_KIND_ORIGIN,
+				pb.LegEndpointKind_LEG_ENDPOINT_KIND_VISIT,
+				nil,
+				id(1),
+				ts(9, 40),
+				ts(10, 0),
+			),
+			pbLeg(
+				2,
+				pb.LegEndpointKind_LEG_ENDPOINT_KIND_VISIT,
+				pb.LegEndpointKind_LEG_ENDPOINT_KIND_VISIT,
+				id(1),
+				id(2),
+				ts(11, 0),
+				ts(11, 20),
+			),
+			pbLeg(
+				3,
+				pb.LegEndpointKind_LEG_ENDPOINT_KIND_VISIT,
+				pb.LegEndpointKind_LEG_ENDPOINT_KIND_DESTINATION,
+				id(2),
+				nil,
+				ts(12, 0),
+				ts(12, 30),
+			),
 		},
 	}
 }
@@ -230,18 +298,37 @@ func domainPlan() domain.Plan {
 		CatalogRevision: 42,
 		Result:          domain.ResultPartial,
 		Warnings: []domain.Warning{
-			{Code: "LATE_ENTRY_UNCONFIRMED", Scope: domain.ScopeVisit, VisitID: &domain.VisitID{1}, Message: "Late entry is not confirmed"},
-			{Code: "ESTIMATED_TRANSIT", Scope: domain.ScopeLeg, LegPosition: &legPosition, Message: "Transit time is estimated"},
+			{
+				Code:    "LATE_ENTRY_UNCONFIRMED",
+				Scope:   domain.ScopeVisit,
+				VisitID: &domain.VisitID{1},
+				Message: "Late entry is not confirmed",
+			},
+			{
+				Code:        "ESTIMATED_TRANSIT",
+				Scope:       domain.ScopeLeg,
+				LegPosition: &legPosition,
+				Message:     "Transit time is estimated",
+			},
 		},
-		Conflicts: []domain.Conflict{{Code: "LUNCH_SHORTENED", VisitIDs: []domain.VisitID{{2}}, SessionIDs: []domain.SessionID{{3}}, Message: "Lunch is shorter"}},
+		Conflicts: []domain.Conflict{
+			{
+				Code:       "LUNCH_SHORTENED",
+				VisitIDs:   []domain.VisitID{{2}},
+				SessionIDs: []domain.SessionID{{3}},
+				Message:    "Lunch is shorter",
+			},
+		},
 		Cost: domain.CostSummary{
-			KnownPersonal:     money(50000),
-			KnownTransport:    money(0),
-			ProgramAmount:     money(20000),
-			TotalLower:        moneyPtr(50000),
-			TotalUpper:        moneyPtr(70000),
-			UnknownComponents: []domain.UnknownCostComponent{{Code: "BENEFIT_UNCONFIRMED", Message: "Benefit is not confirmed"}},
-			BudgetConclusion:  domain.BudgetUnknown,
+			KnownPersonal:  money(50000),
+			KnownTransport: money(0),
+			ProgramAmount:  money(20000),
+			TotalLower:     moneyPtr(50000),
+			TotalUpper:     moneyPtr(70000),
+			UnknownComponents: []domain.UnknownCostComponent{
+				{Code: "BENEFIT_UNCONFIRMED", Message: "Benefit is not confirmed"},
+			},
+			BudgetConclusion: domain.BudgetUnknown,
 		},
 		Geometry: []domain.Coordinate{{Longitude: 37.59, Latitude: 55.69}, {Longitude: 37.62, Latitude: 55.72}},
 		Steps: []domain.Step{
@@ -271,20 +358,27 @@ func domainPlan() domain.Plan {
 					Availability:        domain.AvailabilityRegistrationRequired,
 					RegistrationDetails: "Register online",
 					AgeRequirements:     "16+",
-					SessionStart:        tptr(at(10, 0)),
-					SessionEnd:          tptr(at(18, 0)),
+					SessionStart:        new(at(10, 0)),
+					SessionEnd:          new(at(18, 0)),
 					SessionVersion:      "3",
 					DataMode:            domain.DataPrepared,
 					Provenance:          domainProvenance(),
 				},
 				Cost: &domain.CostSnapshot{
-					PriceOfferID:      &domain.PriceOfferID{15},
-					Audience:          domain.AudienceStudent,
-					Price:             domain.Price{Status: domain.PriceRange, Currency: "RUB", LowerMinor: proto.Int64(50000), UpperMinor: proto.Int64(70000)},
-					PersonalAmount:    moneyPtr(50000),
-					ProgramAmount:     moneyPtr(20000),
-					UnknownComponents: []domain.UnknownCostComponent{{Code: "BENEFIT_UNCONFIRMED", Message: "Benefit is not confirmed"}},
-					Provenance:        domainProvenance(),
+					PriceOfferID: &domain.PriceOfferID{15},
+					Audience:     domain.AudienceStudent,
+					Price: domain.Price{
+						Status:     domain.PriceRange,
+						Currency:   "RUB",
+						LowerMinor: proto.Int64(50000),
+						UpperMinor: proto.Int64(70000),
+					},
+					PersonalAmount: moneyPtr(50000),
+					ProgramAmount:  moneyPtr(20000),
+					UnknownComponents: []domain.UnknownCostComponent{
+						{Code: "BENEFIT_UNCONFIRMED", Message: "Benefit is not confirmed"},
+					},
+					Provenance: domainProvenance(),
 				},
 				AppliedConstraints: []domain.AppliedConstraint{{
 					Code:     "FIXED_SESSION",
@@ -294,20 +388,39 @@ func domainPlan() domain.Plan {
 				}},
 			},
 			{
-				VisitID:       second,
-				Kind:          domain.StepFreeTime,
-				Position:      2,
-				ArrivalAt:     at(11, 20),
-				VisitStartAt:  at(11, 20),
-				VisitEndAt:    at(12, 0),
-				DepartureAt:   at(12, 0),
-				Participation: domain.Participation{Status: domain.ParticipationNotRequired, Evidence: domain.EvidenceNone},
+				VisitID:      second,
+				Kind:         domain.StepFreeTime,
+				Position:     2,
+				ArrivalAt:    at(11, 20),
+				VisitStartAt: at(11, 20),
+				VisitEndAt:   at(12, 0),
+				DepartureAt:  at(12, 0),
+				Participation: domain.Participation{
+					Status:   domain.ParticipationNotRequired,
+					Evidence: domain.EvidenceNone,
+				},
 			},
 		},
 		Legs: []domain.Leg{
 			domainLeg(1, domain.EndpointOrigin, domain.EndpointVisit, nil, &domain.VisitID{1}, at(9, 40), at(10, 0)),
-			domainLeg(2, domain.EndpointVisit, domain.EndpointVisit, &domain.VisitID{1}, &domain.VisitID{2}, at(11, 0), at(11, 20)),
-			domainLeg(3, domain.EndpointVisit, domain.EndpointDestination, &domain.VisitID{2}, nil, at(12, 0), at(12, 30)),
+			domainLeg(
+				2,
+				domain.EndpointVisit,
+				domain.EndpointVisit,
+				&domain.VisitID{1},
+				&domain.VisitID{2},
+				at(11, 0),
+				at(11, 20),
+			),
+			domainLeg(
+				3,
+				domain.EndpointVisit,
+				domain.EndpointDestination,
+				&domain.VisitID{2},
+				nil,
+				at(12, 0),
+				at(12, 30),
+			),
 		},
 	}
 }
@@ -322,7 +435,12 @@ func pbConstraints() *pb.RouteConstraints {
 		BenefitPrograms:    []string{"pushkin_card"},
 		AudienceClaims:     []string{"student"},
 		Obligations: []*pb.RouteObligation{
-			{SessionId: id(14), StartsAt: ts(10, 0), ArrivalBufferSeconds: 900, Participation: pb.ParticipationStatus_PARTICIPATION_STATUS_USER_REPORTED_CONFIRMED},
+			{
+				SessionId:            id(14),
+				StartsAt:             ts(10, 0),
+				ArrivalBufferSeconds: 900,
+				Participation:        pb.ParticipationStatus_PARTICIPATION_STATUS_USER_REPORTED_CONFIRMED,
+			},
 			{VisitId: id(1), Participation: pb.ParticipationStatus_PARTICIPATION_STATUS_ACTION_REQUIRED},
 		},
 		SoftPreferences:  []string{"quiet places"},
@@ -343,7 +461,12 @@ func domainConstraints() domain.RouteConstraints {
 		BenefitPrograms:    []string{"pushkin_card"},
 		AudienceClaims:     []string{"student"},
 		Obligations: []domain.Obligation{
-			{SessionID: &domain.SessionID{14}, StartsAt: tptr(at(10, 0)), ArrivalBuffer: 15 * time.Minute, Participation: domain.ParticipationUserReported},
+			{
+				SessionID:     &domain.SessionID{14},
+				StartsAt:      new(at(10, 0)),
+				ArrivalBuffer: 15 * time.Minute,
+				Participation: domain.ParticipationUserReported,
+			},
 			{VisitID: &domain.VisitID{1}, Participation: domain.ParticipationActionRequired},
 		},
 		SoftPreferences:  []string{"quiet places"},
@@ -403,8 +526,8 @@ func domainRecomputeRequest() domain.RecomputeRequest {
 		History: []domain.VisitExecution{{
 			VisitID:     domain.VisitID{1},
 			Status:      domain.ExecutionCompleted,
-			ActualStart: tptr(at(10, 5)),
-			ActualEnd:   tptr(at(11, 0)),
+			ActualStart: new(at(10, 5)),
+			ActualEnd:   new(at(11, 0)),
 		}},
 		Trigger: domain.PinTrigger{VisitID: domain.VisitID{2}, Kind: domain.PinObligation},
 	}

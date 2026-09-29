@@ -19,10 +19,12 @@ func TestStandConfigLoads(t *testing.T) {
 	if err := cfg.Kafka.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Delivery.PollInterval != 500*time.Millisecond || cfg.Delivery.Batch != 100 || cfg.Delivery.BackoffMax != time.Minute {
+	if cfg.Delivery.PollInterval != 500*time.Millisecond || cfg.Delivery.Batch != 100 ||
+		cfg.Delivery.BackoffMax != time.Minute {
 		t.Fatalf("delivery = %+v", cfg.Delivery)
 	}
-	if cfg.Kafka.RawTopic != "integration.raw" || cfg.Kafka.ConsumerGroup != "syncer-raw" || cfg.Kafka.RawPartitions != 3 {
+	if cfg.Kafka.RawTopic != "integration.raw" || cfg.Kafka.ConsumerGroup != "syncer-raw" ||
+		cfg.Kafka.RawPartitions != 3 {
 		t.Fatalf("kafka = %+v", cfg.Kafka)
 	}
 }

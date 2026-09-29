@@ -10,7 +10,8 @@ import (
 
 func stepKinds(steps []domain.Step) []string {
 	var kinds []string
-	for _, s := range steps {
+	for i := range steps {
+		s := &steps[i]
 		kind := string(s.Kind)
 		if isRestStep(s) {
 			kind = "rest"
@@ -20,6 +21,15 @@ func stepKinds(steps []domain.Step) []string {
 	return kinds
 }
 
+func indexRestStep(steps []domain.Step) int {
+	for i := range steps {
+		if isRestStep(&steps[i]) {
+			return i
+		}
+	}
+	return -1
+}
+
 func TestRelaxedPlanShowsRestSteps(t *testing.T) {
 	var pool []domain.Candidate
 	for i := byte(1); i <= 6; i++ {
@@ -27,7 +37,7 @@ func TestRelaxedPlanShowsRestSteps(t *testing.T) {
 	}
 	res := optimize(t, pool, estimated(), func(r *domain.OptimizeRequest) { r.Constraints.LoadProfile = "relaxed" })
 	route := res.Routes[0]
-	i := slices.IndexFunc(route.Steps, isRestStep)
+	i := indexRestStep(route.Steps)
 	if i < 0 {
 		t.Fatalf("no rest step in %d steps", len(route.Steps))
 	}
@@ -46,13 +56,14 @@ func TestRestAndLunchPauseKeepTimeOrder(t *testing.T) {
 		r.Constraints.LunchWindow = &domain.LunchWindow{Start: at(12, 0), End: at(15, 0), MinDuration: 45 * time.Minute}
 	})
 	sawRest := false
-	for _, route := range res.Routes {
-		for i := 1; i < len(route.Steps); i++ {
-			if route.Steps[i].VisitStartAt.Before(route.Steps[i-1].VisitEndAt) {
-				t.Fatalf("step %d starts before step %d ends", i+1, i)
+	for i := range res.Routes {
+		route := &res.Routes[i]
+		for j := 1; j < len(route.Steps); j++ {
+			if route.Steps[j].VisitStartAt.Before(route.Steps[j-1].VisitEndAt) {
+				t.Fatalf("step %d starts before step %d ends", j+1, j)
 			}
 		}
-		sawRest = sawRest || slices.ContainsFunc(route.Steps, isRestStep)
+		sawRest = sawRest || indexRestStep(route.Steps) >= 0
 	}
 	if !sawRest {
 		t.Fatal("no route rests, so the order check proved nothing")
@@ -64,11 +75,16 @@ func TestOptimizePaceFollowsLoadProfile(t *testing.T) {
 	visits := map[string]int{}
 	for _, name := range []string{"relaxed", "moderate", "intense"} {
 		res := optimize(t, pool, estimated(), func(r *domain.OptimizeRequest) { r.Constraints.LoadProfile = name })
-		for _, route := range res.Routes {
-			visits[name] += len(slices.DeleteFunc(slices.Clone(route.Steps), func(s domain.Step) bool { return s.Kind != domain.StepVisit }))
+		for i := range res.Routes {
+			visits[name] += len(
+				slices.DeleteFunc(
+					slices.Clone(res.Routes[i].Steps),
+					func(s domain.Step) bool { return s.Kind != domain.StepVisit },
+				),
+			)
 		}
 	}
-	if !(visits["relaxed"] < visits["moderate"] && visits["moderate"] < visits["intense"]) {
+	if visits["relaxed"] >= visits["moderate"] || visits["moderate"] >= visits["intense"] {
 		t.Fatalf("visits per profile %v", visits)
 	}
 }
@@ -85,7 +101,7 @@ func TestRecomputeFillKeepsRests(t *testing.T) {
 	}
 	req := request()
 	relaxed(&req)
-	res := recomputeRequest(t, catalog, domain.RecomputeRequest{
+	res := recomputeRequest(t, catalog, &domain.RecomputeRequest{
 		City: "perm", Timezone: "Asia/Yekaterinburg", Base: base, Constraints: req.Constraints,
 		Trigger: domain.RemovalTrigger{VisitID: base.Steps[0].VisitID, Mode: domain.RemovalRebuild},
 	})
@@ -93,11 +109,13 @@ func TestRecomputeFillKeepsRests(t *testing.T) {
 		t.Fatalf("status %s", res.Status)
 	}
 	steps := res.Candidate.Steps
-	i := slices.IndexFunc(steps, isRestStep)
+	i := indexRestStep(steps)
 	if i <= 0 {
 		t.Fatalf("no rest among %d replacement steps", len(steps))
 	}
-	if steps[i].VisitEndAt.Sub(steps[i].VisitStartAt) != 15*time.Minute || steps[i].VisitStartAt.Before(steps[i-1].VisitEndAt) || steps[i+1].ArrivalAt.Before(steps[i].VisitEndAt) {
+	if steps[i].VisitEndAt.Sub(steps[i].VisitStartAt) != 15*time.Minute ||
+		steps[i].VisitStartAt.Before(steps[i-1].VisitEndAt) ||
+		steps[i+1].ArrivalAt.Before(steps[i].VisitEndAt) {
 		t.Fatalf("rest %d of %+v", i, steps)
 	}
 }
@@ -108,7 +126,7 @@ func TestRecomputeFillCountsVisitsBeforeTheGapTowardsRest(t *testing.T) {
 	park := place(2, domain.CategoryWalk, north(origin, 200))
 	relaxed := func(r *domain.OptimizeRequest) { r.Constraints.LoadProfile = "relaxed" }
 	base := optimize(t, []domain.Candidate{museum, park}, estimated(), relaxed).Routes[0]
-	if len(base.Steps) != 2 || slices.ContainsFunc(base.Steps, isRestStep) {
+	if len(base.Steps) != 2 || indexRestStep(base.Steps) >= 0 {
 		t.Fatalf("base steps %+v", base.Steps)
 	}
 	catalog := []domain.Candidate{museum, park}
@@ -117,7 +135,7 @@ func TestRecomputeFillCountsVisitsBeforeTheGapTowardsRest(t *testing.T) {
 	}
 	req := request()
 	relaxed(&req)
-	res := recomputeRequest(t, catalog, domain.RecomputeRequest{
+	res := recomputeRequest(t, catalog, &domain.RecomputeRequest{
 		City: "perm", Timezone: "Asia/Yekaterinburg", Base: base, Constraints: req.Constraints,
 		Trigger: domain.RemovalTrigger{VisitID: base.Steps[1].VisitID, Mode: domain.RemovalRebuild},
 	})
@@ -147,7 +165,7 @@ func TestRecomputeFillStartsWithADueRest(t *testing.T) {
 	}
 	req := request()
 	req.Constraints.LoadProfile = "relaxed"
-	res := recomputeRequest(t, catalog, domain.RecomputeRequest{
+	res := recomputeRequest(t, catalog, &domain.RecomputeRequest{
 		City: "perm", Timezone: "Asia/Yekaterinburg", Base: base, Constraints: req.Constraints,
 		Trigger: domain.RemovalTrigger{VisitID: base.Steps[2].VisitID, Mode: domain.RemovalRebuild},
 	})
@@ -155,7 +173,7 @@ func TestRecomputeFillStartsWithADueRest(t *testing.T) {
 		t.Fatalf("status %s", res.Status)
 	}
 	steps := res.Candidate.Steps
-	if len(steps) < 4 || isRestStep(steps[1]) || !isRestStep(steps[2]) || steps[3].Kind != domain.StepVisit {
+	if len(steps) < 4 || isRestStep(&steps[1]) || !isRestStep(&steps[2]) || steps[3].Kind != domain.StepVisit {
 		t.Fatalf("steps %v, want two kept visits, a rest and replacements", stepKinds(steps))
 	}
 }

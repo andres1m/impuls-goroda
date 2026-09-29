@@ -31,8 +31,13 @@ var (
 	}, []string{"result"})
 )
 
+const (
+	maxRetryShift = 5
+	maxRetryDelay = 30 * time.Second
+)
+
 type Starter interface {
-	Start(ctx context.Context, envelope ingest.Envelope) (existed bool, err error)
+	Start(ctx context.Context, envelope *ingest.Envelope) (existed bool, err error)
 }
 
 type groupClient interface {
@@ -53,11 +58,17 @@ type Consumer struct {
 }
 
 func NewConsumer(log *zap.Logger, cfg Config, starter Starter) *Consumer {
-	return &Consumer{log: log, cfg: cfg, starter: starter, tracer: kotel.NewTracer(kotel.ConsumerGroup(cfg.ConsumerGroup)), retryDelay: startRetryDelay}
+	return &Consumer{
+		log:        log,
+		cfg:        cfg,
+		starter:    starter,
+		tracer:     kotel.NewTracer(kotel.ConsumerGroup(cfg.ConsumerGroup)),
+		retryDelay: startRetryDelay,
+	}
 }
 
 func startRetryDelay(attempt int) time.Duration {
-	return min(time.Second<<min(attempt, 5), 30*time.Second)
+	return min(time.Second<<min(attempt, maxRetryShift), maxRetryDelay)
 }
 
 func (c *Consumer) Name() string        { return "kafka-consumer" }
@@ -107,7 +118,12 @@ func (c *Consumer) pollOnce(ctx context.Context) bool {
 		return false
 	}
 	for _, fetchErr := range fetches.Errors() {
-		c.log.Warn("kafka fetch", zap.String("topic", fetchErr.Topic), zap.Int32("partition", fetchErr.Partition), zap.Error(fetchErr.Err))
+		c.log.Warn(
+			"kafka fetch",
+			zap.String("topic", fetchErr.Topic),
+			zap.Int32("partition", fetchErr.Partition),
+			zap.Error(fetchErr.Err),
+		)
 	}
 	records := fetches.Records()
 	for _, record := range records {
@@ -137,7 +153,7 @@ func (c *Consumer) Stop(ctx context.Context) error {
 	case <-closed:
 		return nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("stop kafka consumer: %w", ctx.Err())
 	}
 }
 
@@ -151,19 +167,35 @@ func (c *Consumer) handle(ctx context.Context, record *kgo.Record) error {
 	if err != nil {
 		// ponytail: an invalid envelope is counted and dropped; it goes to the dead letter topic once that exists.
 		schemaMismatch.WithLabelValues(sourceLabel(record.Value)).Inc()
-		c.log.Error("invalid raw envelope", append([]zap.Field{zap.Int32("partition", record.Partition), zap.Int64("offset", record.Offset), zap.Error(err)}, telemetry.TraceFields(ctx)...)...)
+		c.log.Error(
+			"invalid raw envelope",
+			append(
+				[]zap.Field{
+					zap.Int32("partition", record.Partition),
+					zap.Int64("offset", record.Offset),
+					zap.Error(err),
+				},
+				telemetry.TraceFields(ctx)...)...)
 		return nil
 	}
 	for attempt := 0; ; attempt++ {
-		existed, err := c.starter.Start(ctx, envelope)
-		if err == nil {
+		existed, startErr := c.starter.Start(ctx, &envelope)
+		if startErr == nil {
 			rawWorkflows.WithLabelValues(startResult(existed)).Inc()
 			return nil
 		}
-		c.log.Warn("start raw ingest workflow", append([]zap.Field{zap.String("raw_ingest_id", envelope.RawIngestID), zap.Int("attempt", attempt), zap.Error(err)}, telemetry.TraceFields(ctx)...)...)
+		c.log.Warn(
+			"start raw ingest workflow",
+			append(
+				[]zap.Field{
+					zap.String("raw_ingest_id", envelope.RawIngestID),
+					zap.Int("attempt", attempt),
+					zap.Error(startErr),
+				},
+				telemetry.TraceFields(ctx)...)...)
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("wait to retry workflow start: %w", ctx.Err())
 		case <-time.After(c.retryDelay(attempt)):
 		}
 	}

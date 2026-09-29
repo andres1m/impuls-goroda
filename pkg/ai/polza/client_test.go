@@ -25,9 +25,15 @@ func TestModelListsFilterByTypeAndReadProviderContext(t *testing.T) {
 		}
 		switch r.URL.Query().Get("type") {
 		case "embedding":
-			_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"openai/text-embedding-3-small","name":"Small","type":"embedding","top_provider":{"context_length":8192}}]}`)
+			_, _ = io.WriteString(
+				w,
+				`{"object":"list","data":[{"id":"openai/text-embedding-3-small","name":"Small","type":"embedding","top_provider":{"context_length":8192}}]}`,
+			)
 		case "chat":
-			_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"openai/gpt-4o-mini","name":"Mini","type":"chat","top_provider":{"context_length":128000}}]}`)
+			_, _ = io.WriteString(
+				w,
+				`{"object":"list","data":[{"id":"openai/gpt-4o-mini","name":"Mini","type":"chat","top_provider":{"context_length":128000}}]}`,
+			)
 		default:
 			t.Errorf("type %q", r.URL.Query().Get("type"))
 		}
@@ -38,7 +44,8 @@ func TestModelListsFilterByTypeAndReadProviderContext(t *testing.T) {
 		t.Fatalf("embedding models %v, %v", embedding, err)
 	}
 	text, err := c.TextModels(context.Background())
-	if err != nil || len(text) != 1 || text[0] != (openaiapi.Model{ID: "openai/gpt-4o-mini", Name: "Mini", ContextLength: 128000}) {
+	if err != nil || len(text) != 1 ||
+		text[0] != (openaiapi.Model{ID: "openai/gpt-4o-mini", Name: "Mini", ContextLength: 128000}) {
 		t.Fatalf("text models %v, %v", text, err)
 	}
 }

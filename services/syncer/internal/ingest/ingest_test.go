@@ -10,7 +10,13 @@ import (
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
 )
 
-var testSource = domain.Source{Key: domain.KudaGo, Name: "Test", AccessMode: domain.AccessAPI, SchemaVersion: "1", DataMode: domain.Live}
+var testSource = domain.Source{
+	Key:           domain.KudaGo,
+	Name:          "Test",
+	AccessMode:    domain.AccessAPI,
+	SchemaVersion: "1",
+	DataMode:      domain.Live,
+}
 
 type fakeAdapter struct {
 	batch     Batch
@@ -46,8 +52,8 @@ type fakeLanding struct {
 	advanced       []time.Time
 }
 
-func (l *fakeLanding) EnsureSource(_ context.Context, s domain.Source) (SourceID, error) {
-	l.ensured = append(l.ensured, s)
+func (l *fakeLanding) EnsureSource(_ context.Context, s *domain.Source) (SourceID, error) {
+	l.ensured = append(l.ensured, *s)
 	return l.sourceID, nil
 }
 
@@ -55,16 +61,23 @@ func (l *fakeLanding) Cursor(context.Context, SourceID, domain.City) (json.RawMe
 	return l.cursor, nil
 }
 
-func (l *fakeLanding) SaveRecord(_ context.Context, source SourceID, city domain.City, mode domain.DataMode, record domain.RawRecord, fetchedAt time.Time) (bool, error) {
+func (l *fakeLanding) SaveRecord(
+	_ context.Context,
+	source SourceID,
+	city domain.City,
+	mode domain.DataMode,
+	record *domain.RawRecord,
+	fetchedAt time.Time,
+) (bool, error) {
 	if l.saveErr != nil {
 		return false, l.saveErr
 	}
-	l.saved = append(l.saved, savedRecord{source, city, mode, record, fetchedAt})
+	l.saved = append(l.saved, savedRecord{source, city, mode, *record, fetchedAt})
 	return !l.unchanged[record.ExternalID], nil
 }
 
-func (l *fakeLanding) FinishRun(_ context.Context, run Run) error {
-	l.runs = append(l.runs, run)
+func (l *fakeLanding) FinishRun(_ context.Context, run *Run) error {
+	l.runs = append(l.runs, *run)
 	return nil
 }
 
@@ -117,7 +130,7 @@ func TestIngestSavesRecordsAndCursor(t *testing.T) {
 		}
 	}
 	want := Run{SourceID: SourceID{1}, City: domain.Perm, AttemptAt: fixedNow, Cursor: adapter.batch.Cursor}
-	if len(landing.runs) != 1 || !sameRun(landing.runs[0], want) {
+	if len(landing.runs) != 1 || !sameRun(&landing.runs[0], &want) {
 		t.Fatalf("runs = %+v", landing.runs)
 	}
 }
@@ -126,7 +139,10 @@ func TestIngestPassesStoredCursorToAdapter(t *testing.T) {
 	landing := &fakeLanding{cursor: json.RawMessage(`{"dataset_version":12}`)}
 	adapter := &fakeAdapter{}
 
-	if _, err := newTestService(landing, &fakePublisher{}).Ingest(context.Background(), adapter, domain.Moscow); err != nil {
+	if _, err := newTestService(
+		landing,
+		&fakePublisher{},
+	).Ingest(context.Background(), adapter, domain.Moscow); err != nil {
 		t.Fatal(err)
 	}
 	if string(adapter.gotCursor) != `{"dataset_version":12}` {
@@ -147,7 +163,7 @@ func TestIngestRecordsFetchErrorCode(t *testing.T) {
 		t.Fatal("records saved after a failed fetch")
 	}
 	want := Run{City: domain.Moscow, AttemptAt: fixedNow, ErrorCode: "http_status_503"}
-	if len(landing.runs) != 1 || !sameRun(landing.runs[0], want) {
+	if len(landing.runs) != 1 || !sameRun(&landing.runs[0], &want) {
 		t.Fatalf("runs = %+v", landing.runs)
 	}
 }
@@ -156,7 +172,10 @@ func TestIngestRecordsStoreFailure(t *testing.T) {
 	landing := &fakeLanding{saveErr: errors.New("connection reset")}
 	adapter := &fakeAdapter{batch: Batch{Records: []domain.RawRecord{{ExternalID: "node/1"}}}}
 
-	if _, err := newTestService(landing, &fakePublisher{}).Ingest(context.Background(), adapter, domain.Perm); err == nil {
+	if _, err := newTestService(
+		landing,
+		&fakePublisher{},
+	).Ingest(context.Background(), adapter, domain.Perm); err == nil {
 		t.Fatal("expected an error")
 	}
 	if len(landing.runs) != 1 || landing.runs[0].ErrorCode != "internal" || landing.runs[0].Cursor != nil {
@@ -164,7 +183,7 @@ func TestIngestRecordsStoreFailure(t *testing.T) {
 	}
 }
 
-func sameRun(got, want Run) bool {
+func sameRun(got, want *Run) bool {
 	return got.SourceID == want.SourceID && got.City == want.City && got.AttemptAt.Equal(want.AttemptAt) &&
 		string(got.Cursor) == string(want.Cursor) && got.ErrorCode == want.ErrorCode
 }
@@ -176,7 +195,9 @@ func TestIngestPublishesUnpublishedTail(t *testing.T) {
 	fresh.RawIngestID = "1c6d4f7e-3e2b-4d9f-8a4c-8b7e6f5d4c3b"
 	landing := &fakeLanding{sourceID: SourceID{1}, unpublished: []Envelope{older, fresh}}
 	publisher := &fakePublisher{}
-	adapter := &fakeAdapter{batch: Batch{Records: []domain.RawRecord{{ExternalID: "event:1"}}, Cursor: json.RawMessage(`{}`)}}
+	adapter := &fakeAdapter{
+		batch: Batch{Records: []domain.RawRecord{{ExternalID: "event:1"}}, Cursor: json.RawMessage(`{}`)},
+	}
 
 	result, err := newTestService(landing, publisher).Ingest(context.Background(), adapter, domain.Moscow)
 	if err != nil {
@@ -197,7 +218,10 @@ func TestIngestEmptyTailAdvancesWithoutPublishing(t *testing.T) {
 	landing := &fakeLanding{}
 	publisher := &fakePublisher{}
 
-	if _, err := newTestService(landing, publisher).Ingest(context.Background(), &fakeAdapter{}, domain.Perm); err != nil {
+	if _, err := newTestService(
+		landing,
+		publisher,
+	).Ingest(context.Background(), &fakeAdapter{}, domain.Perm); err != nil {
 		t.Fatal(err)
 	}
 	if len(publisher.published) != 0 || len(landing.advanced) != 1 {
@@ -218,7 +242,7 @@ func TestIngestPublishFailureKeepsWatermarkAndCursor(t *testing.T) {
 		t.Fatalf("watermark advanced after failed publish: %v", landing.advanced)
 	}
 	want := Run{City: domain.Moscow, AttemptAt: fixedNow, Cursor: adapter.batch.Cursor, ErrorCode: "publish"}
-	if len(landing.runs) != 1 || !sameRun(landing.runs[0], want) {
+	if len(landing.runs) != 1 || !sameRun(&landing.runs[0], &want) {
 		t.Fatalf("runs = %+v", landing.runs)
 	}
 }

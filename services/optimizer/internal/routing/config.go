@@ -46,7 +46,7 @@ func (c Config) Validate() error {
 	return nil
 }
 
-func (c CityConfig) validate() error {
+func (c *CityConfig) validate() error {
 	for _, endpoint := range []string{c.Foot, c.Car} {
 		u, err := url.Parse(endpoint)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {

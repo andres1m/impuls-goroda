@@ -17,7 +17,7 @@ import (
 
 type spanStarter struct{ seen trace.SpanContext }
 
-func (s *spanStarter) Start(ctx context.Context, _ ingest.Envelope) (bool, error) {
+func (s *spanStarter) Start(ctx context.Context, _ *ingest.Envelope) (bool, error) {
 	s.seen = trace.SpanContextFromContext(ctx)
 	return false, nil
 }

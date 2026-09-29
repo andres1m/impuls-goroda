@@ -62,7 +62,19 @@ func TestGainOutweighsAWalkForAMatchingVisit(t *testing.T) {
 
 func TestGainChargesRepeatedCategory(t *testing.T) {
 	p := DefaultScoreParams()
-	if first, second := p.gain(1, time.Hour, 0, 0, 0), p.gain(1, time.Hour, 0, 0, 1); first-second != 2*p.CategoryWeight {
+	if first, second := p.gain(
+		1,
+		time.Hour,
+		0,
+		0,
+		0,
+	), p.gain(
+		1,
+		time.Hour,
+		0,
+		0,
+		1,
+	); first-second != 2*p.CategoryWeight {
 		t.Fatalf("first %v, second %v", first, second)
 	}
 }

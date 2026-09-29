@@ -1,5 +1,218 @@
+# .golangci.yml - Maximum Strictness Preset
 version: "2"
-linters:
-  default: standard
+
 run:
-  timeout: 10m
+  timeout: 5m
+  tests: true
+  relative-path-mode: gomod
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 50
+
+formatters:
+  enable:
+    - golines
+  settings:
+    golines:
+      max-len: 120
+
+linters:
+  enable:
+    # Core detection
+    - errcheck
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - unparam
+    - unconvert
+    - wastedassign
+
+    # Error handling (strict)
+    - errorlint
+    - nilerr
+    - nilnesserr
+    - wrapcheck         # External errors MUST be wrapped
+
+    # Security
+    - gosec
+    - bidichk           # Unicode security issues
+    - asciicheck        # Non-ASCII identifiers
+
+    # Code quality
+    # - revive
+    - gocritic          # Extensive style and bug checks
+    - goconst           # Repeated strings should be constants
+    - dupl              # Duplicate code detection
+    - reassign          # Reassigning top-level variables
+
+    # Complexity metrics
+    - cyclop            # Cyclomatic complexity
+    - gocognit          # Cognitive complexity
+    - funlen            # Function length limits
+    - nestif            # Deeply nested if statements
+
+    # Modern Go patterns
+    - copyloopvar
+    - intrange
+    - modernize         # Suggests modern Go idioms
+    - exptostd          # Suggests stdlib over x/exp
+
+    # HTTP/SQL resources
+    - bodyclose
+    - noctx
+    - sqlclosecheck
+    - rowserrcheck
+
+    # Magic numbers and constants
+    - mnd               # Magic number detection (renamed from gomnd)
+
+    # Naming and documentation
+    - errname           # Error variable naming conventions
+    - nakedret          # Naked returns are confusing
+
+    # Misc quality checks
+    - durationcheck     # Incorrect time.Duration multiplications
+    - exhaustive        # Exhaustive switch/map checks
+    - makezero          # Slice make with non-zero length
+    - mirror            # Incorrect byte/string comparisons
+    - musttag           # Struct tags validation
+    - nolintlint        # Validates nolint directives
+    - perfsprint        # Faster alternatives to fmt.Sprintf
+    - sloglint          # Structured logging best practices
+    - usestdlibvars     # Use stdlib constants
+    - usetesting        # Use testing.TB interface
+
+  settings:
+    cyclop:
+      max-complexity: 20
+      package-average: 8.0
+
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+
+    exhaustive:
+      check:
+        - switch
+        - map
+
+    funlen:
+      lines: 80
+      statements: 50
+
+    gocognit:
+      min-complexity: 15
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+        - opinionated
+      settings:
+        captLocal:
+          paramsOnly: false
+        underef:
+          skipRecvDeref: false
+
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+
+    mnd:
+      ignored-functions:
+        - flag.Arg
+        - flag.Duration.*
+        - flag.Float.*
+        - flag.Int.*
+        - flag.Uint.*
+        - os.Chmod
+        - os.Mkdir.*
+        - os.OpenFile
+        - os.WriteFile
+        - strconv.ParseInt
+        - strconv.ParseUint
+        - strconv.ParseFloat
+
+    nakedret:
+      max-func-lines: 0  # Disallow all naked returns
+
+    nestif:
+      min-complexity: 4
+
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-no-explanation:
+        - funlen
+        - gocognit
+        - lll
+
+    sloglint:
+      no-global: all
+      context: scope
+
+    wrapcheck:
+      extra-ignore-sigs:
+        - .JSON(
+        - .NoContent(
+        - .Redirect(
+        - (github.com/jackc/pgx/v5.Tx).Commit(
+      ignore-sig-regexps:
+        - '\.New.*Error\('
+        - '\.ErrorOrNil\('
+      ignore-package-globs:
+        - encoding/*
+        - github.com/pkg/*
+        - github.com/andres1m/impuls-goroda/*
+
+    staticcheck:
+      checks:
+        - all
+        - -ST1000
+        - -ST1016
+        - -QF1008
+
+    depguard:
+      rules:
+        deprecated:
+          deny:
+            - pkg: github.com/golang/protobuf
+              desc: Use google.golang.org/protobuf instead
+            - pkg: github.com/satori/go.uuid
+              desc: Use github.com/google/uuid instead
+            - pkg: io/ioutil
+              desc: Deprecated since Go 1.16, use io and os packages
+        non-test:
+          files:
+            - "!$test"
+          deny:
+            - pkg: math/rand$
+              desc: Use math/rand/v2 or crypto/rand instead
+
+  exclusions:
+    warn-unused: true
+    presets:
+      - std-error-handling
+      - common-false-positives
+    rules:
+      - source: 'TODO'
+        linters: [godot]
+      - path: '_test\.go'
+        linters:
+          - bodyclose
+          - dupl
+          - errcheck
+          - funlen
+          - goconst
+          - gosec
+          - noctx
+          - wrapcheck
+          - gocognit
+      - path: 'migrations/'
+        linters: [all]
+      - path: 'generated'
+        linters: [all]

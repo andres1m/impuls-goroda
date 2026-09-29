@@ -113,7 +113,10 @@ func TestCoverSubtractsHoles(t *testing.T) {
 		t.Fatal(err)
 	}
 	whole := cover(t, feature(t, map[string]string{"leisure": "park"}, [][][2]float64{outline(t, c)}))
-	holed := cover(t, feature(t, map[string]string{"leisure": "park"}, [][][2]float64{outline(t, c), outline(t, children[0])}))
+	holed := cover(
+		t,
+		feature(t, map[string]string{"leisure": "park"}, [][][2]float64{outline(t, c), outline(t, children[0])}),
+	)
 	if diff := whole[c] - holed[c]; math.Abs(diff-1.0/7) > 0.05 {
 		t.Fatalf("hole removed %f of the cell, want about 1/7", diff)
 	}
@@ -127,7 +130,12 @@ func TestCoverIgnoresOtherAreasAndOverlaps(t *testing.T) {
 	if once[c] != twice[c] {
 		t.Fatalf("overlapping areas counted twice: %f vs %f", once[c], twice[c])
 	}
-	if housing := cover(t, feature(t, map[string]string{"landuse": "residential"}, [][][2]float64{outline(t, c)})); len(housing) != 0 {
+	if housing := cover(
+		t,
+		feature(t, map[string]string{"landuse": "residential"}, [][][2]float64{outline(t, c)}),
+	); len(
+		housing,
+	) != 0 {
 		t.Fatalf("residential area counted: %v", housing)
 	}
 }
@@ -135,7 +143,10 @@ func TestCoverIgnoresOtherAreasAndOverlaps(t *testing.T) {
 func TestCoverMultiPolygon(t *testing.T) {
 	a := cellAt(t, permCenter)
 	b := cellAt(t, h3.NewLatLng(58.05, 56.30))
-	shares := cover(t, feature(t, map[string]string{"water": "river"}, [][][2]float64{outline(t, a)}, [][][2]float64{outline(t, b)}))
+	shares := cover(
+		t,
+		feature(t, map[string]string{"water": "river"}, [][][2]float64{outline(t, a)}, [][][2]float64{outline(t, b)}),
+	)
 	if shares[a] < 0.85 || shares[b] < 0.85 {
 		t.Fatalf("shares = %f, %f", shares[a], shares[b])
 	}

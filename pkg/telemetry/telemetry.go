@@ -39,7 +39,9 @@ func (t *Tracing) Init(ctx context.Context) error {
 	if t.provider != nil {
 		return errors.New("telemetry already initialized")
 	}
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
+	otel.SetTextMapPropagator(
+		propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}),
+	)
 	if t.cfg.OTLPEndpoint == "" {
 		t.log.Info("trace export disabled")
 		return nil
@@ -51,7 +53,11 @@ func (t *Tracing) Init(ctx context.Context) error {
 	if ratio == 0 {
 		ratio = 1
 	}
-	exporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithEndpoint(t.cfg.OTLPEndpoint), otlptracegrpc.WithInsecure())
+	exporter, err := otlptracegrpc.New(
+		ctx,
+		otlptracegrpc.WithEndpoint(t.cfg.OTLPEndpoint),
+		otlptracegrpc.WithInsecure(),
+	)
 	if err != nil {
 		return fmt.Errorf("create trace exporter: %w", err)
 	}

@@ -37,7 +37,7 @@ type Scenic interface {
 }
 
 // travelPenalty is what a leg costs; walking through scenic surroundings costs less, never nothing.
-func (r searchRun) travelPenalty(from, to domain.Coordinate, leg domain.TransitEstimate) float64 {
+func (r *searchRun) travelPenalty(from, to domain.Coordinate, leg *domain.TransitEstimate) float64 {
 	minutes := leg.Duration.Minutes()
 	penalty := r.score.TransitWeight * minutes
 	if leg.Mode == domain.MovementWalk && r.problem.Scenic != nil && r.score.ScenicWeight > 0 {
@@ -48,7 +48,7 @@ func (r searchRun) travelPenalty(from, to domain.Coordinate, leg domain.TransitE
 
 // walkPenalty charges walking beyond the pace's limit, the walk to the destination included; charging
 // the difference between parent and child keeps the finish from being counted twice.
-func (r searchRun) walkPenalty(b *domain.Branch) float64 {
+func (r *searchRun) walkPenalty(b *domain.Branch) float64 {
 	minutes := b.WalkMinutes
 	if b.Finish != nil && b.Finish.Mode == domain.MovementWalk {
 		minutes += b.Finish.Duration.Minutes()
@@ -57,9 +57,9 @@ func (r searchRun) walkPenalty(b *domain.Branch) float64 {
 }
 
 // finishPenalty charges the leg from position to the destination, which is part of the route's travel.
-func (r searchRun) finishPenalty(position domain.Coordinate, finish *domain.TransitEstimate) float64 {
+func (r *searchRun) finishPenalty(position domain.Coordinate, finish *domain.TransitEstimate) float64 {
 	if finish == nil {
 		return 0
 	}
-	return r.travelPenalty(position, *r.problem.Destination, *finish)
+	return r.travelPenalty(position, *r.problem.Destination, finish)
 }

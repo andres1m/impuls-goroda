@@ -20,14 +20,18 @@ import (
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/repo/postgres"
 )
 
-const sourceRequestTimeout = 3 * time.Minute
+const (
+	sourceRequestTimeout = 3 * time.Minute
+	expectedIngestArgs   = 2
+	liveAdapterCount     = 3
+)
 
 func newAdapters(client *http.Client) map[domain.SourceKey]ingest.Adapter {
-	return map[domain.SourceKey]ingest.Adapter{
-		domain.MkrfEvents: mkrf.New(),
-		domain.KudaGo:     kudago.New(kudago.DefaultBaseURL, client, time.Now),
-		domain.OSM:        osm.New(osm.DefaultBaseURL, client, time.Now),
-	}
+	adapters := make(map[domain.SourceKey]ingest.Adapter, liveAdapterCount)
+	adapters[domain.MkrfEvents] = mkrf.New()
+	adapters[domain.KudaGo] = kudago.New(kudago.DefaultBaseURL, client, time.Now)
+	adapters[domain.OSM] = osm.New(osm.DefaultBaseURL, client, time.Now)
+	return adapters
 }
 
 func parseIngestArgs(args []string, adapters map[domain.SourceKey]ingest.Adapter) (ingest.Adapter, domain.City, error) {
@@ -38,7 +42,7 @@ func parseIngestArgs(args []string, adapters map[domain.SourceKey]ingest.Adapter
 	slices.Sort(keys)
 	usage := fmt.Errorf("usage: syncer ingest <%s> <moscow|perm>", strings.Join(keys, "|"))
 
-	if len(args) != 2 {
+	if len(args) != expectedIngestArgs {
 		return nil, "", usage
 	}
 	adapter, ok := adapters[domain.SourceKey(args[0])]
@@ -52,22 +56,24 @@ func parseIngestArgs(args []string, adapters map[domain.SourceKey]ingest.Adapter
 	return adapter, city, nil
 }
 
-func runIngest(ctx context.Context, args []string) error {
+func runIngest(ctx context.Context, args []string) (retErr error) {
 	adapter, city, err := parseIngestArgs(args, newAdapters(&http.Client{Timeout: sourceRequestTimeout}))
 	if err != nil {
 		return err
 	}
 
 	var cfg appConfig
-	if err := config.Load(configPath, &cfg); err != nil {
-		return fmt.Errorf("load config: %w", err)
+	if loadErr := config.Load(configPath, &cfg); loadErr != nil {
+		return fmt.Errorf("load config: %w", loadErr)
 	}
 	// A one-shot run exports its spans too: the records it publishes carry its trace.
 	tracing := telemetry.New("syncer", cfg.Telemetry, nil)
-	if err := tracing.Init(ctx); err != nil {
-		return err
+	if initErr := tracing.Init(ctx); initErr != nil {
+		return initErr
 	}
-	defer func() { _ = tracing.Stop(context.Background()) }()
+	defer func() {
+		retErr = errors.Join(retErr, tracing.Stop(context.Background()))
+	}()
 	producer, err := kafka.NewProducer(cfg.Kafka)
 	if err != nil {
 		return err
@@ -78,7 +84,9 @@ func runIngest(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer database.Stop(context.Background())
+	defer func() {
+		retErr = errors.Join(retErr, database.Stop(context.Background()))
+	}()
 
 	service := ingest.NewService(postgres.NewLanding(database.Pool), producer, time.Now)
 	result, err := service.Ingest(ctx, adapter, city)

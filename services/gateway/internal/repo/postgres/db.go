@@ -41,18 +41,27 @@ func NewTransactor(pool *pgxpool.Pool) (*Transactor, error) {
 
 func (t *Transactor) WithinTx(
 	ctx context.Context,
-	options pgx.TxOptions,
+	options *pgx.TxOptions,
 	fn func(*Queries) error,
-) error {
+) (err error) {
 	if fn == nil {
 		return errors.New("transaction callback is required")
 	}
 
-	tx, err := t.pool.BeginTx(ctx, options)
+	var txOptions pgx.TxOptions
+	if options != nil {
+		txOptions = *options
+	}
+	tx, err := t.pool.BeginTx(ctx, txOptions)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() {
+		if rollbackErr := tx.Rollback(ctx); rollbackErr != nil &&
+			!errors.Is(rollbackErr, pgx.ErrTxClosed) && err == nil {
+			err = fmt.Errorf("rollback transaction: %w", rollbackErr)
+		}
+	}()
 
 	queries, err := NewQueries(tx)
 	if err != nil {
@@ -69,10 +78,11 @@ func (t *Transactor) WithinTx(
 
 func (t *Transactor) IssueMaxSession(
 	ctx context.Context,
-	account domain.UserAccount,
-	session domain.AuthSession,
+	account *domain.UserAccount,
+	session *domain.AuthSession,
 ) (domain.UserAccount, domain.AuthSession, error) {
-	if account.Kind != domain.AccountMax || session.IssuedVia != domain.SessionFromMax {
+	if account == nil || session == nil ||
+		account.Kind != domain.AccountMax || session.IssuedVia != domain.SessionFromMax {
 		return domain.UserAccount{}, domain.AuthSession{}, errors.New("MAX account and session issuer are required")
 	}
 	return t.issueSession(ctx, account, session, (*Queries).UpsertMaxAccount)
@@ -80,10 +90,11 @@ func (t *Transactor) IssueMaxSession(
 
 func (t *Transactor) IssueTestSession(
 	ctx context.Context,
-	account domain.UserAccount,
-	session domain.AuthSession,
+	account *domain.UserAccount,
+	session *domain.AuthSession,
 ) (domain.UserAccount, domain.AuthSession, error) {
-	if account.Kind != domain.AccountTest || session.IssuedVia != domain.SessionFromTest {
+	if account == nil || session == nil ||
+		account.Kind != domain.AccountTest || session.IssuedVia != domain.SessionFromTest {
 		return domain.UserAccount{}, domain.AuthSession{}, errors.New("test account and session issuer are required")
 	}
 	return t.issueSession(ctx, account, session, (*Queries).UpsertTestAccount)
@@ -91,24 +102,26 @@ func (t *Transactor) IssueTestSession(
 
 func (t *Transactor) issueSession(
 	ctx context.Context,
-	account domain.UserAccount,
-	session domain.AuthSession,
-	upsert func(*Queries, context.Context, domain.UserAccount) (domain.UserAccount, error),
+	account *domain.UserAccount,
+	session *domain.AuthSession,
+	upsert func(*Queries, context.Context, *domain.UserAccount) (domain.UserAccount, error),
 ) (domain.UserAccount, domain.AuthSession, error) {
 	var storedAccount domain.UserAccount
 	var storedSession domain.AuthSession
-	err := t.WithinTx(ctx, pgx.TxOptions{}, func(queries *Queries) error {
-		var err error
-		storedAccount, err = upsert(queries, ctx, account)
-		if err != nil {
-			return err
+	err := t.WithinTx(ctx, nil, func(queries *Queries) error {
+		var upsertErr error
+		storedAccount, upsertErr = upsert(queries, ctx, account)
+		if upsertErr != nil {
+			return upsertErr
 		}
 		if storedAccount.State != domain.AccountActive {
 			return ErrAccountDisabled
 		}
-		session.UserID = storedAccount.ID
-		storedSession, err = queries.CreateSession(ctx, session)
-		return err
+		sessionCopy := *session
+		sessionCopy.UserID = storedAccount.ID
+		var createErr error
+		storedSession, createErr = queries.CreateSession(ctx, &sessionCopy)
+		return createErr
 	})
 	if err != nil {
 		return domain.UserAccount{}, domain.AuthSession{}, fmt.Errorf("issue session: %w", err)

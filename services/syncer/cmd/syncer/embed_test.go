@@ -87,12 +87,12 @@ func TestEmbedCityIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
-	rows, err := seed.Expand(ds, ref, "2026-10-01", now)
+	rows, err := seed.Expand(&ds, ref, "2026-10-01", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := postgres.ApplySeed(ctx, tx, rows, now); err != nil {
-		t.Fatal(err)
+	if _, seedErr := postgres.ApplySeed(ctx, tx, &rows, now); seedErr != nil {
+		t.Fatal(seedErr)
 	}
 
 	space := ai.Space{Key: "test/" + t.Name(), Version: "d384"}

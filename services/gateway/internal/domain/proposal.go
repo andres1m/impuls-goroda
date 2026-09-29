@@ -60,74 +60,143 @@ type RouteChange struct {
 	Message            string
 }
 
-func (c RouteChange) Validate() error {
-	switch c.Kind {
-	case ChangeKept, ChangeRemoved, ChangeReplaced, ChangeTimeShifted, ChangeCostChanged, ChangeParticipationAction, ChangeVerificationChanged:
-	default:
-		return errors.New("invalid route change kind")
+func (c *RouteChange) Validate() error {
+	if err := c.validateScopeAndVisits(); err != nil {
+		return err
 	}
-	for _, visitID := range []*VisitID{c.BeforeVisitID, c.AfterVisitID} {
-		if visitID != nil {
-			if err := requiredID([16]byte(*visitID)); err != nil {
-				return err
-			}
-		}
+	if err := c.validateKindRules(); err != nil {
+		return err
 	}
+	if err := c.validateCostChange(); err != nil {
+		return err
+	}
+	if err := c.validateVerificationChange(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(c.Message) == "" {
+		return errors.New("route change message is required")
+	}
+	return nil
+}
+
+func (c *RouteChange) validateScopeAndVisits() error {
+	if err := validateOptionalVisitID(c.BeforeVisitID); err != nil {
+		return err
+	}
+	if err := validateOptionalVisitID(c.AfterVisitID); err != nil {
+		return err
+	}
+	hasVisit := c.BeforeVisitID != nil || c.AfterVisitID != nil
 	switch c.Scope {
 	case ChangeRouteScope:
-		if c.BeforeVisitID != nil || c.AfterVisitID != nil || c.LegPosition != nil {
+		if hasVisit || c.LegPosition != nil {
 			return errors.New("route change must not identify a visit or leg")
 		}
 	case ChangeVisitScope:
-		if c.LegPosition != nil || (c.BeforeVisitID == nil && c.AfterVisitID == nil) {
+		if c.LegPosition != nil || !hasVisit {
 			return errors.New("visit change requires a visit")
 		}
 	case ChangeLegScope:
-		if c.LegPosition == nil || *c.LegPosition <= 0 || c.BeforeVisitID != nil || c.AfterVisitID != nil {
+		if c.LegPosition == nil || *c.LegPosition <= 0 || hasVisit {
 			return errors.New("leg change requires a positive leg position")
 		}
 	default:
 		return errors.New("invalid route change scope")
 	}
-	if c.Kind == ChangeRemoved && (c.BeforeVisitID == nil || c.AfterVisitID != nil) {
-		return errors.New("removed change requires only the previous visit")
+	return nil
+}
+
+func validateOptionalVisitID(visitID *VisitID) error {
+	if visitID == nil {
+		return nil
 	}
-	if c.Kind == ChangeReplaced && (c.BeforeVisitID == nil || c.AfterVisitID == nil) {
-		return errors.New("replaced change requires previous and next visits")
-	}
-	if (c.Kind == ChangeKept || c.Kind == ChangeRemoved || c.Kind == ChangeReplaced || c.Kind == ChangeTimeShifted || c.Kind == ChangeParticipationAction) && c.Scope != ChangeVisitScope {
-		return errors.New("visit change kind requires visit scope")
-	}
-	if c.Kind == ChangeVerificationChanged && c.Scope != ChangeLegScope {
-		return errors.New("verification change requires leg scope")
-	}
-	if c.Kind == ChangeTimeShifted && c.TimeShiftSeconds == nil {
-		return errors.New("time shift change requires a delta")
-	}
-	if c.Kind == ChangeCostChanged {
-		if c.BeforeCost == nil || c.AfterCost == nil {
-			return errors.New("cost change requires before and after amounts")
+	return requiredID([16]byte(*visitID))
+}
+
+func (c *RouteChange) validateKindRules() error {
+	switch c.Kind {
+	case ChangeKept:
+		return c.requireVisitScope()
+	case ChangeParticipationAction:
+		return c.validateParticipationKind()
+	case ChangeRemoved:
+		return c.validateRemovedKind()
+	case ChangeReplaced:
+		return c.validateReplacedKind()
+	case ChangeTimeShifted:
+		if c.Scope != ChangeVisitScope || c.TimeShiftSeconds == nil {
+			return errors.New("time shift change requires a delta")
 		}
-		if err := c.BeforeCost.Validate(); err != nil {
-			return err
+		return nil
+	case ChangeCostChanged:
+		return nil
+	case ChangeVerificationChanged:
+		if c.Scope != ChangeLegScope {
+			return errors.New("verification change requires leg scope")
 		}
-		if err := c.AfterCost.Validate(); err != nil {
-			return err
-		}
-		if c.BeforeCost.Currency != c.AfterCost.Currency {
-			return errors.New("cost change currencies must match")
-		}
+		return nil
+	default:
+		return errors.New("invalid route change kind")
 	}
-	if c.Kind == ChangeParticipationAction && strings.TrimSpace(c.Action) == "" {
+}
+
+func (c *RouteChange) validateParticipationKind() error {
+	if err := c.requireVisitScope(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(c.Action) == "" {
 		return errors.New("participation change requires an action")
 	}
-	if c.Kind == ChangeVerificationChanged {
-		if c.BeforeVerification == nil || c.AfterVerification == nil || !validVerification(*c.BeforeVerification) || !validVerification(*c.AfterVerification) {
-			return errors.New("verification change requires valid before and after states")
-		}
+	return nil
+}
+
+func (c *RouteChange) validateRemovedKind() error {
+	if c.Scope != ChangeVisitScope || c.BeforeVisitID == nil || c.AfterVisitID != nil {
+		return errors.New("removed change requires only the previous visit")
 	}
-	if strings.TrimSpace(c.Message) == "" {
-		return errors.New("route change message is required")
+	return nil
+}
+
+func (c *RouteChange) validateReplacedKind() error {
+	if c.Scope != ChangeVisitScope || c.BeforeVisitID == nil || c.AfterVisitID == nil {
+		return errors.New("replaced change requires previous and next visits")
+	}
+	return nil
+}
+
+func (c *RouteChange) requireVisitScope() error {
+	if c.Scope != ChangeVisitScope {
+		return errors.New("visit change kind requires visit scope")
+	}
+	return nil
+}
+
+func (c *RouteChange) validateCostChange() error {
+	if c.Kind != ChangeCostChanged {
+		return nil
+	}
+	if c.BeforeCost == nil || c.AfterCost == nil {
+		return errors.New("cost change requires before and after amounts")
+	}
+	if err := c.BeforeCost.Validate(); err != nil {
+		return err
+	}
+	if err := c.AfterCost.Validate(); err != nil {
+		return err
+	}
+	if c.BeforeCost.Currency != c.AfterCost.Currency {
+		return errors.New("cost change currencies must match")
+	}
+	return nil
+}
+
+func (c *RouteChange) validateVerificationChange() error {
+	if c.Kind != ChangeVerificationChanged {
+		return nil
+	}
+	if c.BeforeVerification == nil || c.AfterVerification == nil || !validVerification(*c.BeforeVerification) ||
+		!validVerification(*c.AfterVerification) {
+		return errors.New("verification change requires valid before and after states")
 	}
 	return nil
 }
@@ -157,7 +226,17 @@ type RouteProposal struct {
 	AppliedRevision     *RouteRevisionNumber
 }
 
-func (p RouteProposal) Validate() error {
+func (p *RouteProposal) Validate() error {
+	if err := p.validateHeader(); err != nil {
+		return err
+	}
+	if err := p.validateContent(); err != nil {
+		return err
+	}
+	return p.validateState()
+}
+
+func (p *RouteProposal) validateHeader() error {
 	if err := requiredID([16]byte(p.ID)); err != nil {
 		return err
 	}
@@ -172,14 +251,18 @@ func (p RouteProposal) Validate() error {
 	}
 	switch p.Reason {
 	case ProposalDelay, ProposalCancel, ProposalDelete, ProposalPin, ProposalWeather:
+		return nil
 	default:
 		return errors.New("invalid proposal reason")
 	}
+}
+
+func (p *RouteProposal) validateContent() error {
 	if err := p.Candidate.Validate(); err != nil {
 		return err
 	}
-	for _, change := range p.Changes {
-		if err := change.Validate(); err != nil {
+	for i := range p.Changes {
+		if err := p.Changes[i].Validate(); err != nil {
 			return err
 		}
 	}
@@ -188,46 +271,57 @@ func (p RouteProposal) Validate() error {
 			return err
 		}
 	}
+	return nil
+}
+
+func (p *RouteProposal) validateState() error {
 	if p.EffectiveStartAt != nil && p.EffectiveStartAt.IsZero() {
 		return errors.New("proposal effective start is invalid")
 	}
 	if p.CreatedAt.IsZero() {
 		return errors.New("proposal creation time is required")
 	}
+	if p.ResolvedAt != nil && p.ResolvedAt.Before(p.CreatedAt) {
+		return errors.New("proposal resolution precedes creation")
+	}
 	switch p.State {
 	case ProposalPending:
 		if p.ResolvedAt != nil || p.AppliedRevision != nil {
 			return errors.New("pending proposal must not be resolved")
 		}
+		return nil
 	case ProposalApplied:
-		if p.ResolvedAt == nil || p.AppliedRevision == nil {
-			return errors.New("applied proposal requires resolution and revision")
-		}
-		if err := p.AppliedRevision.Validate(); err != nil {
-			return err
-		}
-		if *p.AppliedRevision <= p.BaseRevision {
-			return errors.New("applied revision must follow base revision")
-		}
+		return p.validateAppliedState()
 	case ProposalRejected, ProposalInvalidated:
 		if p.ResolvedAt == nil || p.AppliedRevision != nil {
 			return errors.New("closed proposal requires resolution without applied revision")
 		}
+		return nil
 	default:
 		return errors.New("invalid proposal state")
 	}
-	if p.ResolvedAt != nil && p.ResolvedAt.Before(p.CreatedAt) {
-		return errors.New("proposal resolution precedes creation")
+}
+
+func (p *RouteProposal) validateAppliedState() error {
+	if p.ResolvedAt == nil || p.AppliedRevision == nil {
+		return errors.New("applied proposal requires resolution and revision")
+	}
+	if err := p.AppliedRevision.Validate(); err != nil {
+		return err
+	}
+	if *p.AppliedRevision <= p.BaseRevision {
+		return errors.New("applied revision must follow base revision")
 	}
 	return nil
 }
 
-func (p RouteProposal) Clone() RouteProposal {
-	clone := p
+func (p *RouteProposal) Clone() RouteProposal {
+	clone := *p
 	clone.Candidate = p.Candidate.Clone()
 	clone.Changes = make([]RouteChange, len(p.Changes))
-	for i, change := range p.Changes {
-		clone.Changes[i] = change
+	for i := range p.Changes {
+		change := &p.Changes[i]
+		clone.Changes[i] = *change
 		clone.Changes[i].BeforeVisitID = cloneVisitID(change.BeforeVisitID)
 		clone.Changes[i].AfterVisitID = cloneVisitID(change.AfterVisitID)
 		clone.Changes[i].TimeShiftSeconds = cloneInt64(change.TimeShiftSeconds)

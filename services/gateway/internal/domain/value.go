@@ -42,23 +42,34 @@ func (p Price) Validate() error {
 	if strings.TrimSpace(p.Currency) == "" {
 		return errors.New("price currency is required")
 	}
-	switch p.Status {
-	case PriceFree:
-		if p.LowerMinor == nil || p.UpperMinor == nil || *p.LowerMinor != 0 || *p.UpperMinor != 0 {
-			return errors.New("free price must have zero bounds")
-		}
-	case PriceFixed:
-		if p.LowerMinor == nil || p.UpperMinor == nil || *p.LowerMinor < 0 || *p.LowerMinor != *p.UpperMinor {
-			return errors.New("fixed price must have equal non-negative bounds")
-		}
-	case PriceRange:
-		if p.LowerMinor == nil || p.UpperMinor == nil || *p.LowerMinor < 0 || *p.UpperMinor < *p.LowerMinor {
-			return errors.New("price range bounds are invalid")
-		}
-	case PriceUnknown:
+	if p.Status == PriceUnknown {
 		if p.LowerMinor != nil || p.UpperMinor != nil {
 			return errors.New("unknown price must not have bounds")
 		}
+		return nil
+	}
+	if p.LowerMinor == nil || p.UpperMinor == nil {
+		return errors.New("price bounds are required")
+	}
+	return p.validateBounds(*p.LowerMinor, *p.UpperMinor)
+}
+
+func (p Price) validateBounds(lower, upper int64) error {
+	switch p.Status {
+	case PriceFree:
+		if lower != 0 || upper != 0 {
+			return errors.New("free price must have zero bounds")
+		}
+	case PriceFixed:
+		if lower < 0 || lower != upper {
+			return errors.New("fixed price must have equal non-negative bounds")
+		}
+	case PriceRange:
+		if lower < 0 || upper < lower {
+			return errors.New("price range bounds are invalid")
+		}
+	case PriceUnknown:
+		return errors.New("unknown price must not have bounds")
 	default:
 		return errors.New("invalid price status")
 	}
@@ -71,7 +82,11 @@ type Coordinate struct {
 }
 
 func (c Coordinate) Validate() error {
-	if math.IsNaN(c.Longitude) || math.IsInf(c.Longitude, 0) || math.IsNaN(c.Latitude) || math.IsInf(c.Latitude, 0) || c.Longitude < -180 || c.Longitude > 180 || c.Latitude < -90 || c.Latitude > 90 {
+	if math.IsNaN(c.Longitude) || math.IsInf(c.Longitude, 0) || math.IsNaN(c.Latitude) || math.IsInf(c.Latitude, 0) ||
+		c.Longitude < -180 ||
+		c.Longitude > 180 ||
+		c.Latitude < -90 ||
+		c.Latitude > 90 {
 		return errors.New("coordinate is outside valid range")
 	}
 	return nil
@@ -131,6 +146,28 @@ func (c UnknownCostComponent) Validate() error {
 	return nil
 }
 
+func validateUnknownCostComponents(components []UnknownCostComponent) error {
+	for _, component := range components {
+		if err := component.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateOptionalMoneyCurrency(amount *Money, currency string) error {
+	if amount == nil {
+		return nil
+	}
+	if err := amount.Validate(); err != nil {
+		return err
+	}
+	if amount.Currency != currency {
+		return errors.New("cost snapshot currencies must match")
+	}
+	return nil
+}
+
 type CostSnapshot struct {
 	PriceOfferID      *PriceOfferID
 	Audience          string
@@ -141,7 +178,7 @@ type CostSnapshot struct {
 	Provenance        FactProvenance
 }
 
-func (s CostSnapshot) Validate() error {
+func (s *CostSnapshot) Validate() error {
 	if err := s.Price.Validate(); err != nil {
 		return err
 	}
@@ -150,20 +187,14 @@ func (s CostSnapshot) Validate() error {
 			return err
 		}
 	}
-	for _, amount := range []*Money{s.PersonalAmount, s.ProgramAmount} {
-		if amount != nil {
-			if err := amount.Validate(); err != nil {
-				return err
-			}
-			if amount.Currency != s.Price.Currency {
-				return errors.New("cost snapshot currencies must match")
-			}
-		}
+	if err := validateOptionalMoneyCurrency(s.PersonalAmount, s.Price.Currency); err != nil {
+		return err
 	}
-	for _, component := range s.UnknownComponents {
-		if err := component.Validate(); err != nil {
-			return err
-		}
+	if err := validateOptionalMoneyCurrency(s.ProgramAmount, s.Price.Currency); err != nil {
+		return err
+	}
+	if err := validateUnknownCostComponents(s.UnknownComponents); err != nil {
+		return err
 	}
 	return s.Provenance.Validate()
 }
@@ -187,7 +218,25 @@ type CostSummary struct {
 	BudgetConclusion  BudgetConclusion
 }
 
-func (s CostSummary) Validate() error {
+func (s *CostSummary) Validate() error {
+	if err := s.validateKnownAmounts(); err != nil {
+		return err
+	}
+	if err := s.validateTotalBounds(); err != nil {
+		return err
+	}
+	if err := validateUnknownCostComponents(s.UnknownComponents); err != nil {
+		return err
+	}
+	switch s.BudgetConclusion {
+	case BudgetNotApplicable, BudgetSatisfied, BudgetViolated, BudgetUnknown:
+		return nil
+	default:
+		return errors.New("invalid budget conclusion")
+	}
+}
+
+func (s *CostSummary) validateKnownAmounts() error {
 	amounts := []Money{s.KnownPersonal, s.KnownTransport, s.ProgramAmount}
 	for _, amount := range amounts {
 		if err := amount.Validate(); err != nil {
@@ -200,29 +249,25 @@ func (s CostSummary) Validate() error {
 	if s.KnownTransport.AmountMinor > s.KnownPersonal.AmountMinor {
 		return errors.New("transport cost must be included in personal cost")
 	}
+	return nil
+}
+
+func (s *CostSummary) validateTotalBounds() error {
 	if (s.TotalLower == nil) != (s.TotalUpper == nil) {
 		return errors.New("total cost bounds must be provided together")
 	}
-	if s.TotalLower != nil {
-		if err := s.TotalLower.Validate(); err != nil {
-			return err
-		}
-		if err := s.TotalUpper.Validate(); err != nil {
-			return err
-		}
-		if s.TotalLower.Currency != s.KnownPersonal.Currency || s.TotalUpper.Currency != s.KnownPersonal.Currency || s.TotalUpper.AmountMinor < s.TotalLower.AmountMinor {
-			return errors.New("total cost range is invalid")
-		}
-	}
-	for _, component := range s.UnknownComponents {
-		if err := component.Validate(); err != nil {
-			return err
-		}
-	}
-	switch s.BudgetConclusion {
-	case BudgetNotApplicable, BudgetSatisfied, BudgetViolated, BudgetUnknown:
+	if s.TotalLower == nil {
 		return nil
-	default:
-		return errors.New("invalid budget conclusion")
 	}
+	if err := s.TotalLower.Validate(); err != nil {
+		return err
+	}
+	if err := s.TotalUpper.Validate(); err != nil {
+		return err
+	}
+	if s.TotalLower.Currency != s.KnownPersonal.Currency || s.TotalUpper.Currency != s.KnownPersonal.Currency ||
+		s.TotalUpper.AmountMinor < s.TotalLower.AmountMinor {
+		return errors.New("total cost range is invalid")
+	}
+	return nil
 }

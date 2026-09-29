@@ -13,10 +13,10 @@ func (h *Handler) Recompute(ctx context.Context, in *pb.RecomputeRequest) (*pb.R
 	if err != nil {
 		return nil, toStatus(h.log, method, err)
 	}
-	if err := req.Validate(); err != nil {
-		return nil, toStatus(h.log, method, invalidRequest("request", err))
+	if validationErr := req.Validate(); validationErr != nil {
+		return nil, toStatus(h.log, method, invalidRequest("request", validationErr))
 	}
-	res, err := h.planner.Recompute(ctx, req)
+	res, err := h.planner.Recompute(ctx, &req)
 	if err != nil {
 		return nil, toStatus(h.log, method, err)
 	}
@@ -25,8 +25,12 @@ func (h *Handler) Recompute(ctx context.Context, in *pb.RecomputeRequest) (*pb.R
 	}
 	if res.Candidate != nil {
 		if err := res.Candidate.ValidateBudget(req.Constraints.Budget); err != nil {
-			return nil, toStatus(h.log, method, fmt.Errorf("planner returned a candidate with an invalid budget: %w", err))
+			return nil, toStatus(
+				h.log,
+				method,
+				fmt.Errorf("planner returned a candidate with an invalid budget: %w", err),
+			)
 		}
 	}
-	return recomputeResponseToProto(res), nil
+	return recomputeResponseToProto(&res), nil
 }

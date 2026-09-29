@@ -22,7 +22,9 @@ func TestParseTakesMedianOfRuns(t *testing.T) {
 		t.Fatalf("results %+v", got.Results)
 	}
 	r := got.Results[0]
-	if r.Name != "BenchmarkOptimize/pool=60" || r.Runs != 3 || r.Iters != 100 || r.NsOp != 3e6 || r.P50 != 2 || r.P99 != 5 || r.AllocsOp != 800 {
+	if r.Name != "BenchmarkOptimize/pool=60" || r.Runs != 3 || r.Iters != 100 || r.NsOp != 3e6 || r.P50 != 2 ||
+		r.P99 != 5 ||
+		r.AllocsOp != 800 {
 		t.Fatalf("result %+v", r)
 	}
 }
@@ -131,7 +133,8 @@ func TestRenderStatesMedianAndProcs(t *testing.T) {
 	if err := render(&buf, map[string]string{}, rep, "cpu", "mem"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(buf.String(), "- GOMAXPROCS: 16") || strings.Contains(buf.String(), "one machine and one run") {
+	if !strings.Contains(buf.String(), "- GOMAXPROCS: 16") ||
+		strings.Contains(buf.String(), "one machine and one run") {
 		t.Fatalf("report:\n%s", buf.String())
 	}
 }

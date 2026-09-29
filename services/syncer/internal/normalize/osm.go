@@ -29,23 +29,46 @@ type osmMapping struct {
 	tag        string
 }
 
+const (
+	osmKeyAmenity   = "amenity"
+	osmKeyLeisure   = "leisure"
+	osmKeyTourism   = "tourism"
+	categoryCulture = "culture"
+
+	priceFree            = "free"
+	codeBadPayload       = "bad_payload"
+	codeMissingName      = "missing_name"
+	codeMissingPlace     = "missing_place"
+	codeBadCoordinates   = "bad_coordinates"
+	tagPerformingArts    = "performing_arts"
+	tagLecturesWorkshops = "lectures_workshops"
+	tagCinema            = "cinema"
+	tagExcursions        = "excursions"
+	tagContemporaryArt   = "contemporary_art"
+	tagClassicalArt      = "classical_art"
+	tagScienceTech       = "science_tech"
+	categoryGastro       = "gastro"
+	categoryWalk         = "walk"
+	tagGastroCoffee      = "gastro_coffee"
+)
+
 // osmMappings are matched in order: an element with several known tags takes the first.
 var osmMappings = []osmMapping{
-	{"tourism", "museum", "culture", "classical_art"},
-	{"tourism", "gallery", "culture", "contemporary_art"},
-	{"amenity", "arts_centre", "culture", "contemporary_art"},
-	{"amenity", "theatre", "culture", "performing_arts"},
-	{"amenity", "cinema", "culture", "cinema"},
-	{"tourism", "zoo", "tourism", "excursions"},
-	{"tourism", "theme_park", "tourism", "excursions"},
-	{"leisure", "park", "walk", "city_walk"},
-	{"leisure", "garden", "walk", "city_walk"},
-	{"leisure", "sports_centre", "sport", ""},
-	{"leisure", "stadium", "sport", ""},
-	{"amenity", "cafe", "gastro", "gastro_coffee"},
-	{"amenity", "restaurant", "gastro", "gastro_coffee"},
-	{"amenity", "fast_food", "gastro", "gastro_coffee"},
-	{"amenity", "food_court", "gastro", "gastro_coffee"},
+	{osmKeyTourism, "museum", categoryCulture, tagClassicalArt},
+	{osmKeyTourism, "gallery", categoryCulture, tagContemporaryArt},
+	{osmKeyAmenity, "arts_centre", categoryCulture, tagContemporaryArt},
+	{osmKeyAmenity, "theatre", categoryCulture, tagPerformingArts},
+	{osmKeyAmenity, tagCinema, categoryCulture, tagCinema},
+	{osmKeyTourism, "zoo", osmKeyTourism, tagExcursions},
+	{osmKeyTourism, "theme_park", osmKeyTourism, tagExcursions},
+	{osmKeyLeisure, "park", categoryWalk, "city_walk"},
+	{osmKeyLeisure, "garden", categoryWalk, "city_walk"},
+	{osmKeyLeisure, "sports_centre", "sport", ""},
+	{osmKeyLeisure, "stadium", "sport", ""},
+	{osmKeyAmenity, "cafe", categoryGastro, tagGastroCoffee},
+	{osmKeyAmenity, "restaurant", categoryGastro, tagGastroCoffee},
+	{osmKeyAmenity, "fast_food", categoryGastro, tagGastroCoffee},
+	{osmKeyAmenity, "food_court", categoryGastro, tagGastroCoffee},
 }
 
 type osmPoint struct {
@@ -65,18 +88,19 @@ var unknownHours = json.RawMessage(`{}`)
 func OSMPlace(externalID string, payload []byte) (PlaceDraft, error) {
 	var el osmElement
 	if err := json.Unmarshal(payload, &el); err != nil {
-		return PlaceDraft{}, &DataError{Code: "bad_payload"}
+		return PlaceDraft{}, &DataError{Code: codeBadPayload}
 	}
 	title := strings.TrimSpace(el.Tags["name"])
 	if title == "" {
-		return PlaceDraft{}, &DataError{Code: "missing_name"}
+		return PlaceDraft{}, &DataError{Code: codeMissingName}
 	}
 	point := el.osmPoint
 	if el.Center != nil {
 		point = *el.Center
 	}
-	if point.Lat == nil || point.Lon == nil || *point.Lat < -90 || *point.Lat > 90 || *point.Lon < -180 || *point.Lon > 180 {
-		return PlaceDraft{}, &DataError{Code: "bad_coordinates"}
+	if point.Lat == nil || point.Lon == nil || *point.Lat < -90 || *point.Lat > 90 || *point.Lon < -180 ||
+		*point.Lon > 180 {
+		return PlaceDraft{}, &DataError{Code: codeBadCoordinates}
 	}
 	i := mappingIndex(el.Tags)
 	if i < 0 {
@@ -84,8 +108,14 @@ func OSMPlace(externalID string, payload []byte) (PlaceDraft, error) {
 	}
 	m := osmMappings[i]
 	p := PlaceDraft{
-		ExternalID: externalID, Title: title, NormalizedTitle: NormalizedTitle(title), Category: m.category,
-		Lat: *point.Lat, Lon: *point.Lon, Address: osmAddress(el.Tags), OpeningRules: osmOpeningRules(el.Tags, m.category),
+		ExternalID:      externalID,
+		Title:           title,
+		NormalizedTitle: NormalizedTitle(title),
+		Category:        m.category,
+		Lat:             *point.Lat,
+		Lon:             *point.Lon,
+		Address:         osmAddress(el.Tags),
+		OpeningRules:    osmOpeningRules(el.Tags, m.category),
 	}
 	if m.tag != "" {
 		p.Tags = []string{m.tag}

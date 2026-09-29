@@ -24,7 +24,11 @@ var lunchRadii = []float64{300, 500, 800, 1000}
 
 // LunchSlotFor reserves 45 to 60 minutes, or the whole window when the user gave a shorter one.
 func LunchSlotFor(w domain.LunchWindow) LunchSlot {
-	return LunchSlot{Start: w.Start, End: w.End, Duration: min(max(w.MinDuration, shortestLunch), longestLunch, w.End.Sub(w.Start))}
+	return LunchSlot{
+		Start:    w.Start,
+		End:      w.End,
+		Duration: min(max(w.MinDuration, shortestLunch), longestLunch, w.End.Sub(w.Start)),
+	}
 }
 
 func (l LunchSlot) Validate() error {
@@ -41,27 +45,28 @@ func lunchVenue(c *domain.Candidate, lunch time.Duration) bool {
 }
 
 // lunchPending is true when the branch has yet to reserve the problem's lunch.
-func (r searchRun) lunchPending(b *domain.Branch) bool {
+func (r *searchRun) lunchPending(b *domain.Branch) bool {
 	return r.problem.Lunch != nil && b.Lunch == nil
 }
 
 // lunchStillFits is false for a branch that has left no time for lunch.
-func (r searchRun) lunchStillFits(b *domain.Branch) bool {
+func (r *searchRun) lunchStillFits(b *domain.Branch) bool {
 	return !r.lunchPending(b) || !b.Now.After(r.problem.Lunch.End.Add(-r.problem.Lunch.Duration))
+}
+
+type lunchVenueBranch struct {
+	branch       *domain.Branch
+	distance     float64
+	hoursUnknown bool
 }
 
 // lunches are the ways the branch can have lunch next: at the venues of the nearest ring that has
 // one, or, with no venue within the widest ring, as a pause where the user stands.
-func (r searchRun) lunches(parent *domain.Branch) []*domain.Branch {
+func (r *searchRun) lunches(parent *domain.Branch) []*domain.Branch {
 	if !r.lunchPending(parent) || !r.lunchStillFits(parent) {
 		return nil
 	}
-	type venue struct {
-		branch       *domain.Branch
-		distance     float64
-		hoursUnknown bool
-	}
-	var venues []venue
+	var venues []lunchVenueBranch
 	widest := lunchRadii[len(lunchRadii)-1]
 	for _, i := range r.lunchVenues {
 		d := distanceMeters(parent.Position, r.pool[i].Place.Location)
@@ -69,26 +74,12 @@ func (r searchRun) lunches(parent *domain.Branch) []*domain.Branch {
 			continue
 		}
 		if child, ok := r.lunchAt(parent, i); ok {
-			venues = append(venues, venue{child, d, r.pool[i].Window.HoursUnknown})
+			venues = append(venues, lunchVenueBranch{child, d, r.pool[i].Window.HoursUnknown})
 		}
 	}
 	for _, radius := range lunchRadii {
-		// Within the ring a place with known hours beats one whose hours are only assumed.
-		var known, unknown []*domain.Branch
-		for _, v := range venues {
-			switch {
-			case v.distance > radius:
-			case v.hoursUnknown:
-				unknown = append(unknown, v.branch)
-			default:
-				known = append(known, v.branch)
-			}
-		}
-		if len(known) > 0 {
-			return known
-		}
-		if len(unknown) > 0 {
-			return unknown
+		if ring := branchesInRadius(venues, radius); len(ring) > 0 {
+			return ring
 		}
 	}
 	if child, ok := r.lunchPause(parent); ok {
@@ -97,11 +88,30 @@ func (r searchRun) lunches(parent *domain.Branch) []*domain.Branch {
 	return nil
 }
 
+func branchesInRadius(venues []lunchVenueBranch, radius float64) []*domain.Branch {
+	// Within the ring a place with known hours beats one whose hours are only assumed.
+	var known, unknown []*domain.Branch
+	for _, v := range venues {
+		switch {
+		case v.distance > radius:
+		case v.hoursUnknown:
+			unknown = append(unknown, v.branch)
+		default:
+			known = append(known, v.branch)
+		}
+	}
+	if len(known) > 0 {
+		return known
+	}
+	return unknown
+}
+
 // lunchAt has lunch at venue i for exactly the lunch's duration within both the lunch window and
 // the venue's own hours.
-func (r searchRun) lunchAt(parent *domain.Branch, i int) (*domain.Branch, bool) {
+func (r *searchRun) lunchAt(parent *domain.Branch, i int) (*domain.Branch, bool) {
 	c := &r.pool[i]
-	if _, visited := parent.VisitedPlaces[c.Place.ID]; visited || !r.priced[i] || !r.problem.Pricing.Fits(parent.KnownCost, r.quotes[i]) {
+	if _, visited := parent.VisitedPlaces[c.Place.ID]; visited || !r.priced[i] ||
+		!r.problem.Pricing.Fits(parent.KnownCost, r.quotes[i]) {
 		return nil, false
 	}
 	leg, ok := r.transit.Estimate(parent.Position, c.Place.Location, parent.Now, r.problem.Modes)
@@ -117,15 +127,22 @@ func (r searchRun) lunchAt(parent *domain.Branch, i int) (*domain.Branch, bool) 
 	if !ok {
 		return nil, false
 	}
-	visit := domain.SearchVisit{Candidate: c, Transit: leg, ArrivalAt: arrival, Buffer: slot.Buffer, StartAt: slot.StartAt, EndAt: slot.EndAt}
-	child := r.extend(parent, visit, finish, r.utilities[i], r.quotes[i], true)
+	visit := domain.SearchVisit{
+		Candidate: c,
+		Transit:   leg,
+		ArrivalAt: arrival,
+		Buffer:    slot.Buffer,
+		StartAt:   slot.StartAt,
+		EndAt:     slot.EndAt,
+	}
+	child := r.extend(parent, &visit, finish, r.utilities[i], r.quotes[i], true)
 	child.Lunch = &domain.Lunch{At: len(child.Visits) - 1, Venue: true, StartAt: slot.StartAt, EndAt: slot.EndAt}
 	return child, r.anchorsReachable(child)
 }
 
 // lunchPause keeps the lunch time free where the user stands; it earns nothing and counts in no
 // category, while the wait before it is still waiting.
-func (r searchRun) lunchPause(parent *domain.Branch) (*domain.Branch, bool) {
+func (r *searchRun) lunchPause(parent *domain.Branch) (*domain.Branch, bool) {
 	l := r.problem.Lunch
 	start := later(parent.Now, l.Start)
 	end := start.Add(l.Duration)
@@ -142,7 +159,14 @@ func (r searchRun) lunchPause(parent *domain.Branch) (*domain.Branch, bool) {
 	}
 	child := parent.Clone()
 	// The user stays put, so only the time the leg to the destination starts at can change.
-	child.Score += r.finishPenalty(parent.Position, parent.Finish) - r.finishPenalty(parent.Position, finish) - r.score.WaitWeight*start.Sub(parent.Now).Minutes()
+	child.Score += r.finishPenalty(
+		parent.Position,
+		parent.Finish,
+	) - r.finishPenalty(
+		parent.Position,
+		finish,
+	) - r.score.WaitWeight*start.Sub(parent.Now).
+		Minutes()
 	child.Finish = finish
 	child.Score += r.walkPenalty(parent) - r.walkPenalty(child)
 	child.Now = end

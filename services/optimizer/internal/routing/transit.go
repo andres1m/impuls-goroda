@@ -27,7 +27,15 @@ type graphTable struct {
 
 // newMatrixTransit takes the walking and road tables over points; either may be nil when no
 // allowed mode needs it.
-func newMatrixTransit(points []domain.Coordinate, foot, car *Table, city CityConfig, snapMeters float64) (*MatrixTransit, error) {
+const secondsPerMinute = 60
+
+//nolint:gocritic // transit keeps a snapshot of the city configuration
+func newMatrixTransit(
+	points []domain.Coordinate,
+	foot, car *Table,
+	city CityConfig,
+	snapMeters float64,
+) (*MatrixTransit, error) {
 	m := &MatrixTransit{points: make(map[domain.Coordinate]int, len(points)), city: city, snapMeters: snapMeters}
 	for i, p := range points {
 		m.points[p] = i
@@ -54,7 +62,11 @@ func dated(t *Table) (*graphTable, error) {
 	return &graphTable{Table: t, observedAt: observedAt}, nil
 }
 
-func (m *MatrixTransit) Estimate(from, to domain.Coordinate, _ time.Time, modes []domain.MovementMode) (domain.TransitEstimate, bool) {
+func (m *MatrixTransit) Estimate(
+	from, to domain.Coordinate,
+	_ time.Time,
+	modes []domain.MovementMode,
+) (domain.TransitEstimate, bool) {
 	i, okFrom := m.points[from]
 	j, okTo := m.points[to]
 	if !okFrom || !okTo {
@@ -98,7 +110,14 @@ func (m *MatrixTransit) transit(i, j int, modes []domain.MovementMode) (domain.T
 		return domain.TransitEstimate{}, false
 	}
 	minutes := m.city.TransitWaitMinutes + meters/m.city.TransitMetersPerMinute
-	return m.estimate(domain.MovementTransit, meters, minutes, m.car, "osm_road_network", "transit_estimated_from_road_distance"), true
+	return m.estimate(
+		domain.MovementTransit,
+		meters,
+		minutes,
+		m.car,
+		"osm_road_network",
+		"transit_estimated_from_road_distance",
+	), true
 }
 
 func (m *MatrixTransit) drive(i, j int, modes []domain.MovementMode) (domain.TransitEstimate, bool) {
@@ -122,11 +141,17 @@ func (m *MatrixTransit) pair(t *graphTable, i, j int) (seconds, meters float64, 
 	return t.Pair(i, j)
 }
 
-func (m *MatrixTransit) estimate(mode domain.MovementMode, meters, minutes float64, t *graphTable, method string, limitations ...string) domain.TransitEstimate {
+func (m *MatrixTransit) estimate(
+	mode domain.MovementMode,
+	meters, minutes float64,
+	t *graphTable,
+	method string,
+	limitations ...string,
+) domain.TransitEstimate {
 	return domain.TransitEstimate{
 		Mode:           mode,
 		DistanceMeters: meters,
-		Duration:       time.Duration(math.Round(minutes*60)) * time.Second,
+		Duration:       time.Duration(math.Round(minutes*secondsPerMinute)) * time.Second,
 		// OpenStreetMap shows a street existed when the data was taken, not that it is open now.
 		Verification: domain.VerificationEstimated,
 		Evidence: domain.LegEvidence{

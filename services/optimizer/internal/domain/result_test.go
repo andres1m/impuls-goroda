@@ -6,7 +6,7 @@ import (
 )
 
 func validFreshness() DataFreshness {
-	return DataFreshness{DataMode: DataPrepared, DataAsOf: timePtr(fetched), CatalogRevision: 42}
+	return DataFreshness{DataMode: DataPrepared, DataAsOf: new(fetched), CatalogRevision: 42}
 }
 
 func conflict() Conflict {
@@ -43,10 +43,18 @@ func TestOptimizeResultValidate(t *testing.T) {
 		{"no route with route", func(r *OptimizeResult) { r.Status = ResultNoFeasibleRoute }, false},
 		{"no route", func(r *OptimizeResult) { r.Status, r.Routes = ResultNoFeasibleRoute, nil }, true},
 		{"conflict without conflict", func(r *OptimizeResult) { r.Status, r.Routes = ResultConflict, nil }, false},
-		{"conflict", func(r *OptimizeResult) { r.Status, r.Routes, r.Conflicts = ResultConflict, nil, []Conflict{conflict()} }, true},
+		{
+			"conflict",
+			func(r *OptimizeResult) { r.Status, r.Routes, r.Conflicts = ResultConflict, nil, []Conflict{conflict()} },
+			true,
+		},
 		{"invalid status", func(r *OptimizeResult) { r.Status = "DONE" }, false},
 		{"invalid route", func(r *OptimizeResult) { r.Routes[0].Steps[0].Position = 7 }, false},
-		{"invalid warning", func(r *OptimizeResult) { r.Warnings = []Warning{{Code: "x", Scope: ScopeRoute, Message: "x"}} }, false},
+		{
+			"invalid warning",
+			func(r *OptimizeResult) { r.Warnings = []Warning{{Code: "x", Scope: ScopeRoute, Message: "x"}} },
+			false,
+		},
 		{"route warning", func(r *OptimizeResult) {
 			r.Warnings = []Warning{{Code: "FEWER_VARIANTS", Scope: ScopeRoute, Message: "Only one route"}}
 		}, true},
@@ -93,10 +101,18 @@ func TestRecomputeResultValidate(t *testing.T) {
 	}{
 		{"proposed", func(*RecomputeResult) {}, true},
 		{"proposed without candidate", func(r *RecomputeResult) { r.Candidate = nil }, false},
-		{"unchanged", func(r *RecomputeResult) { r.Status, r.Candidate, r.Changes = RecomputeUnchanged, nil, nil }, true},
+		{
+			"unchanged",
+			func(r *RecomputeResult) { r.Status, r.Candidate, r.Changes = RecomputeUnchanged, nil, nil },
+			true,
+		},
 		{"unchanged with candidate", func(r *RecomputeResult) { r.Status, r.Changes = RecomputeUnchanged, nil }, false},
 		{"unchanged with changes", func(r *RecomputeResult) { r.Status, r.Candidate = RecomputeUnchanged, nil }, false},
-		{"conflict without conflict", func(r *RecomputeResult) { r.Status, r.Candidate = RecomputeConflict, nil }, false},
+		{
+			"conflict without conflict",
+			func(r *RecomputeResult) { r.Status, r.Candidate = RecomputeConflict, nil },
+			false,
+		},
 		{"conflict", func(r *RecomputeResult) {
 			r.Status, r.Candidate, r.Conflicts = RecomputeConflict, nil, []Conflict{conflict()}
 		}, true},

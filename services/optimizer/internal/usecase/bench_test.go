@@ -44,7 +44,7 @@ func BenchmarkOptimize(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				rec.Time(func() {
-					if _, err := p.Optimize(context.Background(), req); err != nil {
+					if _, err := p.Optimize(context.Background(), &req); err != nil {
 						b.Fatal(err)
 					}
 				})
@@ -56,7 +56,8 @@ func BenchmarkOptimize(b *testing.B) {
 
 func BenchmarkRecompute(b *testing.B) {
 	p := benchPlanner(b, benchPool(60))
-	res, err := p.Optimize(context.Background(), request())
+	baseReq := request()
+	res, err := p.Optimize(context.Background(), &baseReq)
 	if err != nil || len(res.Routes) == 0 {
 		b.Fatalf("no base plan: %v %s", err, res.Status)
 	}
@@ -66,12 +67,26 @@ func BenchmarkRecompute(b *testing.B) {
 		name    string
 		trigger domain.Trigger
 	}{
-		{"delay", domain.DelayTrigger{Mode: domain.DelayAlreadyDelayed, EffectiveStart: first.ArrivalAt.Add(minutes(30)), Position: origin, PositionSource: domain.PositionDevice}},
+		{
+			"delay",
+			domain.DelayTrigger{
+				Mode:           domain.DelayAlreadyDelayed,
+				EffectiveStart: first.ArrivalAt.Add(minutes(30)),
+				Position:       origin,
+				PositionSource: domain.PositionDevice,
+			},
+		},
 		{"remove", domain.RemovalTrigger{VisitID: first.VisitID, Mode: domain.RemovalRebuild}},
 	}
 	for _, tc := range triggers {
 		b.Run("trigger="+tc.name, func(b *testing.B) {
-			req := domain.RecomputeRequest{City: "perm", Timezone: "Asia/Yekaterinburg", Base: base, Constraints: request().Constraints, Trigger: tc.trigger}
+			req := domain.RecomputeRequest{
+				City:        "perm",
+				Timezone:    "Asia/Yekaterinburg",
+				Base:        base,
+				Constraints: request().Constraints,
+				Trigger:     tc.trigger,
+			}
 			if err := req.Validate(); err != nil {
 				b.Fatal(err)
 			}
@@ -79,7 +94,7 @@ func BenchmarkRecompute(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				rec.Time(func() {
-					if _, err := p.Recompute(context.Background(), req); err != nil {
+					if _, err := p.Recompute(context.Background(), &req); err != nil {
 						b.Fatal(err)
 					}
 				})

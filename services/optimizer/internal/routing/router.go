@@ -14,19 +14,21 @@ import (
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/solver"
 )
 
+const metricLabelCity = "city"
+
 var (
 	tableSeconds = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name: "routing_table_duration_seconds",
 		Help: "Time to fetch one routing table from a city router.",
-	}, []string{"city", "profile"})
+	}, []string{metricLabelCity, "profile"})
 	routingErrors = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "routing_errors_total",
 		Help: "Routing table requests that failed.",
-	}, []string{"city", "profile"})
+	}, []string{metricLabelCity, "profile"})
 	degradedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "routing_degraded_total",
 		Help: "Searches that fell back to straight-line travel estimates.",
-	}, []string{"city"})
+	}, []string{metricLabelCity})
 )
 
 // Router picks the routing graphs of a city for a search.
@@ -45,13 +47,18 @@ func NewRouter(cfg Config, client *Client) (*Router, error) {
 // Transit prepares travel between the given points for one search. When the city's routers
 // cannot answer, straight-line formulas stand in, their estimates are unknown and driving is not
 // offered; degraded reports that. An error means the request itself cannot be served.
-func (r *Router) Transit(ctx context.Context, city string, points []domain.Coordinate, modes []domain.MovementMode) (transit solver.Transit, degraded bool, err error) {
+func (r *Router) Transit(
+	ctx context.Context,
+	city string,
+	points []domain.Coordinate,
+	modes []domain.MovementMode,
+) (transit solver.Transit, degraded bool, err error) {
 	cfg, ok := r.cfg.Cities[city]
 	if !ok {
 		return nil, false, fmt.Errorf("no routing for city %q", city)
 	}
-	if err := ctx.Err(); err != nil {
-		return nil, false, err
+	if contextErr := ctx.Err(); contextErr != nil {
+		return nil, false, fmt.Errorf("prepare routing: %w", contextErr)
 	}
 	var foot, car *Table
 	g, gctx := errgroup.WithContext(ctx)
@@ -69,17 +76,21 @@ func (r *Router) Transit(ctx context.Context, city string, points []domain.Coord
 		}
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, false, ctxErr
+		return nil, false, fmt.Errorf("prepare routing: %w", ctxErr)
 	}
 	degradedTotal.WithLabelValues(city).Inc()
-	fallback, err := solver.NewBaselineTransit(baselineParams(cfg))
+	fallback, err := solver.NewBaselineTransit(baselineParams(&cfg))
 	if err != nil {
 		return nil, false, err
 	}
 	return fallback, true, nil
 }
 
-func (r *Router) table(ctx context.Context, city, profile, endpoint string, points []domain.Coordinate) (*Table, error) {
+func (r *Router) table(
+	ctx context.Context,
+	city, profile, endpoint string,
+	points []domain.Coordinate,
+) (*Table, error) {
 	requestCtx, cancel := context.WithTimeout(ctx, r.cfg.RequestTimeout)
 	defer cancel()
 	start := time.Now()
@@ -97,7 +108,7 @@ func (r *Router) table(ctx context.Context, city, profile, endpoint string, poin
 
 // baselineParams keeps the city's speeds and the normative detour factors, which stand in for
 // the street network the fallback cannot see.
-func baselineParams(cfg CityConfig) solver.TransitParams {
+func baselineParams(cfg *CityConfig) solver.TransitParams {
 	p := solver.DefaultTransitParams()
 	p.WalkThresholdMeters = cfg.WalkThresholdMeters
 	p.WalkMetersPerMinute = cfg.WalkMetersPerMinute

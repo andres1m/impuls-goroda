@@ -51,7 +51,8 @@ func (p *Producer) Publish(ctx context.Context, envelopes []ingest.Envelope) err
 		p.topicReady = true
 	}
 	records := make([]*kgo.Record, 0, len(envelopes))
-	for _, e := range envelopes {
+	for i := range envelopes {
+		e := &envelopes[i]
 		value, err := json.Marshal(e)
 		if err != nil {
 			return fmt.Errorf("encode envelope %s: %w", e.RawIngestID, err)

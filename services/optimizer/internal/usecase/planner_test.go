@@ -20,21 +20,26 @@ func newPlanner(t *testing.T, src CandidateSource, provider TransitProvider) *Pl
 	return p
 }
 
-func optimize(t *testing.T, candidates []domain.Candidate, provider TransitProvider, change func(*domain.OptimizeRequest)) domain.OptimizeResult {
+func optimize(
+	t *testing.T,
+	candidates []domain.Candidate,
+	provider TransitProvider,
+	change func(*domain.OptimizeRequest),
+) domain.OptimizeResult {
 	t.Helper()
 	req := request()
 	if change != nil {
 		change(&req)
 	}
-	res, err := newPlanner(t, fakeSource{candidates: candidates}, provider).Optimize(context.Background(), req)
+	res, err := newPlanner(t, fakeSource{candidates: candidates}, provider).Optimize(context.Background(), &req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := res.Validate(); err != nil {
 		t.Fatalf("invalid result: %v", err)
 	}
-	for i, route := range res.Routes {
-		if err := route.ValidateBudget(req.Constraints.Budget); err != nil {
+	for i := range res.Routes {
+		if err := res.Routes[i].ValidateBudget(req.Constraints.Budget); err != nil {
 			t.Fatalf("route %d budget: %v", i, err)
 		}
 	}
@@ -84,14 +89,17 @@ func TestOptimizeBuildsReadyRoutes(t *testing.T) {
 			}
 		}
 	}
-	if !slices.Contains(provider.points, origin) || !slices.Contains(provider.points, destination) || len(provider.points) != 5 {
+	if !slices.Contains(provider.points, origin) || !slices.Contains(provider.points, destination) ||
+		len(provider.points) != 5 {
 		t.Fatalf("routing points %v", provider.points)
 	}
 }
 
 func TestOptimizeHonoursObligation(t *testing.T) {
 	res := optimize(t, city(), estimated(), func(r *domain.OptimizeRequest) {
-		r.Constraints.Obligations = []domain.Obligation{{SessionID: &domain.SessionID{3}, Participation: domain.ParticipationUserReported}}
+		r.Constraints.Obligations = []domain.Obligation{
+			{SessionID: &domain.SessionID{3}, Participation: domain.ParticipationUserReported},
+		}
 	})
 	if res.Status != domain.ResultReady || len(res.Routes) == 0 {
 		t.Fatalf("status %s", res.Status)
@@ -104,10 +112,14 @@ func TestOptimizeHonoursObligation(t *testing.T) {
 			t.Fatal("obligation missing")
 		}
 		step := route.Steps[i]
-		if !step.Obligation || step.Participation.Status != domain.ParticipationUserReported || step.Participation.Evidence != domain.EvidenceUser {
+		if !step.Obligation || step.Participation.Status != domain.ParticipationUserReported ||
+			step.Participation.Evidence != domain.EvidenceUser {
 			t.Fatalf("obligation step %+v", step)
 		}
-		if !slices.ContainsFunc(step.AppliedConstraints, func(c domain.AppliedConstraint) bool { return c.Outcome == domain.OutcomeConditional }) {
+		if !slices.ContainsFunc(
+			step.AppliedConstraints,
+			func(c domain.AppliedConstraint) bool { return c.Outcome == domain.OutcomeConditional },
+		) {
 			t.Fatalf("reachability not marked conditional: %+v", step.AppliedConstraints)
 		}
 		if !slices.ContainsFunc(route.Warnings, func(w domain.Warning) bool {
@@ -133,8 +145,14 @@ func TestOptimizeReportsObligationConflicts(t *testing.T) {
 		}, "OBLIGATION_UNAVAILABLE"},
 	}
 	for name, tc := range cases {
-		res := optimize(t, append(city(), overlap), estimated(), func(r *domain.OptimizeRequest) { r.Constraints.Obligations = tc.obligations })
-		if res.Status != domain.ResultConflict || len(res.Routes) != 0 || !slices.Contains(conflictCodes(res.Conflicts), tc.code) {
+		res := optimize(
+			t,
+			append(city(), overlap),
+			estimated(),
+			func(r *domain.OptimizeRequest) { r.Constraints.Obligations = tc.obligations },
+		)
+		if res.Status != domain.ResultConflict || len(res.Routes) != 0 ||
+			!slices.Contains(conflictCodes(res.Conflicts), tc.code) {
 			t.Errorf("%s: status %s conflicts %v", name, res.Status, conflictCodes(res.Conflicts))
 		}
 	}
@@ -153,10 +171,18 @@ func TestOptimizeWithoutCandidates(t *testing.T) {
 }
 
 func TestOptimizePartialOnAcceptedUnknownPrice(t *testing.T) {
-	res := optimize(t, []domain.Candidate{place(1, domain.CategoryCulture, north(origin, 300))}, estimated(), func(r *domain.OptimizeRequest) {
-		r.Constraints.Budget = domain.Budget{Mode: domain.BudgetStrict, Limit: &domain.Money{AmountMinor: 100000, Currency: "RUB"}}
-		r.Constraints.AcceptedUnknowns = []string{domain.AcceptUnknownPrice}
-	})
+	res := optimize(
+		t,
+		[]domain.Candidate{place(1, domain.CategoryCulture, north(origin, 300))},
+		estimated(),
+		func(r *domain.OptimizeRequest) {
+			r.Constraints.Budget = domain.Budget{
+				Mode:  domain.BudgetStrict,
+				Limit: &domain.Money{AmountMinor: 100000, Currency: "RUB"},
+			}
+			r.Constraints.AcceptedUnknowns = []string{domain.AcceptUnknownPrice}
+		},
+	)
 	if res.Status != domain.ResultPartial || len(res.Routes) != 1 || res.Routes[0].Result != domain.ResultPartial {
 		t.Fatalf("status %s routes %d", res.Status, len(res.Routes))
 	}
@@ -178,7 +204,13 @@ func TestOptimizeWarnsWhenRoutingDegrades(t *testing.T) {
 
 func TestOptimizeDropsPlansTheValidatorRejects(t *testing.T) {
 	overclaiming := &fakeProvider{transit: statusTransit{base: baseline(), status: domain.VerificationVerified}}
-	if res := optimize(t, city(), overclaiming, nil); res.Status != domain.ResultNoFeasibleRoute || len(res.Routes) != 0 {
+	if res := optimize(
+		t,
+		city(),
+		overclaiming,
+		nil,
+	); res.Status != domain.ResultNoFeasibleRoute ||
+		len(res.Routes) != 0 {
 		t.Fatalf("status %s with %d routes", res.Status, len(res.Routes))
 	}
 }
@@ -242,8 +274,14 @@ func TestOptimizeContrastingArchetypes(t *testing.T) {
 	southHeritage := place(5, domain.CategoryTourism, north(origin, -300))
 	southHeritage.Place.InterestMask = domain.Interests(domain.InterestClassicalArt)
 	// A day with room for one visit keeps each route to a single place, so the fallback is what decides.
-	res = optimize(t, []domain.Candidate{shared, southHeritage}, estimated(), func(r *domain.OptimizeRequest) { r.End = at(11, 15) })
-	if len(res.Routes) != 2 || res.Routes[0].Archetype != domain.ArchetypeUrbanAvantgarde || res.Routes[1].Archetype != domain.ArchetypeHistoryHeritage {
+	res = optimize(
+		t,
+		[]domain.Candidate{shared, southHeritage},
+		estimated(),
+		func(r *domain.OptimizeRequest) { r.End = at(11, 15) },
+	)
+	if len(res.Routes) != 2 || res.Routes[0].Archetype != domain.ArchetypeUrbanAvantgarde ||
+		res.Routes[1].Archetype != domain.ArchetypeHistoryHeritage {
 		t.Fatalf("routes %+v", res.Routes)
 	}
 	if !slices.Contains(warningCodes(res.Warnings), "FEWER_ARCHETYPES") {
@@ -264,22 +302,27 @@ func TestOptimizeWarnsAboutTravelCosts(t *testing.T) {
 		t.Fatalf("routes %d", len(res.Routes))
 	}
 	leg := res.Routes[0].Legs[0]
-	if leg.Mode != domain.MovementTransit || leg.Cost.Price.Status != domain.PriceUnknown || len(leg.Cost.UnknownComponents) == 0 {
+	if leg.Mode != domain.MovementTransit || leg.Cost.Price.Status != domain.PriceUnknown ||
+		len(leg.Cost.UnknownComponents) == 0 {
 		t.Fatalf("leg %+v", leg)
 	}
 }
 
 func TestOptimizePassesSourceErrors(t *testing.T) {
 	p := newPlanner(t, CatalogNotReady{}, estimated())
-	if _, err := p.Optimize(context.Background(), request()); !errors.Is(err, ErrCatalogNotReady) {
+	req := request()
+	if _, err := p.Optimize(context.Background(), &req); !errors.Is(err, ErrCatalogNotReady) {
 		t.Fatalf("err = %v", err)
 	}
 }
 
 func TestOptimizeRejectsBudgetInAnotherCurrency(t *testing.T) {
 	req := request()
-	req.Constraints.Budget = domain.Budget{Mode: domain.BudgetStrict, Limit: &domain.Money{AmountMinor: 1000, Currency: "EUR"}}
-	_, err := newPlanner(t, fakeSource{candidates: city()}, estimated()).Optimize(context.Background(), req)
+	req.Constraints.Budget = domain.Budget{
+		Mode:  domain.BudgetStrict,
+		Limit: &domain.Money{AmountMinor: 1000, Currency: "EUR"},
+	}
+	_, err := newPlanner(t, fakeSource{candidates: city()}, estimated()).Optimize(context.Background(), &req)
 	if !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("err = %v", err)
 	}

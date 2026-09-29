@@ -36,7 +36,11 @@ func (s *MaterializeStore) connected() (*pgxpool.Pool, error) {
 	return nil, errNotConnected
 }
 
-func (s *MaterializeStore) PendingBatch(ctx context.Context, city domain.City, ids []string) ([]materialize.Raw, error) {
+func (s *MaterializeStore) PendingBatch(
+	ctx context.Context,
+	city domain.City,
+	ids []string,
+) ([]materialize.Raw, error) {
 	pool, err := s.connected()
 	if err != nil {
 		return nil, err
@@ -57,9 +61,12 @@ func (s *MaterializeStore) PendingBatch(ctx context.Context, city domain.City, i
 	}
 	raws, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (materialize.Raw, error) {
 		var r materialize.Raw
-		err := row.Scan(&r.ID, &r.SourceRecordID, &r.Source, &r.ExternalID, &r.Payload,
+		scanErr := row.Scan(&r.ID, &r.SourceRecordID, &r.Source, &r.ExternalID, &r.Payload,
 			&r.ContentHash, &r.AcceptedHash, &r.FetchedAt, &r.DataMode, &r.Latest)
-		return r, err
+		if scanErr != nil {
+			return r, fmt.Errorf("scan pending raw ingest: %w", scanErr)
+		}
+		return r, nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("read pending raw ingest: %w", err)
@@ -69,7 +76,14 @@ func (s *MaterializeStore) PendingBatch(ctx context.Context, city domain.City, i
 
 // Publish writes a prepared batch in one transaction under the city lock. Only raw records still
 // pending once the lock is held are written, so a retried publish repeats nothing.
-func (s *MaterializeStore) Publish(ctx context.Context, city domain.City, o materialize.Outcome, at time.Time) (int64, bool, error) {
+//
+//nolint:gocognit,cyclop,funlen // catalog writes and revision publication share one transaction
+func (s *MaterializeStore) Publish(
+	ctx context.Context,
+	city domain.City,
+	o *materialize.Outcome,
+	at time.Time,
+) (publishedRevision int64, published bool, publishErr error) {
 	pool, err := s.connected()
 	if err != nil {
 		return 0, false, err
@@ -81,10 +95,12 @@ func (s *MaterializeStore) Publish(ctx context.Context, city domain.City, o mate
 	defer tx.Rollback(ctx) //nolint:errcheck // a no-op after commit
 
 	var revision int64
-	if err := tx.QueryRow(ctx, `SELECT catalog_revision FROM ref.city WHERE code = $1 FOR UPDATE`, city).Scan(&revision); err != nil {
-		return 0, false, fmt.Errorf("lock city %s: %w", city, err)
+	if lockErr := tx.QueryRow(ctx, `SELECT catalog_revision FROM ref.city WHERE code = $1 FOR UPDATE`, city).
+		Scan(&revision); lockErr != nil {
+		return 0, false, fmt.Errorf("lock city %s: %w", city, lockErr)
 	}
-	o, err = stillPending(ctx, tx, o)
+	pending, err := stillPending(ctx, tx, o)
+	o = &pending
 	if err != nil {
 		return 0, false, err
 	}
@@ -98,11 +114,13 @@ func (s *MaterializeStore) Publish(ctx context.Context, city domain.City, o mate
 	// Events sharing a place may each describe it a little differently; writing the place once, from the
 	// batch's last description, keeps a repeated batch from counting it as changed.
 	last := make(map[string]int, len(o.Apply))
-	for i, n := range o.Apply {
+	for i := range o.Apply {
+		n := &o.Apply[i]
 		placeIDs[i] = placeID(n)
 		last[placeIDs[i]] = i
 	}
-	for i, n := range o.Apply {
+	for i := range o.Apply {
+		n := &o.Apply[i]
 		if last[placeIDs[i]] != i {
 			continue
 		}
@@ -114,7 +132,8 @@ func (s *MaterializeStore) Publish(ctx context.Context, city domain.City, o mate
 			touched[placeIDs[i]] = true
 		}
 	}
-	for i, n := range o.Apply {
+	for i := range o.Apply {
+		n := &o.Apply[i]
 		if n.Event == nil {
 			continue
 		}
@@ -135,8 +154,13 @@ func (s *MaterializeStore) Publish(ctx context.Context, city domain.City, o mate
 		if err := projectPlaces(ctx, tx, city, slices.Sorted(maps.Keys(touched)), revision, at); err != nil {
 			return 0, false, err
 		}
-		announcement := catalogevent.Invalidation{City: string(city), CatalogRevision: revision, Reason: catalogevent.ReasonIngest, PublishedAt: at}
-		if err := EnqueueRevision(ctx, tx, announcement); err != nil {
+		announcement := catalogevent.Invalidation{
+			City:            string(city),
+			CatalogRevision: revision,
+			Reason:          catalogevent.ReasonIngest,
+			PublishedAt:     at,
+		}
+		if err := EnqueueRevision(ctx, tx, &announcement); err != nil {
 			return 0, false, err
 		}
 	}
@@ -150,15 +174,20 @@ func (s *MaterializeStore) Publish(ctx context.Context, city domain.City, o mate
 }
 
 // stillPending locks the batch's raw records and drops those another publish already settled.
-func stillPending(ctx context.Context, tx pgx.Tx, o materialize.Outcome) (materialize.Outcome, error) {
+//
+//nolint:gocognit // all outcome categories use the same locked pending set
+func stillPending(ctx context.Context, tx pgx.Tx, o *materialize.Outcome) (materialize.Outcome, error) {
 	var ids []string
-	for _, n := range o.Apply {
+	for i := range o.Apply {
+		n := &o.Apply[i]
 		ids = append(ids, n.Raw.ID)
 	}
-	for _, r := range slices.Concat(o.Unchanged, o.Superseded) {
-		ids = append(ids, r.ID)
+	combined := slices.Concat(o.Unchanged, o.Superseded)
+	for i := range combined {
+		ids = append(ids, combined[i].ID)
 	}
-	for _, f := range o.Failed {
+	for i := range o.Failed {
+		f := &o.Failed[i]
 		ids = append(ids, f.Raw.ID)
 	}
 	rows, err := tx.Query(ctx, `
@@ -177,35 +206,47 @@ func stillPending(ctx context.Context, tx pgx.Tx, o materialize.Outcome) (materi
 		keep[id] = true
 	}
 	var out materialize.Outcome
-	for _, n := range o.Apply {
+	for i := range o.Apply {
+		n := &o.Apply[i]
 		if keep[n.Raw.ID] {
-			out.Apply = append(out.Apply, n)
+			out.Apply = append(out.Apply, *n)
 		}
 	}
-	for _, r := range o.Unchanged {
+	for i := range o.Unchanged {
+		r := &o.Unchanged[i]
 		if keep[r.ID] {
-			out.Unchanged = append(out.Unchanged, r)
+			out.Unchanged = append(out.Unchanged, *r)
 		}
 	}
-	for _, r := range o.Superseded {
+	for i := range o.Superseded {
+		r := &o.Superseded[i]
 		if keep[r.ID] {
-			out.Superseded = append(out.Superseded, r)
+			out.Superseded = append(out.Superseded, *r)
 		}
 	}
-	for _, f := range o.Failed {
+	for i := range o.Failed {
+		f := &o.Failed[i]
 		if keep[f.Raw.ID] {
-			out.Failed = append(out.Failed, f)
+			out.Failed = append(out.Failed, *f)
 		}
 	}
 	return out, nil
 }
 
-func placeID(n materialize.Normalized) string {
+func placeID(n *materialize.Normalized) string {
 	return normalize.EntityID(string(n.Raw.Source) + ":" + n.Place.ExternalID).String()
 }
 
 // upsertPlace writes the place and reports whether its row changed.
-func upsertPlace(ctx context.Context, tx pgx.Tx, city domain.City, n materialize.Normalized, id string, bits map[string]int, at time.Time) (updated bool, err error) {
+func upsertPlace(
+	ctx context.Context,
+	tx pgx.Tx,
+	city domain.City,
+	n *materialize.Normalized,
+	id string,
+	bits map[string]int,
+	at time.Time,
+) (updated bool, err error) {
 	p := n.Place
 	mask, err := interestMask(p.Tags, bits, "place "+p.ExternalID)
 	if err != nil {
@@ -240,19 +281,23 @@ func upsertPlace(ctx context.Context, tx pgx.Tx, city domain.City, n materialize
 
 // settle records what the batch did to its raw and source records and advances the watermark of
 // every source in it no further than the earliest record still pending or failed.
-func settle(ctx context.Context, tx pgx.Tx, city domain.City, o materialize.Outcome) error {
+func settle(ctx context.Context, tx pgx.Tx, city domain.City, o *materialize.Outcome) error {
 	var accepted, applied, failed []string
-	for _, n := range o.Apply {
+	for i := range o.Apply {
+		n := &o.Apply[i]
 		accepted = append(accepted, n.Raw.ID)
 	}
-	for _, r := range o.Unchanged {
+	for i := range o.Unchanged {
+		r := &o.Unchanged[i]
 		accepted = append(accepted, r.ID)
 	}
 	applied = append(applied, accepted...)
-	for _, r := range o.Superseded {
+	for i := range o.Superseded {
+		r := &o.Superseded[i]
 		applied = append(applied, r.ID)
 	}
-	for _, f := range o.Failed {
+	for i := range o.Failed {
+		f := &o.Failed[i]
 		failed = append(failed, f.Raw.ID)
 	}
 	if len(applied)+len(failed) == 0 {

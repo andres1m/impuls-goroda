@@ -159,7 +159,7 @@ func run(ctx context.Context) error {
 
 func newAuthRuntime(infra *infrastructureComponents) (*app.Runtime, error) {
 	cfg := infra.cfg.Gateway
-	return app.NewRuntime(infra.pool, infra.log.Log, app.Config{
+	return app.NewRuntime(infra.pool, infra.log.Log, &app.Config{
 		BotToken:          cfg.Auth.BotToken,
 		WebhookSecret:     cfg.Auth.WebhookSecret,
 		InitDataMaxAge:    cfg.Auth.InitDataMaxAge,
@@ -182,12 +182,14 @@ func newAuthRuntime(infra *infrastructureComponents) (*app.Runtime, error) {
 	})
 }
 
-func issueTestToken(ctx context.Context, args []string, output io.Writer) error {
+const healthcheckTimeout = 3 * time.Second
+
+func issueTestToken(ctx context.Context, args []string, output io.Writer) (retErr error) {
 	flags := flag.NewFlagSet("issue-test-token", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	maxUserID := flags.String("account", "", "test account identifier")
 	expiresAtValue := flags.String("expires-at", "", "RFC3339 expiry")
-	if err := flags.Parse(args); err != nil {
+	if parseErr := flags.Parse(args); parseErr != nil {
 		return errors.New("invalid issue-test-token arguments")
 	}
 	if *maxUserID == "" || *expiresAtValue == "" || flags.NArg() != 0 {
@@ -202,25 +204,33 @@ func issueTestToken(ctx context.Context, args []string, output io.Writer) error 
 	if err != nil {
 		return err
 	}
-	defer func() { _ = infra.log.Stop(context.Background()) }()
-	if err := infra.pool.Init(ctx); err != nil {
-		return err
+	defer func() {
+		retErr = errors.Join(retErr, infra.log.Stop(context.Background()))
+	}()
+	if initErr := infra.pool.Init(ctx); initErr != nil {
+		return initErr
 	}
-	defer func() { _ = infra.pool.Stop(context.Background()) }()
+	defer func() {
+		retErr = errors.Join(retErr, infra.pool.Stop(context.Background()))
+	}()
 	runtime, err := newAuthRuntime(infra)
 	if err != nil {
 		return err
 	}
-	if err := runtime.Init(ctx); err != nil {
-		return err
+	if initErr := runtime.Init(ctx); initErr != nil {
+		return initErr
 	}
-	defer func() { _ = runtime.Stop(context.Background()) }()
+	defer func() {
+		retErr = errors.Join(retErr, runtime.Stop(context.Background()))
+	}()
 	issued, err := runtime.IssueTest(ctx, *maxUserID, expiresAt)
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(output, issued.AccessToken)
-	return err
+	if _, writeErr := fmt.Fprintln(output, issued.AccessToken); writeErr != nil {
+		return fmt.Errorf("write access token: %w", writeErr)
+	}
+	return nil
 }
 
 func initInfrastructure() (*infrastructureComponents, error) {
@@ -234,7 +244,7 @@ func initInfrastructure() (*infrastructureComponents, error) {
 		return nil, fmt.Errorf("create logger error: %w", err)
 	}
 
-	pool, err := db.NewDb(zapLog.Log, cfg.Database)
+	pool, err := db.NewDB(zapLog.Log, cfg.Database)
 	if err != nil {
 		return nil, fmt.Errorf("create db error: %w", err)
 	}
@@ -243,7 +253,7 @@ func initInfrastructure() (*infrastructureComponents, error) {
 		cfg:       &cfg,
 		log:       zapLog,
 		pool:      pool,
-		optimizer: optimizerclient.New(zapLog.Log, cfg.Optimizer),
+		optimizer: optimizerclient.New(zapLog.Log, &cfg.Optimizer),
 	}, nil
 }
 
@@ -265,7 +275,7 @@ func healthcheck(ctx context.Context) error {
 		return fmt.Errorf("load config error: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, healthcheckTimeout)
 	defer cancel()
 
 	return server.Probe(ctx, fmt.Sprintf("http://127.0.0.1:%d/healthz", cfg.OpsServer.Port))

@@ -28,12 +28,14 @@ type RateLimiter struct {
 	entries map[string]*limiterEntry
 }
 
+const secondsPerMinute = 60
+
 func NewRateLimiter(cfg RateLimitConfig) (*RateLimiter, error) {
 	if cfg.RequestsPerMinute <= 0 || cfg.Burst <= 0 || cfg.IdleTTL <= 0 {
 		return nil, errors.New("invalid rate limit configuration")
 	}
 	return &RateLimiter{
-		rate:    rate.Limit(float64(cfg.RequestsPerMinute) / 60),
+		rate:    rate.Limit(float64(cfg.RequestsPerMinute) / secondsPerMinute),
 		burst:   cfg.Burst,
 		idleTTL: cfg.IdleTTL,
 		entries: make(map[string]*limiterEntry),

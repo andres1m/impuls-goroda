@@ -43,7 +43,12 @@ func placeMatch(id byte) semantic.Match { return semantic.Match{Place: &domain.P
 
 // optimizeSemantic also reports how many points the router was asked to connect: origin and
 // destination plus one per planned candidate, so it shows which pool the search used.
-func optimizeSemantic(t *testing.T, matcher SemanticMatcher, query string, change func(*domain.OptimizeRequest)) (domain.OptimizeResult, int) {
+func optimizeSemantic(
+	t *testing.T,
+	matcher SemanticMatcher,
+	query string,
+	change func(*domain.OptimizeRequest),
+) (result domain.OptimizeResult, routerPoints int) {
 	t.Helper()
 	var opts []Option
 	if matcher != nil {
@@ -59,7 +64,7 @@ func optimizeSemantic(t *testing.T, matcher SemanticMatcher, query string, chang
 	if change != nil {
 		change(&req)
 	}
-	res, err := p.Optimize(context.Background(), req)
+	res, err := p.Optimize(context.Background(), &req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,12 +76,13 @@ func optimizeSemantic(t *testing.T, matcher SemanticMatcher, query string, chang
 
 const wholePoolPoints = 5
 
-func visitedPlaces(res domain.OptimizeResult) map[domain.PlaceID]bool {
+func visitedPlaces(res *domain.OptimizeResult) map[domain.PlaceID]bool {
 	out := make(map[domain.PlaceID]bool)
-	for _, route := range res.Routes {
-		for _, step := range route.Steps {
-			if step.Catalog != nil {
-				out[step.Catalog.PlaceID] = true
+	for i := range res.Routes {
+		route := &res.Routes[i]
+		for j := range route.Steps {
+			if route.Steps[j].Catalog != nil {
+				out[route.Steps[j].Catalog.PlaceID] = true
 			}
 		}
 	}
@@ -89,7 +95,7 @@ func TestSemanticQueryNarrowsCandidates(t *testing.T) {
 	if res.Status != domain.ResultReady || len(res.Routes) == 0 || points != 3 {
 		t.Fatalf("status %s with %d routes over %d points", res.Status, len(res.Routes), points)
 	}
-	if got := visitedPlaces(res); len(got) != 1 || !got[domain.PlaceID{1}] {
+	if got := visitedPlaces(&res); len(got) != 1 || !got[domain.PlaceID{1}] {
 		t.Fatalf("visited %v", got)
 	}
 	if slices.Contains(warningCodes(res.Warnings), semanticWarning) {
@@ -103,7 +109,9 @@ func TestSemanticQueryNarrowsCandidates(t *testing.T) {
 func TestSemanticQueryKeepsObligations(t *testing.T) {
 	matcher := &fakeMatcher{matches: []semantic.Match{placeMatch(1)}}
 	res, _ := optimizeSemantic(t, matcher, "тихий музей", func(r *domain.OptimizeRequest) {
-		r.Constraints.Obligations = []domain.Obligation{{SessionID: &domain.SessionID{3}, Participation: domain.ParticipationUserReported}}
+		r.Constraints.Obligations = []domain.Obligation{
+			{SessionID: &domain.SessionID{3}, Participation: domain.ParticipationUserReported},
+		}
 	})
 	if res.Status != domain.ResultReady || len(res.Routes) == 0 {
 		t.Fatalf("status %s", res.Status)
@@ -115,7 +123,7 @@ func TestSemanticQueryKeepsObligations(t *testing.T) {
 			t.Fatal("obligation outside the matches was dropped")
 		}
 	}
-	if got := visitedPlaces(res); got[domain.PlaceID{2}] {
+	if got := visitedPlaces(&res); got[domain.PlaceID{2}] {
 		t.Fatalf("unmatched place visited: %v", got)
 	}
 }
@@ -171,24 +179,37 @@ func TestSemanticFailureFallsBackToInterests(t *testing.T) {
 }
 
 func TestSemanticFallbackWarningAccompaniesNoFeasibleRoute(t *testing.T) {
-	p, err := NewPlanner(config(), fakeSource{}, estimated(), zap.NewNop(), WithSemantic(&fakeMatcher{err: ai.ErrNotConfigured}, time.Second))
+	p, err := NewPlanner(
+		config(),
+		fakeSource{},
+		estimated(),
+		zap.NewNop(),
+		WithSemantic(&fakeMatcher{err: ai.ErrNotConfigured}, time.Second),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	req := request()
 	req.Constraints.SemanticQuery = "тихий музей"
-	res, err := p.Optimize(context.Background(), req)
+	res, err := p.Optimize(context.Background(), &req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	codes := warningCodes(res.Warnings)
-	if res.Status != domain.ResultNoFeasibleRoute || !slices.Contains(codes, semanticWarning) || !slices.Contains(codes, "NO_FEASIBLE_ROUTE") {
+	if res.Status != domain.ResultNoFeasibleRoute || !slices.Contains(codes, semanticWarning) ||
+		!slices.Contains(codes, "NO_FEASIBLE_ROUTE") {
 		t.Fatalf("status %s, warnings %v", res.Status, codes)
 	}
 }
 
 func TestSemanticStopsWhenRequestIsCancelled(t *testing.T) {
-	p, err := NewPlanner(config(), fakeSource{candidates: city()}, estimated(), zap.NewNop(), WithSemantic(&fakeMatcher{block: true}, time.Minute))
+	p, err := NewPlanner(
+		config(),
+		fakeSource{candidates: city()},
+		estimated(),
+		zap.NewNop(),
+		WithSemantic(&fakeMatcher{block: true}, time.Minute),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +217,7 @@ func TestSemanticStopsWhenRequestIsCancelled(t *testing.T) {
 	defer cancel()
 	req := request()
 	req.Constraints.SemanticQuery = "тихий музей"
-	if _, err := p.Optimize(ctx, req); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := p.Optimize(ctx, &req); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("error %v", err)
 	}
 }

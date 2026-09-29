@@ -11,6 +11,8 @@ import (
 
 // withTracing carries the caller's trace into workflow headers, so a workflow and its
 // activities join the trace of whatever started them. Workers built on the client inherit it.
+//
+//nolint:gocritic // interceptors are added to a copy of client options
 func withTracing(opts client.Options) (client.Options, error) {
 	tracing, err := temporalotel.NewTracingInterceptor(temporalotel.TracerOptions{})
 	if err != nil {

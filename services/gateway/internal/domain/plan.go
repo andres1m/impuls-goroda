@@ -95,7 +95,24 @@ type RoutePlanSnapshot struct {
 	Legs            []RouteLeg
 }
 
-func (s RoutePlanSnapshot) Validate() error {
+func (s *RoutePlanSnapshot) Validate() error {
+	if err := s.validateHeader(); err != nil {
+		return err
+	}
+	if err := s.validateDiagnostics(); err != nil {
+		return err
+	}
+	if err := s.validateBudgetAndCost(); err != nil {
+		return err
+	}
+	visits, err := s.validateSteps()
+	if err != nil {
+		return err
+	}
+	return s.validateLegs(visits)
+}
+
+func (s *RoutePlanSnapshot) validateHeader() error {
 	if s.SchemaVersion <= 0 {
 		return errors.New("snapshot schema version must be positive")
 	}
@@ -119,9 +136,10 @@ func (s RoutePlanSnapshot) Validate() error {
 	if err := s.Constraints.Validate(); err != nil {
 		return err
 	}
-	if err := s.CatalogRevision.Validate(); err != nil {
-		return err
-	}
+	return s.CatalogRevision.Validate()
+}
+
+func (s *RoutePlanSnapshot) validateDiagnostics() error {
 	switch s.Result {
 	case ResultReady, ResultPartial, ResultNoFeasibleRoute, ResultConflict:
 	default:
@@ -137,13 +155,23 @@ func (s RoutePlanSnapshot) Validate() error {
 			return err
 		}
 	}
+	for _, point := range s.Geometry {
+		if err := point.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *RoutePlanSnapshot) validateBudgetAndCost() error {
 	if err := s.Cost.Validate(); err != nil {
 		return err
 	}
 	if s.Constraints.Budget.Limit != nil && s.Constraints.Budget.Limit.Currency != s.Cost.KnownPersonal.Currency {
 		return errors.New("budget and route cost currencies must match")
 	}
-	if s.Constraints.ProgramBalance != nil && s.Constraints.ProgramBalance.Balance.Currency != s.Cost.KnownPersonal.Currency {
+	if s.Constraints.ProgramBalance != nil &&
+		s.Constraints.ProgramBalance.Balance.Currency != s.Cost.KnownPersonal.Currency {
 		return errors.New("program balance and route cost currencies must match")
 	}
 	switch s.Constraints.Budget.Mode {
@@ -151,36 +179,42 @@ func (s RoutePlanSnapshot) Validate() error {
 		if s.Cost.BudgetConclusion != BudgetNotApplicable {
 			return errors.New("route without budget must use not applicable conclusion")
 		}
+	case BudgetAdvisory:
 	case BudgetStrict:
 		if len(s.Cost.UnknownComponents) > 0 && s.Cost.BudgetConclusion != BudgetUnknown {
 			return errors.New("unknown strict budget must not be reported as resolved")
 		}
 	}
-	for _, point := range s.Geometry {
-		if err := point.Validate(); err != nil {
-			return err
-		}
-	}
+	return nil
+}
+
+func (s *RoutePlanSnapshot) validateSteps() (map[VisitID]struct{}, error) {
 	visits := make(map[VisitID]struct{}, len(s.Steps))
 	stepPositions := make(map[int]struct{}, len(s.Steps))
-	for _, step := range s.Steps {
+	for i := range s.Steps {
+		step := &s.Steps[i]
 		if err := step.Validate(); err != nil {
-			return err
+			return nil, err
 		}
 		if _, exists := visits[step.VisitID]; exists {
-			return errors.New("snapshot contains duplicate visit")
+			return nil, errors.New("snapshot contains duplicate visit")
 		}
 		if _, exists := stepPositions[step.Position]; exists {
-			return errors.New("snapshot contains duplicate step position")
+			return nil, errors.New("snapshot contains duplicate step position")
 		}
 		visits[step.VisitID] = struct{}{}
 		stepPositions[step.Position] = struct{}{}
 		if step.Cost != nil && step.Cost.Price.Currency != s.Cost.KnownPersonal.Currency {
-			return errors.New("step and route cost currencies must match")
+			return nil, errors.New("step and route cost currencies must match")
 		}
 	}
+	return visits, nil
+}
+
+func (s *RoutePlanSnapshot) validateLegs(visits map[VisitID]struct{}) error {
 	legPositions := make(map[int]struct{}, len(s.Legs))
-	for _, leg := range s.Legs {
+	for i := range s.Legs {
+		leg := &s.Legs[i]
 		if err := leg.Validate(); err != nil {
 			return err
 		}
@@ -191,11 +225,18 @@ func (s RoutePlanSnapshot) Validate() error {
 		if leg.Cost.Price.Currency != s.Cost.KnownPersonal.Currency {
 			return errors.New("leg and route cost currencies must match")
 		}
-		for _, visitID := range []*VisitID{leg.FromVisitID, leg.ToVisitID} {
-			if visitID != nil {
-				if _, exists := visits[*visitID]; !exists {
-					return errors.New("route leg references a visit outside the snapshot")
-				}
+		if err := validateLegVisits(leg, visits); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateLegVisits(leg *RouteLeg, visits map[VisitID]struct{}) error {
+	for _, visitID := range []*VisitID{leg.FromVisitID, leg.ToVisitID} {
+		if visitID != nil {
+			if _, exists := visits[*visitID]; !exists {
+				return errors.New("route leg references a visit outside the snapshot")
 			}
 		}
 	}
@@ -223,7 +264,7 @@ type RouteRevision struct {
 	CreatedAt time.Time
 }
 
-func (r RouteRevision) Validate() error {
+func (r *RouteRevision) Validate() error {
 	if err := requiredID([16]byte(r.RouteID)); err != nil {
 		return err
 	}
@@ -242,7 +283,13 @@ func (r RouteRevision) Validate() error {
 		return err
 	}
 	switch r.Mutation {
-	case MutationCreate, MutationSave, MutationApply, MutationPin, MutationDelete, MutationParticipation, MutationExecution:
+	case MutationCreate,
+		MutationSave,
+		MutationApply,
+		MutationPin,
+		MutationDelete,
+		MutationParticipation,
+		MutationExecution:
 	default:
 		return errors.New("invalid route mutation kind")
 	}
@@ -252,8 +299,8 @@ func (r RouteRevision) Validate() error {
 	return nil
 }
 
-func (s RoutePlanSnapshot) Clone() RoutePlanSnapshot {
-	clone := s
+func (s *RoutePlanSnapshot) Clone() RoutePlanSnapshot {
+	clone := *s
 	clone.Destination = cloneCoordinate(s.Destination)
 	clone.Constraints = s.Constraints.clone()
 	clone.Warnings = append([]Warning(nil), s.Warnings...)
@@ -269,18 +316,18 @@ func (s RoutePlanSnapshot) Clone() RoutePlanSnapshot {
 	clone.Cost = s.Cost.clone()
 	clone.Geometry = append([]Coordinate(nil), s.Geometry...)
 	clone.Steps = make([]RouteStep, len(s.Steps))
-	for i, step := range s.Steps {
-		clone.Steps[i] = step.clone()
+	for i := range s.Steps {
+		clone.Steps[i] = s.Steps[i].clone()
 	}
 	clone.Legs = make([]RouteLeg, len(s.Legs))
-	for i, leg := range s.Legs {
-		clone.Legs[i] = leg.clone()
+	for i := range s.Legs {
+		clone.Legs[i] = s.Legs[i].clone()
 	}
 	return clone
 }
 
-func (c RouteConstraints) clone() RouteConstraints {
-	clone := c
+func (c *RouteConstraints) clone() RouteConstraints {
+	clone := *c
 	clone.Budget.Limit = cloneMoney(c.Budget.Limit)
 	clone.ExcludedCategories = append([]string(nil), c.ExcludedCategories...)
 	clone.MovementModes = append([]MovementMode(nil), c.MovementModes...)
@@ -305,8 +352,8 @@ func (c RouteConstraints) clone() RouteConstraints {
 	return clone
 }
 
-func (s RouteStep) clone() RouteStep {
-	clone := s
+func (s *RouteStep) clone() RouteStep {
+	clone := *s
 	if s.Catalog != nil {
 		catalog := s.Catalog.clone()
 		clone.Catalog = &catalog
@@ -319,8 +366,8 @@ func (s RouteStep) clone() RouteStep {
 	return clone
 }
 
-func (s CatalogSnapshot) clone() CatalogSnapshot {
-	clone := s
+func (s *CatalogSnapshot) clone() CatalogSnapshot {
+	clone := *s
 	clone.PlaceID = clonePlaceID(s.PlaceID)
 	clone.EventID = cloneEventID(s.EventID)
 	clone.SessionID = cloneSessionID(s.SessionID)
@@ -330,8 +377,8 @@ func (s CatalogSnapshot) clone() CatalogSnapshot {
 	return clone
 }
 
-func (l RouteLeg) clone() RouteLeg {
-	clone := l
+func (l *RouteLeg) clone() RouteLeg {
+	clone := *l
 	clone.FromVisitID = cloneVisitID(l.FromVisitID)
 	clone.ToVisitID = cloneVisitID(l.ToVisitID)
 	if l.DistanceMeters != nil {
@@ -344,8 +391,8 @@ func (l RouteLeg) clone() RouteLeg {
 	return clone
 }
 
-func (s CostSnapshot) clone() CostSnapshot {
-	clone := s
+func (s *CostSnapshot) clone() CostSnapshot {
+	clone := *s
 	clone.PriceOfferID = clonePriceOfferID(s.PriceOfferID)
 	clone.Price.LowerMinor = cloneInt64(s.Price.LowerMinor)
 	clone.Price.UpperMinor = cloneInt64(s.Price.UpperMinor)
@@ -356,8 +403,8 @@ func (s CostSnapshot) clone() CostSnapshot {
 	return clone
 }
 
-func (s CostSummary) clone() CostSummary {
-	clone := s
+func (s *CostSummary) clone() CostSummary {
+	clone := *s
 	clone.TotalLower = cloneMoney(s.TotalLower)
 	clone.TotalUpper = cloneMoney(s.TotalUpper)
 	clone.UnknownComponents = append([]UnknownCostComponent(nil), s.UnknownComponents...)

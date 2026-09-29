@@ -47,9 +47,22 @@ func place(t *testing.T, id byte, mode domain.DataMode, openingRules string) Pla
 	return p
 }
 
-func session(p Place, id byte, start, end time.Time, availability domain.Availability) domain.Candidate {
-	window := domain.VisitWindow{Kind: domain.WindowFixed, Start: start, End: end, MinDuration: end.Sub(start), RecommendedDuration: end.Sub(start)}
-	event := &domain.Event{ID: domain.EventID{id}, PlaceID: p.Place.ID, Title: "Event", Category: *p.Place.Category, DataMode: p.Place.DataMode, Provenance: source}
+func session(p *Place, id byte, start, end time.Time, availability domain.Availability) domain.Candidate {
+	window := domain.VisitWindow{
+		Kind:                domain.WindowFixed,
+		Start:               start,
+		End:                 end,
+		MinDuration:         end.Sub(start),
+		RecommendedDuration: end.Sub(start),
+	}
+	event := &domain.Event{
+		ID:         domain.EventID{id},
+		PlaceID:    p.Place.ID,
+		Title:      "Event",
+		Category:   *p.Place.Category,
+		DataMode:   p.Place.DataMode,
+		Provenance: source,
+	}
 	return domain.Candidate{
 		Place: p.Place, Event: event, Window: window, Entrances: p.Entrances, BaseScore: p.BaseScore,
 		Session: &domain.Session{ID: domain.SessionID{id}, EventID: event.ID, Window: window, Access: domain.AccessFree,
@@ -59,8 +72,16 @@ func session(p Place, id byte, start, end time.Time, availability domain.Availab
 
 func request() domain.OptimizeRequest {
 	return domain.OptimizeRequest{
-		City: "perm", Timezone: "Asia/Yekaterinburg", Start: local(10, 0), End: local(18, 0), Origin: center,
-		Constraints: domain.RouteConstraints{MovementModes: []domain.MovementMode{domain.MovementWalk}, LoadProfile: "moderate", Budget: domain.Budget{Mode: domain.BudgetNone}},
+		City:     "perm",
+		Timezone: "Asia/Yekaterinburg",
+		Start:    local(10, 0),
+		End:      local(18, 0),
+		Origin:   center,
+		Constraints: domain.RouteConstraints{
+			MovementModes: []domain.MovementMode{domain.MovementWalk},
+			LoadProfile:   "moderate",
+			Budget:        domain.Budget{Mode: domain.BudgetNone},
+		},
 	}
 }
 
@@ -73,17 +94,30 @@ func testSlice(t *testing.T) *Slice {
 		BuiltAt: local(9, 0), Horizon: local(9, 0).Add(-24 * time.Hour),
 		Places: []Place{museum, unknownHours, theatre},
 		Sessions: []domain.Candidate{
-			session(theatre, 10, local(9, 0), local(10, 10), domain.AvailabilityAvailable), // only ten minutes of it in the day
-			session(theatre, 11, local(12, 0), local(13, 0), domain.AvailabilityCancelled), // kept for obligation diagnostics
-			session(theatre, 12, local(19, 0), local(20, 0), domain.AvailabilityAvailable), // after the day
-			session(theatre, 13, local(14, 0), local(15, 0), domain.AvailabilitySoldOut),
+			session(
+				&theatre,
+				10,
+				local(9, 0),
+				local(10, 10),
+				domain.AvailabilityAvailable,
+			), // only ten minutes of it in the day
+			session(
+				&theatre,
+				11,
+				local(12, 0),
+				local(13, 0),
+				domain.AvailabilityCancelled,
+			), // kept for obligation diagnostics
+			session(&theatre, 12, local(19, 0), local(20, 0), domain.AvailabilityAvailable), // after the day
+			session(&theatre, 13, local(14, 0), local(15, 0), domain.AvailabilitySoldOut),
 		},
 	}
 }
 
 func ids(cs []domain.Candidate) []byte {
 	var out []byte
-	for _, c := range cs {
+	for i := range cs {
+		c := &cs[i]
 		if c.Session != nil {
 			out = append(out, c.Session.ID[0])
 		} else {
@@ -94,7 +128,8 @@ func ids(cs []domain.Candidate) []byte {
 }
 
 func TestCandidatesExpandPlacesAndSessionsOfTheDay(t *testing.T) {
-	cs, fresh, err := testSlice(t).Candidates(request(), nil)
+	req := request()
+	cs, fresh, err := testSlice(t).Candidates(&req, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,32 +137,51 @@ func TestCandidatesExpandPlacesAndSessionsOfTheDay(t *testing.T) {
 	if got := ids(cs); !slices.Equal(got, []byte{1, 11, 13}) {
 		t.Fatalf("candidates %v", got)
 	}
-	if cs[0].Window.Start != local(10, 0) || cs[0].Window.End != local(18, 0) || cs[0].Window.MinDuration != domain.DefaultPlaceMinDuration {
+	if cs[0].Window.Start != local(10, 0) || cs[0].Window.End != local(18, 0) ||
+		cs[0].Window.MinDuration != domain.DefaultPlaceMinDuration {
 		t.Fatalf("museum window %+v", cs[0].Window)
 	}
-	if fresh.CatalogRevision != 7 || fresh.DataAsOf == nil || !fresh.DataAsOf.Equal(updatedAt) || fresh.DataMode != domain.DataSynthetic {
+	if fresh.CatalogRevision != 7 || fresh.DataAsOf == nil || !fresh.DataAsOf.Equal(updatedAt) ||
+		fresh.DataMode != domain.DataSynthetic {
 		t.Fatalf("freshness %+v", fresh)
 	}
 }
 
-func gastro(p Place) Place {
+func gastro(t *testing.T, id byte, mode domain.DataMode, openingRules string) Place {
+	p := place(t, id, mode, openingRules)
 	category := domain.CategoryGastro
 	p.Place.Category = &category
 	return p
 }
 
 func TestCandidatesOfferPlacesToEatWithUnknownHoursForTheWholeDay(t *testing.T) {
-	s := &Slice{City: "perm", Timezone: "Asia/Yekaterinburg", Revision: 7, UpdatedAt: updatedAt,
-		Places: []Place{gastro(place(t, 1, domain.DataLive, "")), place(t, 2, domain.DataLive, ""), gastro(place(t, 3, domain.DataLive, everyDay))}}
-	cs, _, err := s.Candidates(request(), nil)
+	s := &Slice{
+		City:      "perm",
+		Timezone:  "Asia/Yekaterinburg",
+		Revision:  7,
+		UpdatedAt: updatedAt,
+		Places: []Place{
+			gastro(t, 1, domain.DataLive, ""),
+			place(t, 2, domain.DataLive, ""),
+			gastro(t, 3, domain.DataLive, everyDay),
+		},
+	}
+	req := request()
+	cs, _, err := s.Candidates(&req, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := ids(cs); !slices.Equal(got, []byte{1, 3}) {
 		t.Fatalf("candidates %v", got)
 	}
-	want := domain.VisitWindow{Kind: domain.WindowContinuous, Start: local(10, 0), End: local(18, 0),
-		MinDuration: domain.DefaultPlaceMinDuration, RecommendedDuration: domain.DefaultPlaceRecommendedDuration, HoursUnknown: true}
+	want := domain.VisitWindow{
+		Kind:                domain.WindowContinuous,
+		Start:               local(10, 0),
+		End:                 local(18, 0),
+		MinDuration:         domain.DefaultPlaceMinDuration,
+		RecommendedDuration: domain.DefaultPlaceRecommendedDuration,
+		HoursUnknown:        true,
+	}
 	if cs[0].Window != want {
 		t.Fatalf("window of the place without hours %+v", cs[0].Window)
 	}
@@ -137,10 +191,10 @@ func TestCandidatesOfferPlacesToEatWithUnknownHoursForTheWholeDay(t *testing.T) 
 }
 
 func TestCandidatesSkipPlacesToEatWithUnknownHoursInADayTooShort(t *testing.T) {
-	s := &Slice{City: "perm", Timezone: "Asia/Yekaterinburg", Places: []Place{gastro(place(t, 1, domain.DataLive, ""))}}
+	s := &Slice{City: "perm", Timezone: "Asia/Yekaterinburg", Places: []Place{gastro(t, 1, domain.DataLive, "")}}
 	req := request()
 	req.End = req.Start.Add(domain.DefaultPlaceMinDuration - time.Minute)
-	cs, _, err := s.Candidates(req, nil)
+	cs, _, err := s.Candidates(&req, nil)
 	if err != nil || len(cs) != 0 {
 		t.Fatalf("candidates %v, err %v", ids(cs), err)
 	}
@@ -154,7 +208,7 @@ func TestCandidatesKeepObligationsOutsideTheDay(t *testing.T) {
 		{SessionID: &late, Participation: domain.ParticipationUserReported},
 		{SessionID: &short, Participation: domain.ParticipationUserReported},
 	}
-	cs, _, err := testSlice(t).Candidates(req, nil)
+	cs, _, err := testSlice(t).Candidates(&req, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,11 +219,11 @@ func TestCandidatesKeepObligationsOutsideTheDay(t *testing.T) {
 
 func TestCandidatesMergeExtraSessionsByStart(t *testing.T) {
 	s := testSlice(t)
-	old := session(s.Places[2], 20, local(11, 0), local(11, 30), domain.AvailabilityAvailable)
+	old := session(&s.Places[2], 20, local(11, 0), local(11, 30), domain.AvailabilityAvailable)
 	req := request()
 	id := old.Session.ID
 	req.Constraints.Obligations = []domain.Obligation{{SessionID: &id, Participation: domain.ParticipationUserReported}}
-	cs, _, err := s.Candidates(req, []domain.Candidate{old})
+	cs, _, err := s.Candidates(&req, []domain.Candidate{old})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +235,7 @@ func TestCandidatesMergeExtraSessionsByStart(t *testing.T) {
 func TestCandidatesRefuseAnotherTimezone(t *testing.T) {
 	req := request()
 	req.Timezone = "Europe/Moscow"
-	if _, _, err := testSlice(t).Candidates(req, nil); !errors.Is(err, usecase.ErrInvalidRequest) {
+	if _, _, err := testSlice(t).Candidates(&req, nil); !errors.Is(err, usecase.ErrInvalidRequest) {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -189,7 +243,8 @@ func TestCandidatesRefuseAnotherTimezone(t *testing.T) {
 func TestFreshnessFallsBackToPlacesWithoutCandidates(t *testing.T) {
 	s := &Slice{City: "perm", Timezone: "Asia/Yekaterinburg", Revision: 3, UpdatedAt: updatedAt,
 		Places: []Place{place(t, 1, domain.DataPrepared, ""), place(t, 2, domain.DataSynthetic, "")}}
-	cs, fresh, err := s.Candidates(request(), nil)
+	req := request()
+	cs, fresh, err := s.Candidates(&req, nil)
 	if err != nil || len(cs) != 0 {
 		t.Fatalf("%d candidates, %v", len(cs), err)
 	}
@@ -197,7 +252,11 @@ func TestFreshnessFallsBackToPlacesWithoutCandidates(t *testing.T) {
 		t.Fatalf("mode %s", fresh.DataMode)
 	}
 	empty := &Slice{City: "perm", Timezone: "Asia/Yekaterinburg", Revision: 3, UpdatedAt: updatedAt}
-	if _, fresh, _ := empty.Candidates(request(), nil); fresh.DataMode != domain.DataPrepared || fresh.Validate() != nil {
+	if _, fresh, _ := empty.Candidates(
+		&req,
+		nil,
+	); fresh.DataMode != domain.DataPrepared ||
+		fresh.Validate() != nil {
 		t.Fatalf("empty catalog freshness %+v", fresh)
 	}
 }
@@ -211,14 +270,14 @@ func TestMissingAndCovers(t *testing.T) {
 		{SessionID: &gone, Participation: domain.ParticipationUserReported},
 		{SessionID: &gone, Participation: domain.ParticipationUserReported},
 	}
-	if got := s.Missing(req); len(got) != 1 || got[0] != gone {
+	if got := s.Missing(&req); len(got) != 1 || got[0] != gone {
 		t.Fatalf("missing %v", got)
 	}
-	if !s.Covers(req) {
+	if !s.Covers(&req) {
 		t.Fatal("a day after the horizon is not covered")
 	}
 	req.Start = s.Horizon.Add(-time.Minute)
-	if s.Covers(req) {
+	if s.Covers(&req) {
 		t.Fatal("a day before the horizon is covered")
 	}
 }
@@ -226,7 +285,10 @@ func TestMissingAndCovers(t *testing.T) {
 func TestSizeGrowsWithTheCatalog(t *testing.T) {
 	small, big := testSlice(t), testSlice(t)
 	for i := range 50 {
-		big.Sessions = append(big.Sessions, session(big.Places[2], byte(100+i), local(12, 0), local(13, 0), domain.AvailabilityAvailable))
+		big.Sessions = append(
+			big.Sessions,
+			session(&big.Places[2], byte(100+i), local(12, 0), local(13, 0), domain.AvailabilityAvailable),
+		)
 	}
 	if (&Slice{}).Size() <= 0 || big.Size() <= small.Size() {
 		t.Fatalf("sizes %d and %d", small.Size(), big.Size())

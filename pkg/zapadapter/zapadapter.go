@@ -3,7 +3,7 @@ package zapadapter
 import (
 	"fmt"
 
-	"go.temporal.io/sdk/log"
+	temporallog "go.temporal.io/sdk/log"
 	"go.uber.org/zap"
 )
 
@@ -17,7 +17,7 @@ func NewZapAdapter(zapLogger *zap.Logger) *ZapAdapter {
 	}
 }
 
-func (log *ZapAdapter) fields(keyvals []interface{}) []zap.Field {
+func (adapter *ZapAdapter) fields(keyvals []any) []zap.Field {
 	if len(keyvals)%2 != 0 {
 		return []zap.Field{zap.Error(fmt.Errorf("odd number of keyvals pairs: %v", keyvals))}
 	}
@@ -36,26 +36,26 @@ func (log *ZapAdapter) fields(keyvals []interface{}) []zap.Field {
 	return fields
 }
 
-func (log *ZapAdapter) Debug(msg string, keyvals ...interface{}) {
-	log.zl.Debug(msg, log.fields(keyvals)...)
+func (adapter *ZapAdapter) Debug(msg string, keyvals ...any) {
+	adapter.zl.Debug(msg, adapter.fields(keyvals)...)
 }
 
-func (log *ZapAdapter) Info(msg string, keyvals ...interface{}) {
-	log.zl.Info(msg, log.fields(keyvals)...)
+func (adapter *ZapAdapter) Info(msg string, keyvals ...any) {
+	adapter.zl.Info(msg, adapter.fields(keyvals)...)
 }
 
-func (log *ZapAdapter) Warn(msg string, keyvals ...interface{}) {
-	log.zl.Warn(msg, log.fields(keyvals)...)
+func (adapter *ZapAdapter) Warn(msg string, keyvals ...any) {
+	adapter.zl.Warn(msg, adapter.fields(keyvals)...)
 }
 
-func (log *ZapAdapter) Error(msg string, keyvals ...interface{}) {
-	log.zl.Error(msg, log.fields(keyvals)...)
+func (adapter *ZapAdapter) Error(msg string, keyvals ...any) {
+	adapter.zl.Error(msg, adapter.fields(keyvals)...)
 }
 
-func (log *ZapAdapter) With(keyvals ...interface{}) log.Logger {
-	return &ZapAdapter{zl: log.zl.With(log.fields(keyvals)...)}
+func (adapter *ZapAdapter) With(keyvals ...any) temporallog.Logger {
+	return &ZapAdapter{zl: adapter.zl.With(adapter.fields(keyvals)...)}
 }
 
-func (log *ZapAdapter) WithCallerSkip(skip int) log.Logger {
-	return &ZapAdapter{zl: log.zl.WithOptions(zap.AddCallerSkip(skip))}
+func (adapter *ZapAdapter) WithCallerSkip(skip int) temporallog.Logger {
+	return &ZapAdapter{zl: adapter.zl.WithOptions(zap.AddCallerSkip(skip))}
 }

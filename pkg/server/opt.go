@@ -85,8 +85,7 @@ func WithLogger(log *zap.Logger) Option {
 						return nil
 					}
 
-					var httpErr *echo.HTTPError
-					if errors.As(v.Error, &httpErr) {
+					if httpErr, ok := errors.AsType[*echo.HTTPError](v.Error); ok {
 						fields = append(fields, zap.String("error_message", httpErr.Message))
 					} else {
 						fields = append(fields, zap.Error(v.Error))

@@ -61,14 +61,14 @@ type Outcome struct {
 	Failed     []Rejected
 }
 
-func (o Outcome) empty() bool {
+func (o *Outcome) empty() bool {
 	return len(o.Apply)+len(o.Unchanged)+len(o.Superseded)+len(o.Failed) == 0
 }
 
 type Store interface {
 	PendingBatch(ctx context.Context, city domain.City, ids []string) ([]Raw, error)
 	// Publish writes the outcome under the city lock; published is false when no catalog row changed.
-	Publish(ctx context.Context, city domain.City, o Outcome, at time.Time) (revision int64, published bool, err error)
+	Publish(ctx context.Context, city domain.City, o *Outcome, at time.Time) (revision int64, published bool, err error)
 }
 
 type Result struct {
@@ -87,8 +87,9 @@ type Failure struct {
 type normalizer func(city domain.City, externalID string, payload []byte, now time.Time) (normalize.Draft, error)
 
 var normalizers = map[domain.SourceKey]normalizer{
-	domain.MkrfEvents: normalize.MkrfEvent,
-	domain.KudaGo:     normalize.KudaGoEvent,
+	domain.MkrfEvents:      normalize.MkrfEvent,
+	domain.KudaGo:          normalize.KudaGoEvent,
+	domain.SyntheticSource: nil,
 	domain.OSM: func(_ domain.City, externalID string, payload []byte, _ time.Time) (normalize.Draft, error) {
 		place, err := normalize.OSMPlace(externalID, payload)
 		return normalize.Draft{Place: place}, err
@@ -98,23 +99,23 @@ var normalizers = map[domain.SourceKey]normalizer{
 // Prepare sorts a batch without touching the database; records of sources without a normalizer
 // yet stay pending and are only counted.
 func Prepare(city domain.City, raws []Raw, now time.Time) (o Outcome, deferred []Raw) {
-	for _, r := range raws {
-		normalizeRecord, known := normalizers[r.Source]
+	for i := range raws {
+		r := &raws[i]
+		normalizeRecord := normalizers[r.Source]
 		switch {
 		case !r.Latest:
-			o.Superseded = append(o.Superseded, r)
+			o.Superseded = append(o.Superseded, *r)
 		case r.AcceptedHash != nil && bytes.Equal(r.ContentHash, r.AcceptedHash):
-			o.Unchanged = append(o.Unchanged, r)
-		case !known:
-			deferred = append(deferred, r)
+			o.Unchanged = append(o.Unchanged, *r)
+		case normalizeRecord == nil:
+			deferred = append(deferred, *r)
 		default:
 			draft, err := normalizeRecord(city, r.ExternalID, r.Payload, now)
-			var bad *normalize.DataError
-			if errors.As(err, &bad) {
-				o.Failed = append(o.Failed, Rejected{r, bad.Code})
+			if bad, ok := errors.AsType[*normalize.DataError](err); ok {
+				o.Failed = append(o.Failed, Rejected{*r, bad.Code})
 				continue
 			}
-			o.Apply = append(o.Apply, Normalized{Raw: r, Place: draft.Place, Event: draft.Event})
+			o.Apply = append(o.Apply, Normalized{Raw: *r, Place: draft.Place, Event: draft.Event})
 		}
 	}
 	return o, deferred
@@ -130,38 +131,47 @@ func Apply(ctx context.Context, s Store, city domain.City, ids []string, now fun
 	at := now().UTC()
 	o, deferred := Prepare(city, raws, at)
 	res := Result{Deferred: len(deferred)}
-	count(o, deferred)
+	count(&o, deferred)
 	if o.empty() {
 		return res, nil
 	}
-	revision, published, err := s.Publish(ctx, city, o, at)
+	revision, published, err := s.Publish(ctx, city, &o, at)
 	if err != nil {
 		return Result{}, fmt.Errorf("publish batch: %w", err)
 	}
 	batches.WithLabelValues(string(city), strconv.FormatBool(published)).Inc()
-	res.Applied, res.Unchanged, res.Superseded, res.Failed = len(o.Apply), len(o.Unchanged), len(o.Superseded), len(o.Failed)
+	res.Applied, res.Unchanged, res.Superseded, res.Failed = len(
+		o.Apply,
+	), len(
+		o.Unchanged,
+	), len(
+		o.Superseded,
+	), len(
+		o.Failed,
+	)
 	res.CatalogRevision = revision
-	for _, f := range o.Failed {
+	for i := range o.Failed {
+		f := &o.Failed[i]
 		res.Failures = append(res.Failures, Failure{RawIngestID: f.Raw.ID, Source: f.Raw.Source, Code: f.Code})
 	}
 	return res, nil
 }
 
-func count(o Outcome, deferred []Raw) {
-	add := func(r Raw, result string) { records.WithLabelValues(string(r.Source), result).Inc() }
-	for _, n := range o.Apply {
-		add(n.Raw, "applied")
+func count(o *Outcome, deferred []Raw) {
+	add := func(r *Raw, result string) { records.WithLabelValues(string(r.Source), result).Inc() }
+	for i := range o.Apply {
+		add(&o.Apply[i].Raw, "applied")
 	}
-	for _, r := range o.Unchanged {
-		add(r, "unchanged")
+	for i := range o.Unchanged {
+		add(&o.Unchanged[i], "unchanged")
 	}
-	for _, r := range o.Superseded {
-		add(r, "superseded")
+	for i := range o.Superseded {
+		add(&o.Superseded[i], "superseded")
 	}
-	for _, f := range o.Failed {
-		add(f.Raw, "failed")
+	for i := range o.Failed {
+		add(&o.Failed[i].Raw, "failed")
 	}
-	for _, r := range deferred {
-		add(r, "deferred")
+	for i := range deferred {
+		add(&deferred[i], "deferred")
 	}
 }

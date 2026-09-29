@@ -14,20 +14,20 @@ const (
 
 // VisitWindow is when a visit may happen, whether it comes from a session or a place's opening hours.
 type VisitWindow struct {
-	Kind                WindowKind
-	Start               time.Time
-	End                 time.Time
-	LastEntryAt         *time.Time
-	MinDuration         time.Duration
-	RecommendedDuration time.Duration
-	ArrivalBuffer       time.Duration
+	Kind                WindowKind    `json:"Kind"`
+	Start               time.Time     `json:"Start"`
+	End                 time.Time     `json:"End"`
+	LastEntryAt         *time.Time    `json:"LastEntryAt"`
+	MinDuration         time.Duration `json:"MinDuration"`
+	RecommendedDuration time.Duration `json:"RecommendedDuration"`
+	ArrivalBuffer       time.Duration `json:"ArrivalBuffer"`
 	// Nil means the source never confirmed late entry, so it is not allowed.
-	LateEntryAllowed *bool
+	LateEntryAllowed *bool `json:"LateEntryAllowed"`
 	// The place gave no opening hours, so the window is assumed and the user has to check it.
-	HoursUnknown bool
+	HoursUnknown bool `json:"HoursUnknown"`
 }
 
-func (w VisitWindow) Validate() error {
+func (w *VisitWindow) Validate() error {
 	if w.Kind != WindowFixed && w.Kind != WindowContinuous {
 		return errors.New("invalid visit window kind")
 	}

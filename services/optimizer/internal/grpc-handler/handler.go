@@ -12,8 +12,8 @@ import (
 )
 
 type Planner interface {
-	Optimize(ctx context.Context, req domain.OptimizeRequest) (domain.OptimizeResult, error)
-	Recompute(ctx context.Context, req domain.RecomputeRequest) (domain.RecomputeResult, error)
+	Optimize(ctx context.Context, req *domain.OptimizeRequest) (domain.OptimizeResult, error)
+	Recompute(ctx context.Context, req *domain.RecomputeRequest) (domain.RecomputeResult, error)
 }
 
 type Handler struct {

@@ -18,7 +18,20 @@ import (
 //go:embed data/*.yaml
 var datasets embed.FS
 
-const horizonDays = 7
+const (
+	horizonDays             = 7
+	slotFixed               = "fixed"
+	slotWindow              = "window"
+	statusFree              = "free"
+	statusFixed             = slotFixed
+	statusRange             = "range"
+	statusUnknown           = "unknown"
+	accessFree              = statusFree
+	accessRegistration      = "registration"
+	accessTicket            = "ticket"
+	availabilityCancelled   = "cancelled"
+	eligibilityAgeBoundsLen = 2
+)
 
 type Dataset struct {
 	Version string  `yaml:"dataset_version"`
@@ -86,9 +99,9 @@ type Reference struct {
 
 var (
 	keyPattern      = regexp.MustCompile(`^[a-z0-9-]+$`)
-	slotTypes       = map[string]string{"fixed": "FIXED_SESSION", "window": "CONTINUOUS_WINDOW"}
-	accessTypes     = setOf("free", "registration", "ticket")
-	availabilities  = setOf("available", "registration_required", "sold_out", "cancelled", "unknown")
+	slotTypes       = map[string]string{slotFixed: "FIXED_SESSION", slotWindow: "CONTINUOUS_WINDOW"}
+	accessTypes     = setOf(accessFree, accessRegistration, accessTicket)
+	availabilities  = setOf("available", "registration_required", "sold_out", availabilityCancelled, statusUnknown)
 	audiences       = setOf("general", "child", "student", "senior", "other")
 	benefitPrograms = setOf("pushkin_card")
 )
@@ -131,17 +144,18 @@ func parse(raw []byte) (Dataset, error) {
 	decoder.KnownFields(true)
 	var ds Dataset
 	if err := decoder.Decode(&ds); err != nil {
-		return Dataset{}, err
+		return Dataset{}, fmt.Errorf("decode seed dataset yaml: %w", err)
 	}
 	return ds, nil
 }
 
-func (ds Dataset) validate(ref Reference) error {
+func (ds *Dataset) validate(ref Reference) error {
 	if ds.Version == "" {
 		return errors.New("dataset_version is required")
 	}
-	places := make(map[string]Place, len(ds.Places))
-	for _, p := range ds.Places {
+	places := make(map[string]*Place, len(ds.Places))
+	for i := range ds.Places {
+		p := &ds.Places[i]
 		if err := p.validate(ref); err != nil {
 			return fmt.Errorf("place %q: %w", p.Key, err)
 		}
@@ -152,7 +166,8 @@ func (ds Dataset) validate(ref Reference) error {
 	}
 	events := make(map[string]bool, len(ds.Events))
 	hosting := make(map[string]bool)
-	for _, e := range ds.Events {
+	for i := range ds.Events {
+		e := &ds.Events[i]
 		if err := e.validate(ref, places); err != nil {
 			return fmt.Errorf("event %q: %w", e.Key, err)
 		}
@@ -162,7 +177,8 @@ func (ds Dataset) validate(ref Reference) error {
 		events[e.Key] = true
 		hosting[e.Place] = true
 	}
-	for _, p := range ds.Places {
+	for i := range ds.Places {
+		p := &ds.Places[i]
 		if p.Category == "" && !hosting[p.Key] {
 			return fmt.Errorf("place %q: has neither a category nor events", p.Key)
 		}
@@ -170,7 +186,7 @@ func (ds Dataset) validate(ref Reference) error {
 	return nil
 }
 
-func (p Place) validate(ref Reference) error {
+func (p *Place) validate(ref Reference) error {
 	if !keyPattern.MatchString(p.Key) {
 		return errors.New("key must match [a-z0-9-]+")
 	}
@@ -203,7 +219,7 @@ func (p Place) validate(ref Reference) error {
 	return nil
 }
 
-func (e Event) validate(ref Reference, places map[string]Place) error {
+func (e *Event) validate(ref Reference, places map[string]*Place) error {
 	if !keyPattern.MatchString(e.Key) {
 		return errors.New("key must match [a-z0-9-]+")
 	}
@@ -230,7 +246,8 @@ func (e Event) validate(ref Reference, places map[string]Place) error {
 		return errors.New("at least one session is required")
 	}
 	keys := make(map[string]bool, len(e.Sessions))
-	for _, s := range e.Sessions {
+	for i := range e.Sessions {
+		s := &e.Sessions[i]
 		if err := s.validate(); err != nil {
 			return fmt.Errorf("session %q: %w", s.Key, err)
 		}
@@ -242,13 +259,20 @@ func (e Event) validate(ref Reference, places map[string]Place) error {
 	return nil
 }
 
-func (s Session) validate() error {
+func (s *Session) validate() error {
 	if !keyPattern.MatchString(s.Key) {
 		return errors.New("key must match [a-z0-9-]+")
 	}
 	if _, ok := slotTypes[s.Slot]; !ok {
 		return fmt.Errorf("unknown slot %q", s.Slot)
 	}
+	if err := s.validateTiming(); err != nil {
+		return err
+	}
+	return s.validateAccessAndPrices()
+}
+
+func (s *Session) validateTiming() error {
 	days := make(map[int]bool, len(s.Days))
 	for _, day := range s.Days {
 		if day < 0 || day >= horizonDays || days[day] {
@@ -276,38 +300,48 @@ func (s Session) validate() error {
 	if s.Buffer < 0 {
 		return errors.New("buffer must not be negative")
 	}
-	if s.LastEntry != "" {
-		if s.LateEntry == nil || !*s.LateEntry {
-			return errors.New("last_entry requires late_entry: true")
-		}
-		last, err := normalize.ClockMinutes(s.LastEntry, true)
-		if err != nil {
-			return err
-		}
-		if last < start || last > end {
-			return errors.New("last_entry is outside the session")
-		}
+	return s.validateLastEntry(start, end)
+}
+
+func (s *Session) validateLastEntry(start, end int) error {
+	if s.LastEntry == "" {
+		return nil
 	}
+	if s.LateEntry == nil || !*s.LateEntry {
+		return errors.New("last_entry requires late_entry: true")
+	}
+	last, err := normalize.ClockMinutes(s.LastEntry, true)
+	if err != nil {
+		return err
+	}
+	if last < start || last > end {
+		return errors.New("last_entry is outside the session")
+	}
+	return nil
+}
+
+func (s *Session) validateAccessAndPrices() error {
 	if !accessTypes[s.Access] {
 		return fmt.Errorf("unknown access %q", s.Access)
 	}
-	if s.RegistrationClosesBefore < 0 || (s.RegistrationClosesBefore > 0 && s.Access != "registration") {
+	if s.RegistrationClosesBefore < 0 || (s.RegistrationClosesBefore > 0 && s.Access != accessRegistration) {
 		return errors.New("registration_closes_before applies only to registration access")
 	}
 	if !availabilities[s.Availability] {
 		return fmt.Errorf("unknown availability %q", s.Availability)
 	}
-	if (s.Availability == "cancelled") != (s.CancellationReason != "") {
+	if (s.Availability == availabilityCancelled) != (s.CancellationReason != "") {
 		return errors.New("cancellation_reason is required exactly for cancelled sessions")
 	}
-	if s.Access == "ticket" && len(s.Prices) == 0 {
+	if s.Access == accessTicket && len(s.Prices) == 0 {
 		return errors.New("a ticketed session needs prices")
 	}
-	if s.Access != "ticket" && len(s.Prices) > 0 {
+	if s.Access != accessTicket && len(s.Prices) > 0 {
 		return errors.New("only ticketed sessions list prices")
 	}
 	seen := make(map[string]bool, len(s.Prices))
-	for _, p := range s.Prices {
+	for i := range s.Prices {
+		p := &s.Prices[i]
 		if err := p.validate(); err != nil {
 			return fmt.Errorf("price %q: %w", p.Audience, err)
 		}
@@ -319,11 +353,11 @@ func (s Session) validate() error {
 	return nil
 }
 
-func (p Price) validate() error {
+func (p *Price) validate() error {
 	if !audiences[p.Audience] {
 		return fmt.Errorf("unknown audience %q", p.Audience)
 	}
-	amounts := map[string]int{"free": 0, "unknown": 0, "fixed": 1, "range": 2}
+	amounts := map[string]int{statusFree: 0, statusUnknown: 0, statusFixed: 1, statusRange: eligibilityAgeBoundsLen}
 	count, ok := amounts[p.Status]
 	if !ok {
 		return fmt.Errorf("unknown status %q", p.Status)
@@ -336,10 +370,11 @@ func (p Price) validate() error {
 			return errors.New("amount must not be negative")
 		}
 	}
-	if p.Status == "range" && p.Amount[0] > p.Amount[1] {
+	if p.Status == statusRange && p.Amount[0] > p.Amount[1] {
 		return errors.New("range is inverted")
 	}
-	if len(p.EligibilityAge) != 0 && (len(p.EligibilityAge) != 2 || p.EligibilityAge[0] < 0 || p.EligibilityAge[0] > p.EligibilityAge[1]) {
+	if len(p.EligibilityAge) != 0 &&
+		(len(p.EligibilityAge) != eligibilityAgeBoundsLen || p.EligibilityAge[0] < 0 || p.EligibilityAge[0] > p.EligibilityAge[1]) {
 		return errors.New("eligibility_age must be [min, max]")
 	}
 	for _, program := range p.BenefitPrograms {

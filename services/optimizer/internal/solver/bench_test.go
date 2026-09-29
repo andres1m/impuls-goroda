@@ -11,14 +11,24 @@ import (
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
 )
 
-var benchCategories = []domain.Category{domain.CategoryCulture, domain.CategorySport, domain.CategoryWalk, domain.CategoryTourism}
+var benchCategories = []domain.Category{
+	domain.CategoryCulture,
+	domain.CategorySport,
+	domain.CategoryWalk,
+	domain.CategoryTourism,
+}
 
 // benchPool spreads places along a 6 km line; the fixed seed keeps runs comparable.
 func benchPool(n int) []domain.Candidate {
 	r := rand.New(rand.NewPCG(1, 0))
 	pool := make([]domain.Candidate, n)
 	for i := range pool {
-		c := place(1, benchCategories[r.IntN(len(benchCategories))], domain.InterestMask(r.Uint64()&0x1FFF), north(origin, (r.Float64()-0.5)*6000))
+		c := place(
+			1,
+			benchCategories[r.IntN(len(benchCategories))],
+			domain.InterestMask(r.Uint64()&0x1FFF),
+			north(origin, (r.Float64()-0.5)*6000),
+		)
 		c.Place.ID = domain.PlaceID{0xB0, byte(i >> 8), byte(i)}
 		pool[i] = c
 	}
@@ -64,8 +74,8 @@ func BenchmarkRepair(b *testing.B) {
 		b.Fatalf("no route to repair: %v", err)
 	}
 	steps := make([]RepairStep, 0, len(branches[0].Visits))
-	for _, v := range branches[0].Visits {
-		steps = append(steps, RepairStep{Candidate: v.Candidate})
+	for i := range branches[0].Visits {
+		steps = append(steps, RepairStep{Candidate: branches[0].Visits[i].Candidate})
 	}
 	delayed := problem()
 	delayed.Start = delayed.Start.Add(45 * time.Minute)

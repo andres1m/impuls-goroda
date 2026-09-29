@@ -7,7 +7,7 @@ import (
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
 )
 
-func cost(t *testing.T, p Policy, visits ...domain.Candidate) ([]domain.CostSnapshot, domain.CostSummary) {
+func cost(t *testing.T, p *Policy, visits ...domain.Candidate) ([]domain.CostSnapshot, domain.CostSummary) {
 	t.Helper()
 	refs := make([]*domain.Candidate, len(visits))
 	for i := range visits {
@@ -20,8 +20,8 @@ func cost(t *testing.T, p Policy, visits ...domain.Candidate) ([]domain.CostSnap
 	if len(snapshots) != len(visits) {
 		t.Fatalf("%d snapshots for %d visits", len(snapshots), len(visits))
 	}
-	for i, s := range snapshots {
-		if err := s.Validate(); err != nil {
+	for i := range snapshots {
+		if err := snapshots[i].Validate(); err != nil {
 			t.Fatalf("snapshot %d: %v", i, err)
 		}
 	}
@@ -41,15 +41,26 @@ func amount(m *domain.Money) any {
 func TestCostProgramShare(t *testing.T) {
 	p := policy()
 	p.Programs = []string{domain.ProgramPushkinCard}
-	snapshots, summary := cost(t, p, concert(offer(1, fixed(50000), domain.AudienceGeneral, domain.ProgramPushkinCard)))
+	snapshots, summary := cost(
+		t,
+		&p,
+		concert(offer(1, fixed(50000), domain.AudienceGeneral, domain.ProgramPushkinCard)),
+	)
 	s := snapshots[0]
 	if s.PersonalAmount != nil || amount(s.ProgramAmount) != int64(50000) || len(s.UnknownComponents) != 0 {
-		t.Fatalf("snapshot personal=%v program=%v unknown=%v", amount(s.PersonalAmount), amount(s.ProgramAmount), s.UnknownComponents)
+		t.Fatalf(
+			"snapshot personal=%v program=%v unknown=%v",
+			amount(s.PersonalAmount),
+			amount(s.ProgramAmount),
+			s.UnknownComponents,
+		)
 	}
-	if s.PriceOfferID == nil || *s.PriceOfferID != (domain.PriceOfferID{1}) || s.Audience != domain.AudienceGeneral || s.Provenance != tariff {
+	if s.PriceOfferID == nil || *s.PriceOfferID != (domain.PriceOfferID{1}) || s.Audience != domain.AudienceGeneral ||
+		s.Provenance != tariff {
 		t.Fatalf("snapshot offer %v audience %q provenance %+v", s.PriceOfferID, s.Audience, s.Provenance)
 	}
-	if summary.KnownPersonal != rub(0) || summary.ProgramAmount != rub(50000) || amount(summary.TotalUpper) != int64(50000) {
+	if summary.KnownPersonal != rub(0) || summary.ProgramAmount != rub(50000) ||
+		amount(summary.TotalUpper) != int64(50000) {
 		t.Fatalf("summary = %+v", summary)
 	}
 }
@@ -62,7 +73,7 @@ func TestCostProgramPaysEveryTicket(t *testing.T) {
 		c.Place.ID = domain.PlaceID{id}
 		return c
 	}
-	snapshots, summary := cost(t, p, card(1, 50000), card(2, 20000))
+	snapshots, summary := cost(t, &p, card(1, 50000), card(2, 20000))
 	for i, want := range []int64{50000, 20000} {
 		if s := snapshots[i]; s.PersonalAmount != nil || amount(s.ProgramAmount) != want {
 			t.Errorf("visit %d personal=%v program=%v", i, amount(s.PersonalAmount), amount(s.ProgramAmount))
@@ -75,14 +86,15 @@ func TestCostProgramPaysEveryTicket(t *testing.T) {
 
 func TestCostPriceKinds(t *testing.T) {
 	p := policy()
-	p.Budget = domain.Budget{Mode: domain.BudgetStrict, Limit: ptr(rub(100000))}
-	snapshots, summary := cost(t, p,
+	p.Budget = domain.Budget{Mode: domain.BudgetStrict, Limit: new(rub(100000))}
+	snapshots, summary := cost(t, &p,
 		concert(offer(1, fixed(40000), domain.AudienceGeneral)),
-		concert(offer(2, between(10000, 30000), domain.AudienceGeneral)),
+		concert(offer(2, between(30000), domain.AudienceGeneral)),
 		concert(offer(3, free(), domain.AudienceGeneral)),
 	)
 	want := []any{int64(40000), nil, int64(0)}
-	for i, s := range snapshots {
+	for i := range snapshots {
+		s := &snapshots[i]
 		if amount(s.PersonalAmount) != want[i] || s.ProgramAmount != nil {
 			t.Errorf("visit %d personal=%v program=%v", i, amount(s.PersonalAmount), amount(s.ProgramAmount))
 		}
@@ -104,11 +116,14 @@ func TestCostUnknownPrice(t *testing.T) {
 	p.AcceptUnknownPrice = true
 	unpriced := concert()
 	unpriced.Session.Provenance = domain.Provenance{SourceName: "sessions", FetchedAt: day}
-	snapshots, summary := cost(t, p, museum(), unpriced, concert(offer(1, fixed(40000), domain.AudienceGeneral)))
-	for i, s := range snapshots[:2] {
-		if s.Price.Status != domain.PriceUnknown || s.PriceOfferID != nil || s.PersonalAmount != nil || s.ProgramAmount != nil ||
-			len(s.UnknownComponents) != 1 || s.UnknownComponents[0].Code != "PRICE_UNKNOWN" {
-			t.Errorf("visit %d snapshot = %+v", i, s)
+	snapshots, summary := cost(t, &p, museum(), unpriced, concert(offer(1, fixed(40000), domain.AudienceGeneral)))
+	for i := range snapshots[:2] {
+		s := &snapshots[i]
+		if s.Price.Status != domain.PriceUnknown || s.PriceOfferID != nil || s.PersonalAmount != nil ||
+			s.ProgramAmount != nil ||
+			len(s.UnknownComponents) != 1 ||
+			s.UnknownComponents[0].Code != "PRICE_UNKNOWN" {
+			t.Errorf("visit %d snapshot = %+v", i, *s)
 		}
 	}
 	if snapshots[0].Provenance != source || snapshots[1].Provenance.SourceName != "sessions" {
@@ -125,7 +140,7 @@ func TestCostUnknownPrice(t *testing.T) {
 func TestCostBudgetConclusion(t *testing.T) {
 	visits := []domain.Candidate{
 		concert(offer(1, fixed(60000), domain.AudienceGeneral)),
-		concert(offer(2, between(10000, 50000), domain.AudienceGeneral)),
+		concert(offer(2, between(50000), domain.AudienceGeneral)),
 	}
 	cases := []struct {
 		name   string
@@ -133,14 +148,22 @@ func TestCostBudgetConclusion(t *testing.T) {
 		want   domain.BudgetConclusion
 	}{
 		{"no budget", domain.Budget{Mode: domain.BudgetNone}, domain.BudgetNotApplicable},
-		{"upper bounds within the limit", domain.Budget{Mode: domain.BudgetAdvisory, Limit: ptr(rub(110000))}, domain.BudgetSatisfied},
-		{"only lower bounds within the limit", domain.Budget{Mode: domain.BudgetAdvisory, Limit: ptr(rub(100000))}, domain.BudgetViolated},
+		{
+			"upper bounds within the limit",
+			domain.Budget{Mode: domain.BudgetAdvisory, Limit: new(rub(110000))},
+			domain.BudgetSatisfied,
+		},
+		{
+			"only lower bounds within the limit",
+			domain.Budget{Mode: domain.BudgetAdvisory, Limit: new(rub(100000))},
+			domain.BudgetViolated,
+		},
 		{"strict over the limit", strict(70000), domain.BudgetViolated},
 	}
 	for _, tc := range cases {
 		p := policy()
 		p.Budget = tc.budget
-		if _, summary := cost(t, p, visits...); summary.BudgetConclusion != tc.want {
+		if _, summary := cost(t, &p, visits...); summary.BudgetConclusion != tc.want {
 			t.Errorf("%s: conclusion = %s", tc.name, summary.BudgetConclusion)
 		}
 	}
@@ -149,7 +172,7 @@ func TestCostBudgetConclusion(t *testing.T) {
 func TestCostPricesVisitsTheSearchWouldExclude(t *testing.T) {
 	p := policy()
 	p.PushkinCardOnly = true
-	snapshots, summary := cost(t, p, concert(offer(1, fixed(50000), domain.AudienceGeneral)), museum())
+	snapshots, summary := cost(t, &p, concert(offer(1, fixed(50000), domain.AudienceGeneral)), museum())
 	if snapshots[0].Price.Status != domain.PriceFixed || snapshots[1].Price.Status != domain.PriceUnknown {
 		t.Fatalf("snapshots = %+v", snapshots)
 	}
@@ -161,7 +184,11 @@ func TestCostPricesVisitsTheSearchWouldExclude(t *testing.T) {
 func TestCostEmptyRoute(t *testing.T) {
 	p := policy()
 	p.Budget = strict(100000)
-	if _, summary := cost(t, p); summary.BudgetConclusion != domain.BudgetSatisfied || amount(summary.TotalUpper) != int64(0) {
+	if _, summary := cost(
+		t,
+		&p,
+	); summary.BudgetConclusion != domain.BudgetSatisfied ||
+		amount(summary.TotalUpper) != int64(0) {
 		t.Fatalf("summary = %+v", summary)
 	}
 }
@@ -169,7 +196,11 @@ func TestCostEmptyRoute(t *testing.T) {
 func TestCostProgramPaysUpperOfRange(t *testing.T) {
 	p := policy()
 	p.Programs = []string{domain.ProgramPushkinCard}
-	snapshots, summary := cost(t, p, concert(offer(1, between(10000, 30000), domain.AudienceGeneral, domain.ProgramPushkinCard)))
+	snapshots, summary := cost(
+		t,
+		&p,
+		concert(offer(1, between(30000), domain.AudienceGeneral, domain.ProgramPushkinCard)),
+	)
 	if s := snapshots[0]; s.PersonalAmount != nil || amount(s.ProgramAmount) != int64(30000) {
 		t.Fatalf("personal=%v program=%v", amount(s.PersonalAmount), amount(s.ProgramAmount))
 	}
@@ -180,7 +211,8 @@ func TestCostProgramPaysUpperOfRange(t *testing.T) {
 
 func TestCostSnapshotDoesNotShareOfferID(t *testing.T) {
 	visit := concert(offer(1, fixed(50000), domain.AudienceGeneral))
-	snapshots, _ := cost(t, policy(), visit)
+	p := policy()
+	snapshots, _ := cost(t, &p, visit)
 	snapshots[0].PriceOfferID[0] = 9
 	if snapshots[0].PriceOfferID == &visit.Offers[0].ID {
 		t.Fatal("snapshot points into the catalog offer")
@@ -199,7 +231,8 @@ func TestCostRejectsInvalidPolicy(t *testing.T) {
 func TestCostRejectsOverflow(t *testing.T) {
 	a := concert(offer(1, fixed(math.MaxInt64), domain.AudienceGeneral))
 	b := concert(offer(2, fixed(1), domain.AudienceGeneral))
-	if _, _, err := policy().Cost([]*domain.Candidate{&a, &b}); err == nil {
+	p := policy()
+	if _, _, err := p.Cost([]*domain.Candidate{&a, &b}); err == nil {
 		t.Fatal("overflowing route cost accepted")
 	}
 }
@@ -207,7 +240,7 @@ func TestCostRejectsOverflow(t *testing.T) {
 func TestCostSatisfiesPlanBudgetRules(t *testing.T) {
 	budgets := []domain.Budget{
 		{Mode: domain.BudgetNone},
-		{Mode: domain.BudgetAdvisory, Limit: ptr(rub(30000))},
+		{Mode: domain.BudgetAdvisory, Limit: new(rub(30000))},
 		strict(100000),
 	}
 	routes := [][]domain.Candidate{
@@ -219,7 +252,7 @@ func TestCostSatisfiesPlanBudgetRules(t *testing.T) {
 			p := policy()
 			p.Budget = budget
 			p.AcceptUnknownPrice = true
-			_, summary := cost(t, p, visits...)
+			_, summary := cost(t, &p, visits...)
 			plan := domain.Plan{Cost: summary, Steps: make([]domain.Step, len(visits))}
 			if err := plan.ValidateBudget(budget); err != nil {
 				t.Errorf("%s budget, %d visits: %v", budget.Mode, len(visits), err)
@@ -235,10 +268,10 @@ func TestSummarizeAddsUpSnapshots(t *testing.T) {
 	p.AcceptUnknownPrice = true
 	visits := []domain.Candidate{
 		concert(offer(1, fixed(40000), domain.AudienceGeneral)),
-		concert(offer(2, between(10000, 30000), domain.AudienceGeneral, domain.ProgramPushkinCard)),
+		concert(offer(2, between(30000), domain.AudienceGeneral, domain.ProgramPushkinCard)),
 		museum(),
 	}
-	snapshots, summary := cost(t, p, visits...)
+	snapshots, summary := cost(t, &p, visits...)
 	again, err := p.Summarize(snapshots)
 	if err != nil {
 		t.Fatal(err)
@@ -248,9 +281,10 @@ func TestSummarizeAddsUpSnapshots(t *testing.T) {
 		len(again.UnknownComponents) != len(summary.UnknownComponents) {
 		t.Fatalf("summarize %+v, cost %+v", again, summary)
 	}
-	known, _ := cost(t, p, visits[:2]...)
+	known, _ := cost(t, &p, visits[:2]...)
 	total, err := p.Summarize(known)
-	if err != nil || total.TotalLower.AmountMinor != 50000 || total.TotalUpper.AmountMinor != 70000 || total.BudgetConclusion != domain.BudgetSatisfied {
+	if err != nil || total.TotalLower.AmountMinor != 50000 || total.TotalUpper.AmountMinor != 70000 ||
+		total.BudgetConclusion != domain.BudgetSatisfied {
 		t.Fatalf("summary %+v err %v", total, err)
 	}
 }

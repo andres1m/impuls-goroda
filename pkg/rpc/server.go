@@ -46,11 +46,11 @@ func (s *Server) DependsOn() []string {
 
 func (s *Server) HealthCheck(ctx context.Context) error {
 	if s.server == nil {
-		return fmt.Errorf("grpc server is not initialized")
+		return errors.New("grpc server is not initialized")
 	}
 
 	if s.lis == nil {
-		return fmt.Errorf("grpc server listener is not bound")
+		return errors.New("grpc server listener is not bound")
 	}
 
 	return nil
@@ -83,7 +83,7 @@ func (s *Server) Init(ctx context.Context) error {
 		}
 
 		if ok := caCertPool.AppendCertsFromPEM(caBytes); !ok {
-			return fmt.Errorf("failed to append ca cert")
+			return errors.New("failed to append ca cert")
 		}
 
 		tlsConfig := &tls.Config{
@@ -103,7 +103,7 @@ func (s *Server) Init(ctx context.Context) error {
 
 	server := grpc.NewServer(opts...)
 
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", s.cfg.Port))
+	lis, err := (&net.ListenConfig{}).Listen(ctx, "tcp", fmt.Sprintf(":%d", s.cfg.Port))
 	if err != nil {
 		return fmt.Errorf("failed to listen on %d port: %w", s.cfg.Port, err)
 	}
@@ -130,7 +130,7 @@ func (s *Server) Addr() net.Addr {
 }
 
 func (s *Server) Name() string {
-	return fmt.Sprintf("grpc-server-%s", s.name)
+	return "grpc-server-" + s.name
 }
 
 func (s *Server) Run(ctx context.Context) error {
@@ -163,7 +163,7 @@ func (s *Server) Stop(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		s.server.Stop()
-		return ctx.Err()
+		return fmt.Errorf("stop RPC server: %w", ctx.Err())
 	}
 }
 

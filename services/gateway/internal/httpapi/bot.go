@@ -12,8 +12,10 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+const maxWebhookBodyBytes = 64 * 1024
+
 type BotHandler interface {
-	Handle(context.Context, maxbot.Update) error
+	Handle(context.Context, *maxbot.Update) error
 }
 
 type BotRouter struct {
@@ -31,17 +33,31 @@ func (r *BotRouter) Routes() []router.Route {
 
 func (r *BotRouter) webhook() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		body := http.MaxBytesReader(c.Response(), c.Request().Body, 64*1024)
+		body := http.MaxBytesReader(c.Response(), c.Request().Body, maxWebhookBodyBytes)
 		decoder := json.NewDecoder(body)
 		var update maxbot.Update
 		if err := decoder.Decode(&update); err != nil {
-			return &Error{Status: http.StatusBadRequest, Code: "MALFORMED_REQUEST", Message: "Request cannot be parsed"}
+			return &Error{
+				Status:  http.StatusBadRequest,
+				Code:    codeMalformedRequest,
+				Message: msgMalformedRequest,
+			}
 		}
 		if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-			return &Error{Status: http.StatusBadRequest, Code: "MALFORMED_REQUEST", Message: "Request cannot be parsed"}
+			return &Error{
+				Status:  http.StatusBadRequest,
+				Code:    codeMalformedRequest,
+				Message: msgMalformedRequest,
+			}
 		}
-		if err := r.bot.Handle(c.Request().Context(), update); err != nil {
-			return &Error{Status: http.StatusServiceUnavailable, Code: "BOT_UNAVAILABLE", Message: "Bot is temporarily unavailable", Retryable: true, Cause: err}
+		if err := r.bot.Handle(c.Request().Context(), &update); err != nil {
+			return &Error{
+				Status:    http.StatusServiceUnavailable,
+				Code:      "BOT_UNAVAILABLE",
+				Message:   "Bot is temporarily unavailable",
+				Retryable: true,
+				Cause:     err,
+			}
 		}
 		return c.NoContent(http.StatusOK)
 	}

@@ -36,8 +36,16 @@ type errorResponse struct {
 	CurrentRevision string `json:"current_revision,omitempty"`
 }
 
+const (
+	codeMalformedRequest = "MALFORMED_REQUEST"
+	codeNotFound         = "NOT_FOUND"
+	codeAuthRequired     = "AUTH_REQUIRED"
+	msgMalformedRequest  = "Request cannot be parsed"
+	msgNotFound          = "Resource not found"
+)
+
 func ErrorHandler(c *echo.Context, err error) {
-	if c.Response().(*echo.Response).Committed {
+	if resp, ok := c.Response().(*echo.Response); ok && resp.Committed {
 		return
 	}
 	apiError := classifyError(err)
@@ -52,23 +60,31 @@ func ErrorHandler(c *echo.Context, err error) {
 		response.CurrentRevision = strconv.FormatInt(int64(apiError.CurrentRevision), 10)
 		c.Response().Header().Set("ETag", `"`+response.CurrentRevision+`"`)
 	}
-	_ = c.JSON(apiError.Status, response)
+	if jsonErr := c.JSON(apiError.Status, response); jsonErr != nil {
+		c.Response().WriteHeader(apiError.Status)
+	}
 }
 
 func classifyError(err error) *Error {
-	var apiError *Error
-	if errors.As(err, &apiError) {
+	if apiError, ok := errors.AsType[*Error](err); ok {
 		return apiError
 	}
-	var echoError *echo.HTTPError
-	if errors.As(err, &echoError) {
+	if echoError, ok := errors.AsType[*echo.HTTPError](err); ok {
 		switch echoError.Code {
 		case http.StatusNotFound:
-			return &Error{Status: http.StatusNotFound, Code: "NOT_FOUND", Message: "Resource not found"}
+			return &Error{Status: http.StatusNotFound, Code: codeNotFound, Message: msgNotFound}
 		case http.StatusMethodNotAllowed:
-			return &Error{Status: http.StatusMethodNotAllowed, Code: "METHOD_NOT_ALLOWED", Message: "Method not allowed"}
+			return &Error{
+				Status:  http.StatusMethodNotAllowed,
+				Code:    "METHOD_NOT_ALLOWED",
+				Message: "Method not allowed",
+			}
 		case http.StatusRequestEntityTooLarge:
-			return &Error{Status: http.StatusBadRequest, Code: "MALFORMED_REQUEST", Message: "Request cannot be parsed"}
+			return &Error{
+				Status:  http.StatusBadRequest,
+				Code:    codeMalformedRequest,
+				Message: msgMalformedRequest,
+			}
 		}
 	}
 	return &Error{

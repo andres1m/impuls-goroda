@@ -23,7 +23,7 @@ func newSolver(t *testing.T, cfg Config) *Solver {
 	return s
 }
 
-func search(t *testing.T, cfg Config, p Problem, pool []domain.Candidate) []*domain.Branch {
+func search(t *testing.T, cfg Config, p *Problem, pool []domain.Candidate) []*domain.Branch {
 	t.Helper()
 	routes, err := newSolver(t, cfg).Search(context.Background(), p, pool)
 	if err != nil {
@@ -34,8 +34,8 @@ func search(t *testing.T, cfg Config, p Problem, pool []domain.Candidate) []*dom
 
 func placeIDs(b *domain.Branch) []byte {
 	ids := make([]byte, len(b.Visits))
-	for i, v := range b.Visits {
-		ids[i] = v.Candidate.Place.ID[0]
+	for i := range b.Visits {
+		ids[i] = b.Visits[i].Candidate.Place.ID[0]
 	}
 	return ids
 }
@@ -66,10 +66,11 @@ func TestSearchSingleCandidate(t *testing.T) {
 		t.Fatalf("routes = %v", routeKeys(routes))
 	}
 	visit := routes[0].Visits[0]
-	if !visit.ArrivalAt.Equal(at(10, 0).Add(1000*time.Second)) || !visit.StartAt.Equal(visit.ArrivalAt) || !visit.EndAt.Equal(visit.StartAt.Add(time.Hour)) {
+	if !visit.ArrivalAt.Equal(at(10, 0).Add(1000*time.Second)) || !visit.StartAt.Equal(visit.ArrivalAt) ||
+		!visit.EndAt.Equal(visit.StartAt.Add(time.Hour)) {
 		t.Fatalf("visit = %+v", visit)
 	}
-	want := worth(visit) - 0.2*(1000.0/60) - 5
+	want := worth(&visit) - 0.2*(1000.0/60) - 5
 	if diff := routes[0].Score - want; diff > 1e-9 || diff < -1e-9 {
 		t.Fatalf("score = %f, want %f", routes[0].Score, want)
 	}
@@ -85,7 +86,7 @@ func TestSearchSingleCandidate(t *testing.T) {
 }
 
 // worth is what a visit to a fixture place earns: base score 10 at affinity 1 for each minute spent.
-func worth(v domain.SearchVisit) float64 {
+func worth(v *domain.SearchVisit) float64 {
 	return 0.5 * 10 * v.EndAt.Sub(v.StartAt).Minutes()
 }
 
@@ -97,7 +98,7 @@ func assertScore(t *testing.T, got, want float64) {
 }
 
 func TestSearchBufferIsNotWaiting(t *testing.T) {
-	museum := withWindow(place(1, domain.CategoryCulture, 0, north(origin, 1000)), func(w *domain.VisitWindow) {
+	museum := withWindow(new(place(1, domain.CategoryCulture, 0, north(origin, 1000))), func(w *domain.VisitWindow) {
 		w.ArrivalBuffer = 10 * time.Minute
 	})
 	routes := search(t, wide, problem(), []domain.Candidate{museum})
@@ -108,7 +109,7 @@ func TestSearchBufferIsNotWaiting(t *testing.T) {
 	if visit.Buffer != 10*time.Minute || !visit.StartAt.Equal(visit.ArrivalAt.Add(10*time.Minute)) {
 		t.Fatalf("visit = %+v", visit)
 	}
-	assertScore(t, routes[0].Score, worth(visit)-0.2*(1000.0/60)-5)
+	assertScore(t, routes[0].Score, worth(&visit)-0.2*(1000.0/60)-5)
 }
 
 func TestSearchReachesDestination(t *testing.T) {
@@ -166,18 +167,18 @@ func TestSearchScoreCountsFinishLeg(t *testing.T) {
 	scores := map[string]float64{}
 	var visits []domain.SearchVisit
 	for _, r := range routes {
-		scores[fmt.Sprint(placeIDs(r))] = r.Score
+		scores[string(placeIDs(r))] = r.Score
 		if len(r.Visits) == 2 {
 			visits = r.Visits
 		}
 	}
-	single, ok := scores[fmt.Sprint([]byte{1})]
-	pair, paired := scores[fmt.Sprint([]byte{1, 2})]
+	single, ok := scores[string([]byte{1})]
+	pair, paired := scores[string([]byte{1, 2})]
 	if !ok || !paired {
 		t.Fatalf("routes = %v", routeKeys(routes))
 	}
-	assertScore(t, single, worth(visits[0])-0.2*(100.0/60)-5-0.2*(900.0/60))
-	assertScore(t, pair, worth(visits[0])-0.2*(100.0/60)-5+worth(visits[1])-0.2*(200.0/60)-5-0.2*(700.0/60))
+	assertScore(t, single, worth(&visits[0])-0.2*(100.0/60)-5-0.2*(900.0/60))
+	assertScore(t, pair, worth(&visits[0])-0.2*(100.0/60)-5+worth(&visits[1])-0.2*(200.0/60)-5-0.2*(700.0/60))
 }
 
 func TestSearchPrefersInterestMatch(t *testing.T) {
@@ -195,14 +196,18 @@ func TestSearchArchetypeBonus(t *testing.T) {
 	theatre := place(1, domain.CategoryCulture, domain.Interests(domain.InterestPerformingArts), north(origin, 300))
 	gallery := place(2, domain.CategoryCulture, domain.Interests(domain.InterestContemporaryArt), north(origin, -300))
 	p := problem()
-	for archetype, want := range map[domain.Archetype]domain.PlaceID{
-		domain.ArchetypeHistoryHeritage: theatre.Place.ID,
-		domain.ArchetypeUrbanAvantgarde: gallery.Place.ID,
-	} {
-		p.Archetype = archetype
+	cases := []struct {
+		archetype domain.Archetype
+		want      domain.PlaceID
+	}{
+		{domain.ArchetypeHistoryHeritage, theatre.Place.ID},
+		{domain.ArchetypeUrbanAvantgarde, gallery.Place.ID},
+	}
+	for _, tc := range cases {
+		p.Archetype = tc.archetype
 		routes := search(t, greedy, p, []domain.Candidate{theatre, gallery})
-		if routes[0].Visits[0].Candidate.Place.ID != want {
-			t.Fatalf("%s: first visit = %v", archetype, placeIDs(routes[0]))
+		if routes[0].Visits[0].Candidate.Place.ID != tc.want {
+			t.Fatalf("%s: first visit = %v", tc.archetype, placeIDs(routes[0]))
 		}
 	}
 }
@@ -234,14 +239,24 @@ func TestSearchBestRouteMayBeShorter(t *testing.T) {
 }
 
 func TestSearchIsDeterministicAcrossParallelism(t *testing.T) {
-	categories := []domain.Category{domain.CategoryCulture, domain.CategorySport, domain.CategoryWalk, domain.CategoryTourism}
+	categories := []domain.Category{
+		domain.CategoryCulture,
+		domain.CategorySport,
+		domain.CategoryWalk,
+		domain.CategoryTourism,
+	}
 	var pool []domain.Candidate
 	for i := range 8 {
 		pool = append(pool, place(byte(i+1), categories[i%len(categories)], 0, north(origin, float64((i%4)*250-400))))
 	}
 	want := routeKeys(search(t, Config{BeamWidth: 4, Parallelism: 1}, problem(), pool))
 	for range 5 {
-		if got := routeKeys(search(t, Config{BeamWidth: 4, Parallelism: 8}, problem(), pool)); !reflect.DeepEqual(got, want) {
+		if got := routeKeys(
+			search(t, Config{BeamWidth: 4, Parallelism: 8}, problem(), pool),
+		); !reflect.DeepEqual(
+			got,
+			want,
+		) {
 			t.Fatalf("parallel result %v differs from sequential %v", got, want)
 		}
 	}
@@ -275,7 +290,14 @@ func TestSearchRecordsUsedSession(t *testing.T) {
 func TestSearchWithoutUsableMode(t *testing.T) {
 	p := problem()
 	p.Modes = []domain.MovementMode{domain.MovementCar}
-	if routes := search(t, wide, p, []domain.Candidate{place(1, domain.CategoryCulture, 0, north(origin, 100))}); len(routes) != 0 {
+	if routes := search(
+		t,
+		wide,
+		p,
+		[]domain.Candidate{place(1, domain.CategoryCulture, 0, north(origin, 100))},
+	); len(
+		routes,
+	) != 0 {
 		t.Fatalf("routes without a usable mode: %v", routeKeys(routes))
 	}
 }
@@ -314,7 +336,10 @@ func TestSearchResultsAreIndependent(t *testing.T) {
 func TestSearchCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	routes, err := newSolver(t, wide).Search(ctx, problem(), []domain.Candidate{place(1, domain.CategoryCulture, 0, north(origin, 100))})
+	routes, err := newSolver(
+		t,
+		wide,
+	).Search(ctx, problem(), []domain.Candidate{place(1, domain.CategoryCulture, 0, north(origin, 100))})
 	if !errors.Is(err, context.Canceled) || routes != nil {
 		t.Fatalf("routes=%v err=%v", routeKeys(routes), err)
 	}
@@ -330,7 +355,12 @@ func TestSearchRejectsInvalidInput(t *testing.T) {
 	broken := place(1, domain.CategoryCulture, 0, origin)
 	broken.Place.ID = domain.PlaceID{}
 	pool := []domain.Candidate{place(2, domain.CategoryCulture, 0, origin), broken}
-	if _, err := s.Search(context.Background(), problem(), pool); err == nil || !strings.Contains(err.Error(), "candidate 1") {
+	if _, err := s.Search(
+		context.Background(),
+		problem(),
+		pool,
+	); err == nil ||
+		!strings.Contains(err.Error(), "candidate 1") {
 		t.Fatalf("invalid candidate: err=%v", err)
 	}
 }
@@ -352,20 +382,21 @@ func TestNewRejectsInvalidSetup(t *testing.T) {
 	}
 }
 
-func withBudget(p Problem, mode domain.BudgetMode, limit int64) Problem {
-	p.Pricing.Budget = domain.Budget{Mode: mode, Limit: &domain.Money{AmountMinor: limit, Currency: "RUB"}}
-	return p
+func withBudget(p *Problem, mode domain.BudgetMode) *Problem {
+	out := *p
+	out.Pricing.Budget = domain.Budget{Mode: mode, Limit: &domain.Money{AmountMinor: 100000, Currency: "RUB"}}
+	return &out
 }
 
 func pricedPair() []domain.Candidate {
 	return []domain.Candidate{
-		priced(session(1, domain.CategoryCulture, north(origin, 100), at(11, 0), at(12, 0)), 60000),
-		priced(session(2, domain.CategorySport, north(origin, 200), at(13, 0), at(14, 0)), 50000),
+		priced(new(session(1, domain.CategoryCulture, north(origin, 100), at(11, 0), at(12, 0))), 60000),
+		priced(new(session(2, domain.CategorySport, north(origin, 200), at(13, 0), at(14, 0))), 50000),
 	}
 }
 
 func TestSearchStrictBudget(t *testing.T) {
-	routes := search(t, wide, withBudget(problem(), domain.BudgetStrict, 100000), pricedPair())
+	routes := search(t, wide, withBudget(problem(), domain.BudgetStrict), pricedPair())
 	if len(routes) == 0 {
 		t.Fatal("no routes")
 	}
@@ -381,15 +412,18 @@ func TestSearchStrictBudget(t *testing.T) {
 }
 
 func TestSearchAdvisoryBudgetDoesNotPrune(t *testing.T) {
-	routes := search(t, wide, withBudget(problem(), domain.BudgetAdvisory, 100000), pricedPair())
-	if !slices.ContainsFunc(routes, func(r *domain.Branch) bool { return len(r.Visits) == 2 && r.KnownCost.AmountMinor == 110000 }) {
+	routes := search(t, wide, withBudget(problem(), domain.BudgetAdvisory), pricedPair())
+	if !slices.ContainsFunc(
+		routes,
+		func(r *domain.Branch) bool { return len(r.Visits) == 2 && r.KnownCost.AmountMinor == 110000 },
+	) {
 		t.Fatalf("routes = %v", routeKeys(routes))
 	}
 }
 
 func TestSearchUnknownPriceNeedsConsent(t *testing.T) {
 	museum := place(1, domain.CategoryCulture, 0, north(origin, 100))
-	p := withBudget(problem(), domain.BudgetStrict, 100000)
+	p := withBudget(problem(), domain.BudgetStrict)
 	if routes := search(t, wide, p, []domain.Candidate{museum}); len(routes) != 0 {
 		t.Fatalf("unknown price without consent: %v", routeKeys(routes))
 	}
@@ -404,8 +438,12 @@ func TestSearchPushkinCardOnly(t *testing.T) {
 	p := problem()
 	p.Pricing.PushkinCardOnly = true
 	pool := []domain.Candidate{
-		priced(session(1, domain.CategoryCulture, north(origin, 100), at(11, 0), at(12, 0)), 60000),
-		priced(session(2, domain.CategoryCulture, north(origin, 200), at(13, 0), at(14, 0)), 50000, domain.ProgramPushkinCard),
+		priced(new(session(1, domain.CategoryCulture, north(origin, 100), at(11, 0), at(12, 0))), 60000),
+		priced(
+			new(session(2, domain.CategoryCulture, north(origin, 200), at(13, 0), at(14, 0))),
+			50000,
+			domain.ProgramPushkinCard,
+		),
 	}
 	routes := search(t, wide, p, pool)
 	if len(routes) == 0 {
@@ -420,10 +458,10 @@ func TestSearchPushkinCardOnly(t *testing.T) {
 
 func TestSearchKnownCostSaturates(t *testing.T) {
 	pool := []domain.Candidate{
-		priced(session(1, domain.CategoryCulture, north(origin, 100), at(11, 0), at(12, 0)), math.MaxInt64),
-		priced(session(2, domain.CategorySport, north(origin, 200), at(13, 0), at(14, 0)), 1),
+		priced(new(session(1, domain.CategoryCulture, north(origin, 100), at(11, 0), at(12, 0))), math.MaxInt64),
+		priced(new(session(2, domain.CategorySport, north(origin, 200), at(13, 0), at(14, 0))), 1),
 	}
-	routes := search(t, wide, withBudget(problem(), domain.BudgetAdvisory, 100000), pool)
+	routes := search(t, wide, withBudget(problem(), domain.BudgetAdvisory), pool)
 	for _, r := range routes {
 		if r.KnownCost.AmountMinor < 0 {
 			t.Fatalf("route %v cost overflowed to %d", placeIDs(r), r.KnownCost.AmountMinor)
@@ -445,7 +483,11 @@ type noWayTo struct {
 	blocked domain.Coordinate
 }
 
-func (n noWayTo) Estimate(from, to domain.Coordinate, departAt time.Time, modes []domain.MovementMode) (domain.TransitEstimate, bool) {
+func (n noWayTo) Estimate(
+	from, to domain.Coordinate,
+	departAt time.Time,
+	modes []domain.MovementMode,
+) (domain.TransitEstimate, bool) {
 	if to == n.blocked {
 		return domain.TransitEstimate{}, false
 	}
@@ -454,13 +496,22 @@ func (n noWayTo) Estimate(from, to domain.Coordinate, departAt time.Time, modes 
 
 func TestSearchNeedsLegToDestination(t *testing.T) {
 	destination := north(origin, 500)
-	s, err := New(wide, DefaultScoreParams(), noWayTo{baseline(t, DefaultTransitParams()), destination}, WindowPlacement{})
+	s, err := New(
+		wide,
+		DefaultScoreParams(),
+		noWayTo{baseline(t, DefaultTransitParams()), destination},
+		WindowPlacement{},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	p := problem()
 	p.Destination = &destination
-	routes, err := s.Search(context.Background(), p, []domain.Candidate{place(1, domain.CategoryCulture, 0, north(origin, 100))})
+	routes, err := s.Search(
+		context.Background(),
+		p,
+		[]domain.Candidate{place(1, domain.CategoryCulture, 0, north(origin, 100))},
+	)
 	if err != nil || len(routes) != 0 {
 		t.Fatalf("routes=%v err=%v", routeKeys(routes), err)
 	}

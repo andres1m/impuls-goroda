@@ -27,14 +27,32 @@ type TransitParams struct {
 	TransitMetersPerMinute float64
 }
 
+const (
+	defaultWalkThresholdMeters    = 1800
+	defaultWalkDetour             = 1.25
+	defaultWalkMetersPerMinute    = 75
+	defaultTransitWaitMinutes     = 12
+	defaultTransitDetour          = 1.15
+	defaultTransitMetersPerMinute = 300
+
+	defaultVisitValue     = 0.5
+	defaultAffinityBase   = 1
+	defaultAffinityScale  = 2
+	defaultNoMatchFactor  = 0.15
+	defaultArchetypeBonus = 1.5
+	defaultWaitWeight     = 0.3
+	defaultTransitWeight  = 0.2
+	defaultCategoryWeight = 5
+)
+
 func DefaultTransitParams() TransitParams {
 	return TransitParams{
-		WalkThresholdMeters:    1800,
-		WalkDetour:             1.25,
-		WalkMetersPerMinute:    75,
-		TransitWaitMinutes:     12,
-		TransitDetour:          1.15,
-		TransitMetersPerMinute: 300,
+		WalkThresholdMeters:    defaultWalkThresholdMeters,
+		WalkDetour:             defaultWalkDetour,
+		WalkMetersPerMinute:    defaultWalkMetersPerMinute,
+		TransitWaitMinutes:     defaultTransitWaitMinutes,
+		TransitDetour:          defaultTransitDetour,
+		TransitMetersPerMinute: defaultTransitMetersPerMinute,
 	}
 }
 
@@ -62,20 +80,29 @@ type ScoreParams struct {
 
 func DefaultScoreParams() ScoreParams {
 	return ScoreParams{
-		VisitValue:     0.5,
-		AffinityBase:   1,
-		AffinityScale:  2,
-		NoMatchFactor:  0.15,
-		ArchetypeBonus: 1.5,
-		WaitWeight:     0.3,
-		TransitWeight:  0.2,
-		CategoryWeight: 5,
+		VisitValue:     defaultVisitValue,
+		AffinityBase:   defaultAffinityBase,
+		AffinityScale:  defaultAffinityScale,
+		NoMatchFactor:  defaultNoMatchFactor,
+		ArchetypeBonus: defaultArchetypeBonus,
+		WaitWeight:     defaultWaitWeight,
+		TransitWeight:  defaultTransitWeight,
+		CategoryWeight: defaultCategoryWeight,
 	}
 }
 
 func (p ScoreParams) Validate() error {
 	if !positive(p.ArchetypeBonus) ||
-		!nonNegative(p.VisitValue, p.AffinityBase, p.AffinityScale, p.NoMatchFactor, p.WaitWeight, p.TransitWeight, p.CategoryWeight, p.ScenicWeight) {
+		!nonNegative(
+			p.VisitValue,
+			p.AffinityBase,
+			p.AffinityScale,
+			p.NoMatchFactor,
+			p.WaitWeight,
+			p.TransitWeight,
+			p.CategoryWeight,
+			p.ScenicWeight,
+		) {
 		return errors.New("score parameters must be finite and non-negative with a positive archetype bonus")
 	}
 	// A scenic walk must still cost time, or the search would add detours for their own sake.

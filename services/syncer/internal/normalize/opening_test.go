@@ -49,7 +49,9 @@ func TestOpeningRulesHasOpenHours(t *testing.T) {
 	if !validRules().HasOpenHours() {
 		t.Fatal("rules with intervals report no open hours")
 	}
-	closed := OpeningRules{Weekly: map[string][][2]string{"mon": {}, "tue": {}, "wed": {}, "thu": {}, "fri": {}, "sat": {}, "sun": {}}}
+	closed := OpeningRules{
+		Weekly: map[string][][2]string{"mon": {}, "tue": {}, "wed": {}, "thu": {}, "fri": {}, "sat": {}, "sun": {}},
+	}
 	if closed.HasOpenHours() {
 		t.Fatal("rules without intervals report open hours")
 	}

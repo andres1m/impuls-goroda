@@ -21,15 +21,30 @@ var (
 	center = domain.Coordinate{Longitude: 56.2294, Latitude: 58.0105}
 )
 
-func request() domain.OptimizeRequest {
-	return domain.OptimizeRequest{
-		City: "perm", Timezone: "Asia/Yekaterinburg", Start: now.Add(time.Hour), End: now.Add(9 * time.Hour), Origin: center,
-		Constraints: domain.RouteConstraints{MovementModes: []domain.MovementMode{domain.MovementWalk}, LoadProfile: "moderate", Budget: domain.Budget{Mode: domain.BudgetNone}},
+func request() *domain.OptimizeRequest {
+	return &domain.OptimizeRequest{
+		City:     "perm",
+		Timezone: "Asia/Yekaterinburg",
+		Start:    now.Add(time.Hour),
+		End:      now.Add(9 * time.Hour),
+		Origin:   center,
+		Constraints: domain.RouteConstraints{
+			MovementModes: []domain.MovementMode{domain.MovementWalk},
+			LoadProfile:   "moderate",
+			Budget:        domain.Budget{Mode: domain.BudgetNone},
+		},
 	}
 }
 
 func sliceAt(revision domain.CatalogRevision, horizon time.Time) *catalogslice.Slice {
-	return &catalogslice.Slice{City: "perm", Timezone: "Asia/Yekaterinburg", Revision: revision, UpdatedAt: now, BuiltAt: now, Horizon: horizon}
+	return &catalogslice.Slice{
+		City:      "perm",
+		Timezone:  "Asia/Yekaterinburg",
+		Revision:  revision,
+		UpdatedAt: now,
+		BuiltAt:   now,
+		Horizon:   horizon,
+	}
 }
 
 type fakeLoader struct {
@@ -93,7 +108,11 @@ func (l *fakeLoader) setRevision(revision domain.CatalogRevision) {
 	l.revision = revision
 }
 
-func (l *fakeLoader) SessionsByID(_ context.Context, _ *catalogslice.Slice, ids []domain.SessionID) ([]domain.Candidate, error) {
+func (l *fakeLoader) SessionsByID(
+	_ context.Context,
+	_ *catalogslice.Slice,
+	ids []domain.SessionID,
+) ([]domain.Candidate, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.byID = append(l.byID, ids)
@@ -113,7 +132,11 @@ type fakeStore struct {
 	puts   atomic.Int32
 }
 
-func (s *fakeStore) Get(_ context.Context, _ string, revision domain.CatalogRevision) (*catalogslice.Slice, bool, error) {
+func (s *fakeStore) Get(
+	_ context.Context,
+	_ string,
+	revision domain.CatalogRevision,
+) (*catalogslice.Slice, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.getErr != nil {
@@ -200,7 +223,14 @@ func TestAnnouncementWarmsACachedCity(t *testing.T) {
 	loader.mu.Lock()
 	loader.revision = 5
 	loader.mu.Unlock()
-	c.Announce(catalogevent.Invalidation{City: "perm", CatalogRevision: 5, Reason: catalogevent.ReasonUrgent, PublishedAt: now})
+	c.Announce(
+		&catalogevent.Invalidation{
+			City:            "perm",
+			CatalogRevision: 5,
+			Reason:          catalogevent.ReasonUrgent,
+			PublishedAt:     now,
+		},
+	)
 	c.waitWarm()
 	if _, loads := loader.calls(); loads != 2 {
 		t.Fatalf("%d loads after the announcement", loads)
@@ -219,8 +249,17 @@ func TestOldAnnouncementIsIgnored(t *testing.T) {
 	c := newCache(t, loader, &fakeStore{})
 	c.SetHealthy(true)
 	candidates(t, c)
-	c.Announce(catalogevent.Invalidation{City: "perm", CatalogRevision: 2, Reason: catalogevent.ReasonSeed, PublishedAt: now})
-	c.Announce(catalogevent.Invalidation{City: "moscow", CatalogRevision: 9, Reason: catalogevent.ReasonSeed, PublishedAt: now})
+	c.Announce(
+		&catalogevent.Invalidation{City: "perm", CatalogRevision: 2, Reason: catalogevent.ReasonSeed, PublishedAt: now},
+	)
+	c.Announce(
+		&catalogevent.Invalidation{
+			City:            "moscow",
+			CatalogRevision: 9,
+			Reason:          catalogevent.ReasonSeed,
+			PublishedAt:     now,
+		},
+	)
 	c.waitWarm()
 	candidates(t, c)
 	if revisions, loads := loader.calls(); revisions != 1 || loads != 1 {
@@ -319,7 +358,9 @@ func TestObligationOutsideTheSliceIsRead(t *testing.T) {
 	c := newCache(t, loader, &fakeStore{})
 	req := request()
 	old := domain.SessionID{7}
-	req.Constraints.Obligations = []domain.Obligation{{SessionID: &old, Participation: domain.ParticipationUserReported}}
+	req.Constraints.Obligations = []domain.Obligation{
+		{SessionID: &old, Participation: domain.ParticipationUserReported},
+	}
 	if _, _, err := c.Candidates(context.Background(), req); err != nil {
 		t.Fatal(err)
 	}

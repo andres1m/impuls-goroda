@@ -50,14 +50,20 @@ type Store interface {
 	// Claim leases due rows of the destinations until leaseUntil; rows another relay holds are skipped.
 	Claim(ctx context.Context, now, leaseUntil time.Time, destinations []string, limit int) ([]Item, error)
 	// Delivered and Failed mark the row only while it is still under the item's lease.
-	Delivered(ctx context.Context, item Item, at time.Time) error
-	Failed(ctx context.Context, item Item, next time.Time) error
+	Delivered(ctx context.Context, item *Item, at time.Time) error
+	Failed(ctx context.Context, item *Item, next time.Time) error
 	Backlog(ctx context.Context, now time.Time) (int, time.Duration, error)
 }
 
 type Sender interface {
-	Send(ctx context.Context, item Item) error
+	Send(ctx context.Context, item *Item) error
 }
+
+const (
+	defaultPollInterval = 500 * time.Millisecond
+	defaultBatchSize    = 100
+	defaultLease        = 30 * time.Second
+)
 
 type Config struct {
 	PollInterval time.Duration `yaml:"poll-interval"`
@@ -70,13 +76,13 @@ type Config struct {
 
 func (c Config) withDefaults() Config {
 	if c.PollInterval == 0 {
-		c.PollInterval = 500 * time.Millisecond
+		c.PollInterval = defaultPollInterval
 	}
 	if c.Batch == 0 {
-		c.Batch = 100
+		c.Batch = defaultBatchSize
 	}
 	if c.Lease == 0 {
-		c.Lease = 30 * time.Second
+		c.Lease = defaultLease
 	}
 	if c.BackoffMin == 0 {
 		c.BackoffMin = time.Second
@@ -89,7 +95,9 @@ func (c Config) withDefaults() Config {
 
 func (c Config) validate() error {
 	if c.PollInterval <= 0 || c.Batch <= 0 || c.Lease <= 0 || c.BackoffMin <= 0 || c.BackoffMax < c.BackoffMin {
-		return errors.New("delivery config needs positive intervals, batch and lease, and backoff-min not above backoff-max")
+		return errors.New(
+			"delivery config needs positive intervals, batch and lease, and backoff-min not above backoff-max",
+		)
 	}
 	return nil
 }
@@ -155,7 +163,7 @@ func (r *Relay) Stop(ctx context.Context) error {
 	case <-running:
 		return nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("stop delivery relay: %w", ctx.Err())
 	}
 }
 
@@ -204,8 +212,8 @@ func (r *Relay) Tick(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("claim outbox rows: %w", err)
 		}
-		for _, item := range items {
-			r.deliver(ctx, item)
+		for i := range items {
+			r.deliver(ctx, &items[i])
 		}
 		if len(items) < r.cfg.Batch {
 			break
@@ -222,12 +230,12 @@ func (r *Relay) Tick(ctx context.Context) error {
 
 // deliver leaves a row whose mark cannot be written to the lease, so it is sent again later;
 // the receivers treat a repeat as a no-op.
-func (r *Relay) deliver(ctx context.Context, item Item) {
+func (r *Relay) deliver(ctx context.Context, item *Item) {
 	err := r.senders[item.Destination].Send(ctx, item)
 	if err == nil {
 		deliveries.WithLabelValues(item.Destination, "delivered").Inc()
-		if err := r.store.Delivered(ctx, item, r.now()); err != nil {
-			r.log.Warn("mark outbox row delivered", zap.Stringer("id", item.ID), zap.Error(err))
+		if markErr := r.store.Delivered(ctx, item, r.now()); markErr != nil {
+			r.log.Warn("mark outbox row delivered", zap.Stringer("id", item.ID), zap.Error(markErr))
 		}
 		return
 	}
@@ -235,8 +243,8 @@ func (r *Relay) deliver(ctx context.Context, item Item) {
 	r.log.Warn("outbox delivery failed", zap.Stringer("id", item.ID), zap.String("destination", item.Destination),
 		zap.Int("attempts", item.Attempts), zap.Error(err))
 	next := r.now().Add(Backoff(item.Attempts, r.cfg.BackoffMin, r.cfg.BackoffMax))
-	if err := r.store.Failed(ctx, item, next); err != nil {
-		r.log.Warn("mark outbox row failed", zap.Stringer("id", item.ID), zap.Error(err))
+	if markErr := r.store.Failed(ctx, item, next); markErr != nil {
+		r.log.Warn("mark outbox row failed", zap.Stringer("id", item.ID), zap.Error(markErr))
 	}
 }
 

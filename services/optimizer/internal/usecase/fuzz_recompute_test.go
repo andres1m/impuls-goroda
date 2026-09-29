@@ -10,23 +10,44 @@ import (
 )
 
 // recomputeCase replays the base plan up to a random visit as done and asks for one change there.
-func recomputeCase(r *rand.Rand, c genCase, base domain.Plan) (domain.RecomputeRequest, []domain.Candidate, bool) {
-	visits := slices.DeleteFunc(slices.Clone(base.Steps), func(s domain.Step) bool { return s.Kind != domain.StepVisit })
+//
+//nolint:gocritic // fuzz fixture starts from an owned value
+func recomputeCase(r *rand.Rand, c *genCase, base domain.Plan) (domain.RecomputeRequest, []domain.Candidate, bool) {
+	visits := slices.DeleteFunc(
+		slices.Clone(base.Steps),
+		func(s domain.Step) bool { return s.Kind != domain.StepVisit },
+	)
 	if len(visits) == 0 {
 		return domain.RecomputeRequest{}, nil, false
 	}
 	k := r.IntN(len(visits))
 	var history []domain.VisitExecution
-	for _, s := range visits[:k] {
-		history = append(history, domain.VisitExecution{VisitID: s.VisitID, Status: domain.ExecutionCompleted, ActualStart: ptr(s.VisitStartAt), ActualEnd: ptr(s.VisitEndAt)})
+	for i := range visits[:k] {
+		s := &visits[i]
+		history = append(
+			history,
+			domain.VisitExecution{
+				VisitID:     s.VisitID,
+				Status:      domain.ExecutionCompleted,
+				ActualStart: new(s.VisitStartAt),
+				ActualEnd:   new(s.VisitEndAt),
+			},
+		)
 	}
 	target := visits[k]
 	triggers := []domain.Trigger{
 		domain.DelayTrigger{
-			Mode:           []domain.DelayMode{domain.DelayAlreadyDelayed, domain.DelayFutureWait}[r.IntN(2)],
-			EffectiveStart: target.ArrivalAt.Add(minutes(5 + r.IntN(86))), Position: c.req.Origin, PositionSource: domain.PositionDevice,
+			Mode: []domain.DelayMode{domain.DelayAlreadyDelayed, domain.DelayFutureWait}[r.IntN(2)],
+			EffectiveStart: target.ArrivalAt.Add(
+				minutes(5 + r.IntN(86)),
+			),
+			Position:       c.req.Origin,
+			PositionSource: domain.PositionDevice,
 		},
-		domain.RemovalTrigger{VisitID: target.VisitID, Mode: []domain.RemovalMode{domain.RemovalRebuild, domain.RemovalFreeTime}[r.IntN(2)]},
+		domain.RemovalTrigger{
+			VisitID: target.VisitID,
+			Mode:    []domain.RemovalMode{domain.RemovalRebuild, domain.RemovalFreeTime}[r.IntN(2)],
+		},
 		domain.PinTrigger{VisitID: target.VisitID, Kind: domain.PinPreferred},
 	}
 	cancelled := slices.Clone(c.pool)
@@ -38,12 +59,25 @@ func recomputeCase(r *rand.Rand, c genCase, base domain.Plan) (domain.RecomputeR
 				cancelled[i].Session = &session
 			}
 		}
-		triggers = append(triggers, domain.CancellationTrigger{VisitIDs: []domain.VisitID{target.VisitID}, MinCatalogRevision: freshness.CatalogRevision})
+		triggers = append(
+			triggers,
+			domain.CancellationTrigger{
+				VisitIDs:           []domain.VisitID{target.VisitID},
+				MinCatalogRevision: freshness.CatalogRevision,
+			},
+		)
 	}
 	first := r.IntN(len(triggers))
 	for i := range triggers {
 		trigger := triggers[(first+i)%len(triggers)]
-		req := domain.RecomputeRequest{City: c.req.City, Timezone: c.req.Timezone, Base: base, Constraints: c.req.Constraints, History: history, Trigger: trigger}
+		req := domain.RecomputeRequest{
+			City:        c.req.City,
+			Timezone:    c.req.Timezone,
+			Base:        base,
+			Constraints: c.req.Constraints,
+			History:     history,
+			Trigger:     trigger,
+		}
 		if req.Validate() != nil {
 			continue
 		}
@@ -59,18 +93,18 @@ func recomputeCase(r *rand.Rand, c genCase, base domain.Plan) (domain.RecomputeR
 func recomputeOnce(t *testing.T, seed uint64) bool {
 	t.Helper()
 	c := generate(seed)
-	p, _ := plannerWithLog(t, c, 4)
-	res, err := p.Optimize(context.Background(), c.req)
+	p, _ := plannerWithLog(t, &c, 4)
+	res, err := p.Optimize(context.Background(), &c.req)
 	if err != nil || len(res.Routes) == 0 {
 		return true
 	}
-	req, pool, ok := recomputeCase(rand.New(rand.NewPCG(seed, 1)), c, res.Routes[0])
+	req, pool, ok := recomputeCase(rand.New(rand.NewPCG(seed, 1)), &c, res.Routes[0])
 	if !ok {
 		return true
 	}
 	c.pool = pool
-	p, logs := plannerWithLog(t, c, 4)
-	out, err := p.Recompute(context.Background(), req)
+	p, logs := plannerWithLog(t, &c, 4)
+	out, err := p.Recompute(context.Background(), &req)
 	if err != nil {
 		t.Fatalf("recompute %T: %v", req.Trigger, err)
 	}
@@ -80,7 +114,7 @@ func recomputeOnce(t *testing.T, seed uint64) bool {
 	if n := rejections(logs); n > 0 {
 		t.Fatalf("validator rejected %d plans", n)
 	}
-	if v := checkRecompute(req, pool, out); len(v) > 0 {
+	if v := checkRecompute(&req, pool, out); len(v) > 0 {
 		t.Fatalf("%T: %s", req.Trigger, describe(v))
 	}
 	return false

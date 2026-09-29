@@ -35,7 +35,13 @@ type fakeStore struct {
 	limit   int
 }
 
-func (f *fakeStore) NearestEntities(_ context.Context, city string, s ai.Space, vector []float32, limit int) ([]Match, error) {
+func (f *fakeStore) NearestEntities(
+	_ context.Context,
+	city string,
+	s ai.Space,
+	vector []float32,
+	limit int,
+) ([]Match, error) {
 	f.city, f.space, f.vector, f.limit = city, s, vector, limit
 	return f.matches, f.err
 }
@@ -68,7 +74,8 @@ func TestMatchesContains(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := m.Contains(tc.c); got != tc.want {
+			c := tc.c
+			if got := m.Contains(&c); got != tc.want {
 				t.Fatalf("Contains = %v", got)
 			}
 		})
@@ -92,7 +99,8 @@ func TestRetrieverSearchesTheSpaceOfTheQueryVector(t *testing.T) {
 	if store.city != "perm" || store.space != space || store.limit != 50 || len(store.vector) != 3 {
 		t.Fatalf("store called with %s %v %v %d", store.city, store.space, store.vector, store.limit)
 	}
-	if !got.Contains(candidate(1, 0, 0)) {
+	cand := candidate(1, 0, 0)
+	if !got.Contains(&cand) {
 		t.Fatal("match lost")
 	}
 }

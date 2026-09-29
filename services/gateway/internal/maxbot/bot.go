@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +20,13 @@ import (
 //go:embed russian_trusted_root_ca_pem.crt
 var trustedRoot []byte
 
-const apiBaseURL = "https://platform-api2.max.ru"
+const (
+	apiBaseURL            = "https://platform-api2.max.ru"
+	buttonTypeMessage     = "message"
+	clientTimeout         = 8 * time.Second
+	dedupTTL              = 10 * time.Minute
+	maxResponseDrainBytes = 64 * 1024
+)
 
 type Update struct {
 	Type      string `json:"update_type"`
@@ -82,12 +89,26 @@ func NewClient(token, username string) (*Client, error) {
 	if !roots.AppendCertsFromPEM(trustedRoot) {
 		return nil, errors.New("invalid MAX trust root")
 	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	var transport *http.Transport
+	if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport = defaultTransport.Clone()
+	} else {
+		transport = &http.Transport{}
+	}
 	transport.TLSClientConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
-	return &Client{token: token, username: username, baseURL: apiBaseURL, http: &http.Client{Timeout: 8 * time.Second, Transport: transport}, seen: make(map[string]time.Time)}, nil
+	return &Client{
+		token:    token,
+		username: username,
+		baseURL:  apiBaseURL,
+		http:     &http.Client{Timeout: clientTimeout, Transport: transport},
+		seen:     make(map[string]time.Time),
+	}, nil
 }
 
-func (c *Client) Handle(ctx context.Context, update Update) error {
+func (c *Client) Handle(ctx context.Context, update *Update) error {
+	if update == nil {
+		return errors.New("invalid MAX update")
+	}
 	var userID int64
 	var key string
 	var reply message
@@ -125,7 +146,7 @@ func (c *Client) claim(key string) bool {
 	defer c.mu.Unlock()
 	now := time.Now()
 	for old, at := range c.seen {
-		if now.Sub(at) > 10*time.Minute {
+		if now.Sub(at) > dedupTTL {
 			delete(c.seen, old)
 		}
 	}
@@ -143,31 +164,48 @@ func (c *Client) release(key string) {
 }
 
 func welcome() message {
-	m := message{Text: "Выберите настроение для дня в городе. Пока это демо: маршрут и точки вымышлены. Можно написать свой сценарий текстом."}
+	m := message{
+		Text: "Выберите настроение для дня в городе. Пока это демо: маршрут и точки вымышлены. Можно написать свой сценарий текстом.",
+	}
 	m.addKeyboard([][]button{
-		{{Type: "message", Text: "Вайб"}, {Type: "message", Text: "Настроение"}},
-		{{Type: "message", Text: "Культура"}, {Type: "message", Text: "Энергия"}},
-		{{Type: "message", Text: "Баланс"}, {Type: "message", Text: "Польза"}},
+		{{Type: buttonTypeMessage, Text: "Вайб"}, {Type: buttonTypeMessage, Text: "Настроение"}},
+		{{Type: buttonTypeMessage, Text: "Культура"}, {Type: buttonTypeMessage, Text: "Энергия"}},
+		{{Type: buttonTypeMessage, Text: "Баланс"}, {Type: buttonTypeMessage, Text: "Польза"}},
 	})
 	return m
 }
 
 func (c *Client) respond(input string) message {
 	text := strings.ToLower(strings.TrimSpace(input))
-	if text == "/start" || text == "/help" || text == "/route" || text == "меню" || text == "другой сценарий" || text == "" {
+	if text == "/start" || text == "/help" || text == "/route" || text == "меню" || text == "другой сценарий" ||
+		text == "" {
 		return welcome()
 	}
-	presets := map[string]string{"вайб": "vibe", "настроение": "mood", "культура": "culture", "энергия": "energy", "баланс": "balance", "польза": "benefit"}
+	presets := map[string]string{
+		"вайб":       "vibe",
+		"настроение": "mood",
+		"культура":   "culture",
+		"энергия":    "energy",
+		"баланс":     "balance",
+		"польза":     "benefit",
+	}
 	key, found := presets[text]
 	var response string
 	if found {
-		response = "Готов пример маршрута «" + strings.TrimSpace(input) + "». Откройте его в Mini App. Все точки и время сейчас демонстрационные."
+		response = "Готов пример маршрута «" + strings.TrimSpace(
+			input,
+		) + "». Откройте его в Mini App. Все точки и время сейчас демонстрационные."
 	} else {
 		key = "custom"
 		response = "Ваш сценарий получил. Персональный подбор пока не подключён, поэтому открываю общий демонстрационный маршрут. Ваш текст не превращён в реальные точки."
 	}
 	m := message{Text: response}
-	m.addKeyboard([][]button{{{Type: "open_app", Text: "Открыть маршрут", WebApp: c.username, Payload: "demo_" + key}}, {{Type: "message", Text: "Другой сценарий"}}})
+	m.addKeyboard(
+		[][]button{
+			{{Type: "open_app", Text: "Открыть маршрут", WebApp: c.username, Payload: "demo_" + key}},
+			{{Type: buttonTypeMessage, Text: "Другой сценарий"}},
+		},
+	)
 	return m
 }
 
@@ -182,15 +220,15 @@ func (m *message) addKeyboard(rows [][]button) {
 	}{Buttons: rows}})
 }
 
-func (c *Client) send(ctx context.Context, userID int64, body message) error {
+func (c *Client) send(ctx context.Context, userID int64, body message) (err error) {
 	encoded, err := json.Marshal(body)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal MAX message: %w", err)
 	}
-	endpoint := c.baseURL + "/messages?user_id=" + url.QueryEscape(fmt.Sprint(userID))
+	endpoint := c.baseURL + "/messages?user_id=" + url.QueryEscape(strconv.FormatInt(userID, 10))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(encoded)))
 	if err != nil {
-		return err
+		return fmt.Errorf("create MAX request: %w", err)
 	}
 	req.Header.Set("Authorization", c.token)
 	req.Header.Set("Content-Type", "application/json")
@@ -198,9 +236,15 @@ func (c *Client) send(ctx context.Context, userID int64, body message) error {
 	if err != nil {
 		return errors.New("MAX message transport unavailable")
 	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close MAX response: %w", closeErr)
+		}
+	}()
+	if _, copyErr := io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseDrainBytes)); copyErr != nil {
+		return fmt.Errorf("drain MAX response: %w", copyErr)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return fmt.Errorf("send MAX message: HTTP %d", resp.StatusCode)
 	}
 	return nil

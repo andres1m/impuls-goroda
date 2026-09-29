@@ -32,11 +32,11 @@ const (
 
 var ErrIdempotencyKeyReused = errors.New("idempotency key was reused")
 
-type RevisionConflict struct {
+type RevisionConflictError struct {
 	Current domain.RouteRevisionNumber
 }
 
-func (e *RevisionConflict) Error() string {
+func (e *RevisionConflictError) Error() string {
 	return fmt.Sprintf("route revision is stale: current revision %d", e.Current)
 }
 
@@ -47,7 +47,7 @@ type Envelope struct {
 	RequestHash [32]byte
 }
 
-func (e Envelope) Validate() error {
+func (e *Envelope) Validate() error {
 	if e.ActorID == (domain.UserID{}) || e.Key == ([16]byte{}) || e.RequestHash == ([32]byte{}) {
 		return errors.New("actor, key, and request hash are required")
 	}
@@ -77,7 +77,7 @@ type Result struct {
 	Replayed          bool
 }
 
-func (r Result) Validate() error {
+func (r *Result) Validate() error {
 	if r.HTTPStatus < http.StatusOK || r.HTTPStatus >= http.StatusMultipleChoices {
 		return errors.New("command result must have a successful HTTP status")
 	}
@@ -104,38 +104,40 @@ func (r Result) Validate() error {
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
 		return errors.New("response template must contain one JSON object")
 	}
-	if err := rejectPrivateFields(r.ResponseBody); err != nil {
-		return err
-	}
-	return nil
+	return rejectPrivateFields(r.ResponseBody)
 }
 
 func rejectPrivateFields(raw json.RawMessage) error {
 	var value any
 	if err := json.Unmarshal(raw, &value); err != nil {
-		return err
+		return fmt.Errorf("unmarshal response template: %w", err)
 	}
-	var visit func(any) error
-	visit = func(value any) error {
-		switch item := value.(type) {
-		case map[string]any:
-			for key, child := range item {
-				switch key {
-				case "request_id", "share_token", "access_token", "init_data", "private_reference":
-					return fmt.Errorf("response template contains private field %q", key)
-				}
-				if err := visit(child); err != nil {
-					return err
-				}
-			}
-		case []any:
-			for _, child := range item {
-				if err := visit(child); err != nil {
-					return err
-				}
+	return visitPrivateValue(value)
+}
+
+func visitPrivateValue(value any) error {
+	switch item := value.(type) {
+	case map[string]any:
+		return visitPrivateMap(item)
+	case []any:
+		for _, child := range item {
+			if err := visitPrivateValue(child); err != nil {
+				return err
 			}
 		}
-		return nil
 	}
-	return visit(value)
+	return nil
+}
+
+func visitPrivateMap(item map[string]any) error {
+	for key, child := range item {
+		switch key {
+		case "request_id", "share_token", "access_token", "init_data", "private_reference":
+			return fmt.Errorf("response template contains private field %q", key)
+		}
+		if err := visitPrivateValue(child); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -10,43 +10,64 @@ var instant = time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
 func id() [16]byte { return [16]byte{1} }
 
 func TestSessionValidity(t *testing.T) {
-	user := UserAccount{ID: UserID(id()), MaxUserID: "12345", State: AccountActive, Kind: AccountMax, CreatedAt: instant, LastSeenAt: instant}
-	session := AuthSession{ID: SessionID(id()), UserID: user.ID, TokenHash: [32]byte{1}, IssuedVia: SessionFromMax, CreatedAt: instant, ExpiresAt: instant.Add(time.Hour)}
+	user := UserAccount{
+		ID:         UserID(id()),
+		MaxUserID:  "12345",
+		State:      AccountActive,
+		Kind:       AccountMax,
+		CreatedAt:  instant,
+		LastSeenAt: instant,
+	}
+	session := AuthSession{
+		ID:        SessionID(id()),
+		UserID:    user.ID,
+		TokenHash: [32]byte{1},
+		IssuedVia: SessionFromMax,
+		CreatedAt: instant,
+		ExpiresAt: instant.Add(time.Hour),
+	}
 	if err := user.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	if err := session.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if !session.ValidFor(user, instant.Add(time.Minute)) {
+	if !session.ValidFor(&user, instant.Add(time.Minute)) {
 		t.Fatal("active session rejected")
 	}
-	if session.ValidFor(user, session.ExpiresAt) {
+	if session.ValidFor(&user, session.ExpiresAt) {
 		t.Fatal("expiration boundary accepted")
 	}
-	if session.ValidFor(user, instant.Add(-time.Second)) {
+	if session.ValidFor(&user, instant.Add(-time.Second)) {
 		t.Fatal("session valid before issue")
 	}
 
 	disabled := user
 	disabled.State = AccountDisabled
-	if session.ValidFor(disabled, instant.Add(time.Minute)) {
+	if session.ValidFor(&disabled, instant.Add(time.Minute)) {
 		t.Fatal("disabled account accepted")
 	}
 	other := user
 	other.ID = UserID([16]byte{2})
-	if session.ValidFor(other, instant.Add(time.Minute)) {
+	if session.ValidFor(&other, instant.Add(time.Minute)) {
 		t.Fatal("another user accepted")
 	}
 	revoked := instant.Add(time.Minute)
 	session.RevokedAt = &revoked
-	if session.ValidFor(user, instant.Add(2*time.Minute)) {
+	if session.ValidFor(&user, instant.Add(2*time.Minute)) {
 		t.Fatal("revoked session accepted")
 	}
 }
 
 func TestIdentityAndRevisionFailures(t *testing.T) {
-	user := UserAccount{ID: UserID(id()), MaxUserID: "test:jury", State: AccountActive, Kind: AccountMax, CreatedAt: instant, LastSeenAt: instant}
+	user := UserAccount{
+		ID:         UserID(id()),
+		MaxUserID:  "test:jury",
+		State:      AccountActive,
+		Kind:       AccountMax,
+		CreatedAt:  instant,
+		LastSeenAt: instant,
+	}
 	if user.Validate() == nil {
 		t.Fatal("test namespace accepted for MAX account")
 	}
@@ -66,7 +87,15 @@ func TestIdentityAndRevisionFailures(t *testing.T) {
 }
 
 func TestRouteMetadata(t *testing.T) {
-	route := Route{ID: RouteID(id()), OwnerID: UserID(id()), City: "perm", Lifecycle: RouteDraft, CurrentRevision: 1, CreatedAt: instant, UpdatedAt: instant}
+	route := Route{
+		ID:              RouteID(id()),
+		OwnerID:         UserID(id()),
+		City:            "perm",
+		Lifecycle:       RouteDraft,
+		CurrentRevision: 1,
+		CreatedAt:       instant,
+		UpdatedAt:       instant,
+	}
 	if err := route.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +114,14 @@ func TestRouteMetadata(t *testing.T) {
 }
 
 func TestVisitCatalogReferences(t *testing.T) {
-	visit := RouteVisit{RouteID: RouteID(id()), ID: VisitID(id()), Kind: VisitFreeTime, City: "moscow", CreatedInRevision: 1, CreatedAt: instant}
+	visit := RouteVisit{
+		RouteID:           RouteID(id()),
+		ID:                VisitID(id()),
+		Kind:              VisitFreeTime,
+		City:              "moscow",
+		CreatedInRevision: 1,
+		CreatedAt:         instant,
+	}
 	if err := visit.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +151,14 @@ func TestVisitCatalogReferences(t *testing.T) {
 }
 
 func TestParticipationEvidenceAndExecutionTime(t *testing.T) {
-	p := Participation{RouteID: RouteID(id()), VisitID: VisitID(id()), Status: ParticipationActionRequired, Evidence: EvidenceNone, UpdatedInRevision: 1, UpdatedAt: instant}
+	p := Participation{
+		RouteID:           RouteID(id()),
+		VisitID:           VisitID(id()),
+		Status:            ParticipationActionRequired,
+		Evidence:          EvidenceNone,
+		UpdatedInRevision: 1,
+		UpdatedAt:         instant,
+	}
 	opened := instant.Add(time.Minute)
 	p.ExternalLinkOpenedAt = &opened
 	if err := p.Validate(); err != nil {
@@ -138,7 +181,14 @@ func TestParticipationEvidenceAndExecutionTime(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e := Execution{RouteID: RouteID(id()), VisitID: VisitID(id()), Status: ExecutionCompleted, Confirmation: ConfirmationUserReported, UpdatedInRevision: 1, UpdatedAt: instant}
+	e := Execution{
+		RouteID:           RouteID(id()),
+		VisitID:           VisitID(id()),
+		Status:            ExecutionCompleted,
+		Confirmation:      ConfirmationUserReported,
+		UpdatedInRevision: 1,
+		UpdatedAt:         instant,
+	}
 	end := instant
 	start := instant.Add(time.Minute)
 	e.ActualStartedAt, e.ActualEndedAt = &start, &end
@@ -152,7 +202,13 @@ func TestParticipationEvidenceAndExecutionTime(t *testing.T) {
 }
 
 func TestShareBoundaries(t *testing.T) {
-	share := RouteShare{ID: ShareID(id()), RouteID: RouteID(id()), TokenHash: [32]byte{1}, CreatedBy: UserID(id()), CreatedAt: instant}
+	share := RouteShare{
+		ID:        ShareID(id()),
+		RouteID:   RouteID(id()),
+		TokenHash: [32]byte{1},
+		CreatedBy: UserID(id()),
+		CreatedAt: instant,
+	}
 	if !share.ActiveAt(instant) {
 		t.Fatal("fresh share rejected")
 	}

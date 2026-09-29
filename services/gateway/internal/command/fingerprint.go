@@ -23,8 +23,8 @@ type FingerprintInput struct {
 	Body             any
 }
 
-func Fingerprint(input FingerprintInput) ([32]byte, error) {
-	if input.ActorID == (domain.UserID{}) || !input.Operation.Valid() {
+func Fingerprint(input *FingerprintInput) ([32]byte, error) {
+	if input == nil || input.ActorID == (domain.UserID{}) || !input.Operation.Valid() {
 		return [32]byte{}, errors.New("actor and supported operation are required")
 	}
 	if input.ExpectedRevision != nil {
@@ -52,9 +52,13 @@ func Fingerprint(input FingerprintInput) ([32]byte, error) {
 	if input.ExpectedRevision == nil {
 		writePart(digest, []byte{0})
 	} else {
+		rev := int64(*input.ExpectedRevision)
+		if rev < 0 {
+			return [32]byte{}, errors.New("route revision must be positive")
+		}
 		var encoded [9]byte
 		encoded[0] = 1
-		binary.BigEndian.PutUint64(encoded[1:], uint64(*input.ExpectedRevision))
+		binary.BigEndian.PutUint64(encoded[1:], uint64(rev))
 		writePart(digest, encoded[:])
 	}
 	writePart(digest, body)

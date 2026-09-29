@@ -66,9 +66,9 @@ func (r *emptyRows) Err() error                    { return r.err }
 func (r *emptyRows) CommandTag() pgconn.CommandTag { return pgconn.CommandTag{} }
 func (r *emptyRows) Next() bool                    { return false }
 
-func validOptimizeRequest() domain.OptimizeRequest {
+func validOptimizeRequest() *domain.OptimizeRequest {
 	loc, _ := time.LoadLocation("Asia/Yekaterinburg")
-	return domain.OptimizeRequest{
+	return &domain.OptimizeRequest{
 		City:     "perm",
 		Timezone: "Asia/Yekaterinburg",
 		Start:    time.Date(2026, 9, 28, 10, 0, 0, 0, loc).UTC(),
@@ -100,7 +100,13 @@ func TestCatalogCandidatesCityErrors(t *testing.T) {
 				return stubRow{scan: func(...any) error { return pgx.ErrNoRows }}
 			},
 		})
-		if _, _, err := c.Candidates(context.Background(), validOptimizeRequest()); !errors.Is(err, usecase.ErrCatalogNotReady) {
+		if _, _, err := c.Candidates(
+			context.Background(),
+			validOptimizeRequest(),
+		); !errors.Is(
+			err,
+			usecase.ErrCatalogNotReady,
+		) {
 			t.Fatalf("got %v, want ErrCatalogNotReady", err)
 		}
 	})
@@ -116,7 +122,13 @@ func TestCatalogCandidatesCityErrors(t *testing.T) {
 				}}
 			},
 		})
-		if _, _, err := c.Candidates(context.Background(), validOptimizeRequest()); !errors.Is(err, usecase.ErrCatalogNotReady) {
+		if _, _, err := c.Candidates(
+			context.Background(),
+			validOptimizeRequest(),
+		); !errors.Is(
+			err,
+			usecase.ErrCatalogNotReady,
+		) {
 			t.Fatalf("got %v, want ErrCatalogNotReady", err)
 		}
 	})
@@ -133,7 +145,13 @@ func TestCatalogCandidatesCityErrors(t *testing.T) {
 			},
 			query: func(context.Context, string, ...any) (pgx.Rows, error) { return &emptyRows{}, nil },
 		})
-		if _, _, err := c.Candidates(context.Background(), validOptimizeRequest()); !errors.Is(err, usecase.ErrInvalidRequest) {
+		if _, _, err := c.Candidates(
+			context.Background(),
+			validOptimizeRequest(),
+		); !errors.Is(
+			err,
+			usecase.ErrInvalidRequest,
+		) {
 			t.Fatalf("got %v, want ErrInvalidRequest", err)
 		}
 	})
@@ -144,14 +162,26 @@ func TestCatalogCandidatesCityErrors(t *testing.T) {
 				return stubRow{scan: func(...any) error { return errors.New("connection refused") }}
 			},
 		})
-		if _, _, err := c.Candidates(context.Background(), validOptimizeRequest()); !errors.Is(err, usecase.ErrUnavailable) {
+		if _, _, err := c.Candidates(
+			context.Background(),
+			validOptimizeRequest(),
+		); !errors.Is(
+			err,
+			usecase.ErrUnavailable,
+		) {
 			t.Fatalf("got %v, want ErrUnavailable", err)
 		}
 	})
 
 	t.Run("snapshot that cannot start wraps ErrUnavailable", func(t *testing.T) {
 		c := NewCatalog(stubQuerier{beginErr: errors.New("too many connections")})
-		if _, _, err := c.Candidates(context.Background(), validOptimizeRequest()); !errors.Is(err, usecase.ErrUnavailable) {
+		if _, _, err := c.Candidates(
+			context.Background(),
+			validOptimizeRequest(),
+		); !errors.Is(
+			err,
+			usecase.ErrUnavailable,
+		) {
 			t.Fatalf("got %v, want ErrUnavailable", err)
 		}
 	})
@@ -216,6 +246,7 @@ func (p *snapshotProbe) QueryRow(context.Context, string, ...any) pgx.Row {
 	return stubRow{scan: func(...any) error { return errors.New("query outside the snapshot") }}
 }
 
+//nolint:gocritic // pgx BeginTx interface requires TxOptions by value
 func (p *snapshotProbe) BeginTx(_ context.Context, opts pgx.TxOptions) (pgx.Tx, error) {
 	p.opts = opts
 	return stubTx{q: p.inside}, nil
@@ -245,7 +276,8 @@ func TestLoadSliceReadsOneSnapshot(t *testing.T) {
 	if probe.opts.IsoLevel != pgx.RepeatableRead || probe.opts.AccessMode != pgx.ReadOnly {
 		t.Fatalf("snapshot opened with %+v", probe.opts)
 	}
-	if slice.Revision != 9 || slice.Timezone != "Asia/Yekaterinburg" || !slice.Horizon.Equal(horizon) || !slice.UpdatedAt.Equal(updatedAt) {
+	if slice.Revision != 9 || slice.Timezone != "Asia/Yekaterinburg" || !slice.Horizon.Equal(horizon) ||
+		!slice.UpdatedAt.Equal(updatedAt) {
 		t.Fatalf("slice %+v", slice)
 	}
 }

@@ -11,7 +11,7 @@ import (
 )
 
 func TestPlanToProto(t *testing.T) {
-	if got, want := planToProto(domainPlan()), pbPlan(); !proto.Equal(got, want) {
+	if got, want := planToProto(new(domainPlan())), pbPlan(); !proto.Equal(got, want) {
 		t.Fatalf("mapped plan differs\n got: %v\nwant: %v", got, want)
 	}
 }
@@ -38,40 +38,54 @@ func TestPlanToProtoWithoutOptionalFields(t *testing.T) {
 			BudgetConclusion: pb.BudgetConclusion_BUDGET_CONCLUSION_NOT_APPLICABLE,
 		},
 	}
-	if got := planToProto(p); !proto.Equal(got, want) {
+	if got := planToProto(&p); !proto.Equal(got, want) {
 		t.Fatalf("mapped plan differs\n got: %v\nwant: %v", got, want)
 	}
 }
 
 func TestPlanRoundTrip(t *testing.T) {
 	r := &reader{}
-	back := planFromProto(r, "plan", planToProto(domainPlan()))
+	back := planFromProto(r, "plan", planToProto(new(domainPlan())))
 	if err := r.result(); err != nil {
 		t.Fatal(err)
 	}
-	if got := planToProto(back); !proto.Equal(got, pbPlan()) {
+	if got := planToProto(&back); !proto.Equal(got, pbPlan()) {
 		t.Fatalf("round trip changed the plan: %v", got)
 	}
 }
 
 func TestOptimizeResponseToProto(t *testing.T) {
 	result := domain.OptimizeResult{
-		Status:          domain.ResultPartial,
-		Routes:          []domain.Plan{domainPlan()},
-		Warnings:        []domain.Warning{{Code: "FEWER_VARIANTS", Scope: domain.ScopeRoute, Message: "Only one route"}},
-		Conflicts:       []domain.Conflict{{Code: "SESSION_UNREACHABLE", SessionIDs: []domain.SessionID{{3}}, Message: "x"}},
-		Data:            domain.DataFreshness{DataMode: domain.DataSynthetic, DataAsOf: tptr(at(7, 0)), CatalogRevision: 42},
+		Status: domain.ResultPartial,
+		Routes: []domain.Plan{domainPlan()},
+		Warnings: []domain.Warning{
+			{Code: "FEWER_VARIANTS", Scope: domain.ScopeRoute, Message: "Only one route"},
+		},
+		Conflicts: []domain.Conflict{
+			{Code: "SESSION_UNREACHABLE", SessionIDs: []domain.SessionID{{3}}, Message: "x"},
+		},
+		Data: domain.DataFreshness{
+			DataMode:        domain.DataSynthetic,
+			DataAsOf:        new(at(7, 0)),
+			CatalogRevision: 42,
+		},
 		ComputationTime: 1500 * time.Millisecond,
 	}
 	want := &pb.OptimizeResponse{
-		Status:            pb.ResultStatus_RESULT_STATUS_PARTIAL,
-		Routes:            []*pb.RoutePlan{pbPlan()},
-		Warnings:          []*pb.Warning{{Code: "FEWER_VARIANTS", Scope: pb.TargetScope_TARGET_SCOPE_ROUTE, Message: "Only one route"}},
-		Conflicts:         []*pb.Conflict{{Code: "SESSION_UNREACHABLE", SessionIds: [][]byte{id(3)}, Message: "x"}},
-		Data:              &pb.DataFreshness{DataMode: pb.DataMode_DATA_MODE_SYNTHETIC, DataAsOf: ts(7, 0), CatalogRevision: 42},
+		Status: pb.ResultStatus_RESULT_STATUS_PARTIAL,
+		Routes: []*pb.RoutePlan{pbPlan()},
+		Warnings: []*pb.Warning{
+			{Code: "FEWER_VARIANTS", Scope: pb.TargetScope_TARGET_SCOPE_ROUTE, Message: "Only one route"},
+		},
+		Conflicts: []*pb.Conflict{{Code: "SESSION_UNREACHABLE", SessionIds: [][]byte{id(3)}, Message: "x"}},
+		Data: &pb.DataFreshness{
+			DataMode:        pb.DataMode_DATA_MODE_SYNTHETIC,
+			DataAsOf:        ts(7, 0),
+			CatalogRevision: 42,
+		},
 		ComputationTimeMs: 1500,
 	}
-	if got := optimizeResponseToProto(result); !proto.Equal(got, want) {
+	if got := optimizeResponseToProto(&result); !proto.Equal(got, want) {
 		t.Fatalf("mapped response differs\n got: %v\nwant: %v", got, want)
 	}
 }
@@ -83,16 +97,42 @@ func TestRecomputeResponseToProto(t *testing.T) {
 		Status:    domain.RecomputeProposed,
 		Candidate: &candidate,
 		Changes: []domain.RouteChange{
-			{Kind: domain.ChangeTimeShifted, Scope: domain.ScopeVisit, BeforeVisitID: &domain.VisitID{1}, AfterVisitID: &domain.VisitID{1},
-				Message: "Later", Details: domain.TimeShift{Delta: -20 * time.Minute}},
-			{Kind: domain.ChangeCostChanged, Scope: domain.ScopeRoute, Message: "Cheaper", Details: domain.CostChange{Before: money(2), After: money(1)}},
+			{
+				Kind:          domain.ChangeTimeShifted,
+				Scope:         domain.ScopeVisit,
+				BeforeVisitID: &domain.VisitID{1},
+				AfterVisitID:  &domain.VisitID{1},
+				Message:       "Later",
+				Details:       domain.TimeShift{Delta: -20 * time.Minute},
+			},
+			{
+				Kind:    domain.ChangeCostChanged,
+				Scope:   domain.ScopeRoute,
+				Message: "Cheaper",
+				Details: domain.CostChange{Before: money(2), After: money(1)},
+			},
 			{Kind: domain.ChangeParticipationAction, Scope: domain.ScopeVisit, AfterVisitID: &domain.VisitID{2},
 				Message: "Book", Details: domain.ParticipationAction{Action: "book_ticket"}},
-			{Kind: domain.ChangeVerificationChanged, Scope: domain.ScopeLeg, LegPosition: &legPosition, Message: "Estimated",
-				Details: domain.VerificationChange{Before: domain.VerificationVerified, After: domain.VerificationEstimated}},
-			{Kind: domain.ChangeRemoved, Scope: domain.ScopeVisit, BeforeVisitID: &domain.VisitID{3}, Message: "Removed"},
+			{
+				Kind:        domain.ChangeVerificationChanged,
+				Scope:       domain.ScopeLeg,
+				LegPosition: &legPosition,
+				Message:     "Estimated",
+				Details: domain.VerificationChange{
+					Before: domain.VerificationVerified,
+					After:  domain.VerificationEstimated,
+				},
+			},
+			{
+				Kind:          domain.ChangeRemoved,
+				Scope:         domain.ScopeVisit,
+				BeforeVisitID: &domain.VisitID{3},
+				Message:       "Removed",
+			},
 		},
-		Conflicts:       []domain.Conflict{{Code: "SESSION_UNREACHABLE", VisitIDs: []domain.VisitID{{3}}, Message: "x"}},
+		Conflicts: []domain.Conflict{
+			{Code: "SESSION_UNREACHABLE", VisitIDs: []domain.VisitID{{3}}, Message: "x"},
+		},
 		Data:            domain.DataFreshness{DataMode: domain.DataLive, CatalogRevision: 43},
 		ComputationTime: 3 * time.Millisecond,
 	}
@@ -100,32 +140,58 @@ func TestRecomputeResponseToProto(t *testing.T) {
 		Status:    pb.RecomputeStatus_RECOMPUTE_STATUS_PROPOSED,
 		Candidate: pbPlan(),
 		Changes: []*pb.RouteChange{
-			{Kind: pb.RouteChangeKind_ROUTE_CHANGE_KIND_TIME_SHIFTED, Scope: pb.TargetScope_TARGET_SCOPE_VISIT, BeforeVisitId: id(1), AfterVisitId: id(1),
-				Message: "Later", Details: &pb.RouteChange_TimeShiftSeconds{TimeShiftSeconds: -1200}},
-			{Kind: pb.RouteChangeKind_ROUTE_CHANGE_KIND_COST_CHANGED, Scope: pb.TargetScope_TARGET_SCOPE_ROUTE, Message: "Cheaper",
-				Details: &pb.RouteChange_Cost{Cost: &pb.CostChange{Before: pbMoney(2), After: pbMoney(1)}}},
-			{Kind: pb.RouteChangeKind_ROUTE_CHANGE_KIND_PARTICIPATION_ACTION, Scope: pb.TargetScope_TARGET_SCOPE_VISIT, AfterVisitId: id(2),
-				Message: "Book", Details: &pb.RouteChange_ParticipationAction{ParticipationAction: "book_ticket"}},
-			{Kind: pb.RouteChangeKind_ROUTE_CHANGE_KIND_VERIFICATION_CHANGED, Scope: pb.TargetScope_TARGET_SCOPE_LEG, LegPosition: proto.Uint32(2),
-				Message: "Estimated", Details: &pb.RouteChange_Verification{Verification: &pb.VerificationChange{
-					Before: pb.VerificationStatus_VERIFICATION_STATUS_VERIFIED, After: pb.VerificationStatus_VERIFICATION_STATUS_ESTIMATED,
-				}}},
-			{Kind: pb.RouteChangeKind_ROUTE_CHANGE_KIND_REMOVED, Scope: pb.TargetScope_TARGET_SCOPE_VISIT, BeforeVisitId: id(3), Message: "Removed"},
+			{
+				Kind:          pb.RouteChangeKind_ROUTE_CHANGE_KIND_TIME_SHIFTED,
+				Scope:         pb.TargetScope_TARGET_SCOPE_VISIT,
+				BeforeVisitId: id(1),
+				AfterVisitId:  id(1),
+				Message:       "Later",
+				Details:       &pb.RouteChange_TimeShiftSeconds{TimeShiftSeconds: -1200},
+			},
+			{
+				Kind:    pb.RouteChangeKind_ROUTE_CHANGE_KIND_COST_CHANGED,
+				Scope:   pb.TargetScope_TARGET_SCOPE_ROUTE,
+				Message: "Cheaper",
+				Details: &pb.RouteChange_Cost{Cost: &pb.CostChange{Before: pbMoney(2), After: pbMoney(1)}},
+			},
+			{
+				Kind:         pb.RouteChangeKind_ROUTE_CHANGE_KIND_PARTICIPATION_ACTION,
+				Scope:        pb.TargetScope_TARGET_SCOPE_VISIT,
+				AfterVisitId: id(2),
+				Message:      "Book",
+				Details:      &pb.RouteChange_ParticipationAction{ParticipationAction: "book_ticket"},
+			},
+			{
+				Kind:        pb.RouteChangeKind_ROUTE_CHANGE_KIND_VERIFICATION_CHANGED,
+				Scope:       pb.TargetScope_TARGET_SCOPE_LEG,
+				LegPosition: proto.Uint32(2),
+				Message:     "Estimated",
+				Details: &pb.RouteChange_Verification{Verification: &pb.VerificationChange{
+					Before: pb.VerificationStatus_VERIFICATION_STATUS_VERIFIED,
+					After:  pb.VerificationStatus_VERIFICATION_STATUS_ESTIMATED,
+				}},
+			},
+			{
+				Kind:          pb.RouteChangeKind_ROUTE_CHANGE_KIND_REMOVED,
+				Scope:         pb.TargetScope_TARGET_SCOPE_VISIT,
+				BeforeVisitId: id(3),
+				Message:       "Removed",
+			},
 		},
 		Conflicts:         []*pb.Conflict{{Code: "SESSION_UNREACHABLE", VisitIds: [][]byte{id(3)}, Message: "x"}},
 		Data:              &pb.DataFreshness{DataMode: pb.DataMode_DATA_MODE_LIVE, CatalogRevision: 43},
 		ComputationTimeMs: 3,
 	}
-	if got := recomputeResponseToProto(result); !proto.Equal(got, want) {
+	if got := recomputeResponseToProto(&result); !proto.Equal(got, want) {
 		t.Fatalf("mapped response differs\n got: %v\nwant: %v", got, want)
 	}
 }
 
 func TestRecomputeResponseWithoutCandidate(t *testing.T) {
-	got := recomputeResponseToProto(domain.RecomputeResult{
+	got := recomputeResponseToProto(new(domain.RecomputeResult{
 		Status: domain.RecomputeUnchanged,
 		Data:   domain.DataFreshness{DataMode: domain.DataPrepared},
-	})
+	}))
 	want := &pb.RecomputeResponse{
 		Status: pb.RecomputeStatus_RECOMPUTE_STATUS_UNCHANGED,
 		Data:   &pb.DataFreshness{DataMode: pb.DataMode_DATA_MODE_PREPARED},

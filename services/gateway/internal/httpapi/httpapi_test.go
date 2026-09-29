@@ -93,9 +93,27 @@ func TestAuthRouteRejectsMalformedInvalidAndLimitedRequests(t *testing.T) {
 		status  int
 		code    string
 	}{
-		{"malformed", &fakeRuntime{allowAnonymous: true}, `{"unknown":true}`, http.StatusBadRequest, "MALFORMED_REQUEST"},
-		{"invalid auth", &fakeRuntime{allowAnonymous: true, exchangeErr: auth.ErrAuthRequired}, `{"init_data":"bad"}`, http.StatusUnauthorized, "AUTH_REQUIRED"},
-		{"limited", &fakeRuntime{retryAfter: 2 * time.Second}, `{"init_data":"signed"}`, http.StatusTooManyRequests, "RATE_LIMITED"},
+		{
+			"malformed",
+			&fakeRuntime{allowAnonymous: true},
+			`{"unknown":true}`,
+			http.StatusBadRequest,
+			"MALFORMED_REQUEST",
+		},
+		{
+			"invalid auth",
+			&fakeRuntime{allowAnonymous: true, exchangeErr: auth.ErrAuthRequired},
+			`{"init_data":"bad"}`,
+			http.StatusUnauthorized,
+			"AUTH_REQUIRED",
+		},
+		{
+			"limited",
+			&fakeRuntime{retryAfter: 2 * time.Second},
+			`{"init_data":"signed"}`,
+			http.StatusTooManyRequests,
+			"RATE_LIMITED",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -136,7 +154,7 @@ func TestBearerMiddlewareAndAuthenticatedLimit(t *testing.T) {
 		}
 		return c.NoContent(http.StatusNoContent)
 	}, Authenticate(runtime), AuthenticatedRateLimit(runtime))
-	req := httptest.NewRequest(http.MethodGet, "/private", nil)
+	req := httptest.NewRequest(http.MethodGet, "/private", http.NoBody)
 	req.Header.Set(echo.HeaderAuthorization, "Bearer abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ")
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -145,7 +163,7 @@ func TestBearerMiddlewareAndAuthenticatedLimit(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/private", nil))
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/private", http.NoBody))
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("missing bearer status=%d", rec.Code)
 	}
@@ -156,7 +174,7 @@ func TestSecurityMiddlewareAndOwnerGuard(t *testing.T) {
 	e := testEcho()
 	e.POST("/webhook", func(c *echo.Context) error { return c.NoContent(http.StatusNoContent) }, VerifyWebhook(runtime))
 	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/webhook", nil))
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/webhook", http.NoBody))
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("webhook status=%d", rec.Code)
 	}
@@ -177,30 +195,32 @@ func TestCORSAndSafePanicResponse(t *testing.T) {
 	e.HTTPErrorHandler = ErrorHandler
 	e.GET("/panic", func(*echo.Context) error { panic("private failure") })
 
-	allowed := httptest.NewRequest(http.MethodGet, "/panic", nil)
+	allowed := httptest.NewRequest(http.MethodGet, "/panic", http.NoBody)
 	allowed.Header.Set(echo.HeaderOrigin, "https://impuls-goroda.github.io")
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, allowed)
-	if rec.Code != http.StatusInternalServerError || rec.Header().Get(echo.HeaderAccessControlAllowOrigin) != "https://impuls-goroda.github.io" {
+	if rec.Code != http.StatusInternalServerError ||
+		rec.Header().Get(echo.HeaderAccessControlAllowOrigin) != "https://impuls-goroda.github.io" {
 		t.Fatalf("status=%d origin=%q", rec.Code, rec.Header().Get(echo.HeaderAccessControlAllowOrigin))
 	}
 	if bytes.Contains(rec.Body.Bytes(), []byte("private failure")) {
 		t.Fatal("panic details exposed")
 	}
 
-	preflight := httptest.NewRequest(http.MethodOptions, "/panic", nil)
+	preflight := httptest.NewRequest(http.MethodOptions, "/panic", http.NoBody)
 	preflight.Header.Set(echo.HeaderOrigin, "https://impuls-goroda.github.io")
 	preflight.Header.Set(echo.HeaderAccessControlRequestMethod, http.MethodDelete)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, preflight)
-	if rec.Code != http.StatusNoContent || rec.Header().Get(echo.HeaderAccessControlAllowOrigin) != "https://impuls-goroda.github.io" {
+	if rec.Code != http.StatusNoContent ||
+		rec.Header().Get(echo.HeaderAccessControlAllowOrigin) != "https://impuls-goroda.github.io" {
 		t.Fatalf("preflight status=%d origin=%q", rec.Code, rec.Header().Get(echo.HeaderAccessControlAllowOrigin))
 	}
 	if !strings.Contains(rec.Header().Get(echo.HeaderAccessControlAllowMethods), http.MethodDelete) {
 		t.Fatalf("preflight methods=%q", rec.Header().Get(echo.HeaderAccessControlAllowMethods))
 	}
 
-	denied := httptest.NewRequest(http.MethodOptions, "/panic", nil)
+	denied := httptest.NewRequest(http.MethodOptions, "/panic", http.NoBody)
 	denied.Header.Set(echo.HeaderOrigin, "https://evil.example")
 	denied.Header.Set(echo.HeaderAccessControlRequestMethod, http.MethodGet)
 	rec = httptest.NewRecorder()
@@ -215,7 +235,7 @@ func TestRequestIDReachesTheRequestContext(t *testing.T) {
 	e.GET("/", func(c *echo.Context) error {
 		return c.String(http.StatusOK, telemetry.RequestID(c.Request().Context()))
 	})
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	req.Header.Set(echo.HeaderXRequestID, "req-42")
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -227,7 +247,7 @@ func TestRequestIDReachesTheRequestContext(t *testing.T) {
 func TestRequestIDRejectsUnsafeInput(t *testing.T) {
 	e := testEcho()
 	e.GET("/", func(c *echo.Context) error { return c.String(http.StatusOK, RequestID(c)) })
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	req.Header.Set(echo.HeaderXRequestID, "unsafe value")
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)

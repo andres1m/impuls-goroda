@@ -10,6 +10,8 @@ import (
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
 )
 
+const coordinatePairSize = 2
+
 type mkrfRecord struct {
 	Data struct {
 		General struct {
@@ -52,7 +54,7 @@ type mkrfPlace struct {
 	} `json:"locale"`
 }
 
-func (p mkrfPlace) in(city domain.City) bool {
+func (p *mkrfPlace) in(city domain.City) bool {
 	name := cityNames[city]
 	return name != "" && (strings.Contains(p.Address.FullAddress, "г "+name) || p.Locale.Name == name)
 }
@@ -60,31 +62,31 @@ func (p mkrfPlace) in(city domain.City) bool {
 type interest struct{ category, tag string }
 
 var mkrfCategories = map[string]interest{
-	"ekskursii": {"tourism", "excursions"},
-	"spektakli": {"culture", "performing_arts"},
-	"koncerty":  {"culture", "performing_arts"},
-	"obuchenie": {"culture", "lectures_workshops"},
-	"vstrechi":  {"culture", "lectures_workshops"},
-	"kino":      {"culture", "cinema"},
+	"ekskursii": {osmKeyTourism, tagExcursions},
+	"spektakli": {categoryCulture, tagPerformingArts},
+	"koncerty":  {categoryCulture, tagPerformingArts},
+	"obuchenie": {categoryCulture, tagLecturesWorkshops},
+	"vstrechi":  {categoryCulture, tagLecturesWorkshops},
+	"kino":      {categoryCulture, tagCinema},
 }
 
 var mkrfTagInterests = map[string]string{
-	"sovremennoe-iskusstvo":            "contemporary_art",
-	"klassicheskoe-iskusstvo":          "classical_art",
-	"istoriya":                         "classical_art",
-	"izobrazitelnoe-iskusstvo":         "classical_art",
-	"zhivopis":                         "classical_art",
-	"skulptura":                        "classical_art",
-	"grafika":                          "classical_art",
-	"arhitektura":                      "classical_art",
-	"dekorativno-prikladnoe-iskusstvo": "classical_art",
-	"nauka":                            "science_tech",
-	"estestvennye-nauki":               "science_tech",
-	"nauka-i-tehnika":                  "science_tech",
-	"lekcii":                           "lectures_workshops",
-	"master-klassy":                    "lectures_workshops",
-	"kinematograf":                     "cinema",
-	"ekskursii":                        "excursions",
+	"sovremennoe-iskusstvo":            tagContemporaryArt,
+	"klassicheskoe-iskusstvo":          tagClassicalArt,
+	"istoriya":                         tagClassicalArt,
+	"izobrazitelnoe-iskusstvo":         tagClassicalArt,
+	"zhivopis":                         tagClassicalArt,
+	"skulptura":                        tagClassicalArt,
+	"grafika":                          tagClassicalArt,
+	"arhitektura":                      tagClassicalArt,
+	"dekorativno-prikladnoe-iskusstvo": tagClassicalArt,
+	"nauka":                            tagScienceTech,
+	"estestvennye-nauki":               tagScienceTech,
+	"nauka-i-tehnika":                  tagScienceTech,
+	"lekcii":                           tagLecturesWorkshops,
+	"master-klassy":                    tagLecturesWorkshops,
+	"kinematograf":                     tagCinema,
+	"ekskursii":                        tagExcursions,
 }
 
 // MkrfEvent turns a record of the Ministry of Culture events dataset into an event at its place in the city.
@@ -92,12 +94,12 @@ var mkrfTagInterests = map[string]string{
 func MkrfEvent(city domain.City, externalID string, payload []byte, now time.Time) (Draft, error) {
 	var rec mkrfRecord
 	if err := json.Unmarshal(payload, &rec); err != nil {
-		return Draft{}, &DataError{Code: "bad_payload"}
+		return Draft{}, &DataError{Code: codeBadPayload}
 	}
 	g := rec.Data.General
 	title := strings.Join(strings.Fields(g.Name), " ")
 	if title == "" {
-		return Draft{}, &DataError{Code: "missing_name"}
+		return Draft{}, &DataError{Code: codeMissingName}
 	}
 	place, err := mkrfPlaceDraft(city, g.Places)
 	if err != nil {
@@ -106,7 +108,7 @@ func MkrfEvent(city domain.City, externalID string, payload []byte, now time.Tim
 
 	kind, listed := mkrfCategories[g.Category.SysName]
 	if !listed {
-		kind = interest{category: "culture"}
+		kind = interest{category: categoryCulture}
 	}
 	var tags []string
 	if kind.tag != "" {
@@ -148,26 +150,26 @@ func mkrfPlaceDraft(city domain.City, places []mkrfPlace) (PlaceDraft, error) {
 			continue
 		}
 		if p.ID == nil {
-			return PlaceDraft{}, &DataError{Code: "missing_place"}
+			return PlaceDraft{}, &DataError{Code: codeMissingPlace}
 		}
 		title := strings.TrimSpace(p.Name)
 		if title == "" {
-			return PlaceDraft{}, &DataError{Code: "missing_name"}
+			return PlaceDraft{}, &DataError{Code: codeMissingName}
 		}
 		coordinates := p.Address.MapPosition.Coordinates
-		if len(coordinates) != 2 {
-			return PlaceDraft{}, &DataError{Code: "bad_coordinates"}
+		if len(coordinates) != coordinatePairSize {
+			return PlaceDraft{}, &DataError{Code: codeBadCoordinates}
 		}
 		lat, lon, ok := cityPoint(city, coordinates[0], coordinates[1])
 		if !ok {
-			return PlaceDraft{}, &DataError{Code: "bad_coordinates"}
+			return PlaceDraft{}, &DataError{Code: codeBadCoordinates}
 		}
 		return PlaceDraft{
 			ExternalID: "place:" + strconv.FormatInt(*p.ID, 10), Title: title, NormalizedTitle: NormalizedTitle(title),
 			Lat: lat, Lon: lon, Address: optional(strings.TrimSpace(p.Address.Street)), OpeningRules: unknownHours,
 		}, nil
 	}
-	return PlaceDraft{}, &DataError{Code: "missing_place"}
+	return PlaceDraft{}, &DataError{Code: codeMissingPlace}
 }
 
 // mkrfPrice keeps a price only when its upper bound is known: budgets are checked against it.

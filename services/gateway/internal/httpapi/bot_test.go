@@ -15,9 +15,9 @@ type recordingBot struct {
 	update maxbot.Update
 }
 
-func (b *recordingBot) Handle(_ context.Context, update maxbot.Update) error {
+func (b *recordingBot) Handle(_ context.Context, update *maxbot.Update) error {
 	b.calls++
-	b.update = update
+	b.update = *update
 	return nil
 }
 

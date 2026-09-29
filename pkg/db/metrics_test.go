@@ -56,7 +56,7 @@ func registeredRoles(t *testing.T) []string {
 }
 
 func TestInitRegistersPoolMetricsUntilStop(t *testing.T) {
-	c, err := NewDb(nil, config.Database{Host: "postgres://syncer_svc@127.0.0.1:1/impuls"})
+	c, err := NewDB(nil, config.Database{Host: "postgres://syncer_svc@127.0.0.1:1/impuls"})
 	if err != nil {
 		t.Fatal(err)
 	}

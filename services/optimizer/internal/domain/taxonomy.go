@@ -18,23 +18,33 @@ const (
 
 const CategoryCount = 6
 
+const (
+	categoryIndexInvalid = -1
+	categoryIndexCulture = iota - 1
+	categoryIndexSport
+	categoryIndexVolunteer
+	categoryIndexWalk
+	categoryIndexTourism
+	categoryIndexGastro
+)
+
 // Index is the category's slot in per-branch counters, or -1 for an unknown category.
 func (c Category) Index() int {
 	switch c {
 	case CategoryCulture:
-		return 0
+		return categoryIndexCulture
 	case CategorySport:
-		return 1
+		return categoryIndexSport
 	case CategoryVolunteer:
-		return 2
+		return categoryIndexVolunteer
 	case CategoryWalk:
-		return 3
+		return categoryIndexWalk
 	case CategoryTourism:
-		return 4
+		return categoryIndexTourism
 	case CategoryGastro:
-		return 5
+		return categoryIndexGastro
 	default:
-		return -1
+		return categoryIndexInvalid
 	}
 }
 
@@ -95,7 +105,14 @@ func (a Archetype) Mask() InterestMask {
 	case ArchetypeHistoryHeritage:
 		return Interests(InterestClassicalArt, InterestPerformingArts, InterestExcursions)
 	case ArchetypeActionSocial:
-		return Interests(InterestScienceTech, InterestRunningPark, InterestEcoVolunteer, InterestSocialVolunteer, InterestCityWalk, InterestLecturesWorkshops)
+		return Interests(
+			InterestScienceTech,
+			InterestRunningPark,
+			InterestEcoVolunteer,
+			InterestSocialVolunteer,
+			InterestCityWalk,
+			InterestLecturesWorkshops,
+		)
 	default:
 		return 0
 	}

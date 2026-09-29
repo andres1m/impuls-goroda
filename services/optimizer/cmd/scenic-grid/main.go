@@ -24,73 +24,105 @@ func main() {
 }
 
 // run builds the layers of the staged version; a city whose layer exists is left as it is.
-func run(data, rulesPath string, logger *log.Logger) error {
+func run(data, rulesPath string, logger *log.Logger) (retErr error) {
 	version, err := os.ReadFile(filepath.Join(data, "next"))
 	if err != nil {
-		return err
+		return fmt.Errorf("read staged version: %w", err)
 	}
 	dir := filepath.Join(data, strings.TrimSpace(string(version)), "scenic")
-	rulesFile, err := os.Open(rulesPath)
-	if err != nil {
-		return err
-	}
-	rules, err := scenic.ParseRules(rulesFile)
-	rulesFile.Close()
+	rules, err := loadRules(rulesPath)
 	if err != nil {
 		return err
 	}
 	staged, err := filepath.Glob(filepath.Join(dir, "*.geojsonseq"))
 	if err != nil {
-		return err
+		return fmt.Errorf("glob staged features: %w", err)
 	}
 	built, err := filepath.Glob(filepath.Join(dir, "*.csv"))
 	if err != nil {
-		return err
+		return fmt.Errorf("glob built layers: %w", err)
 	}
 	if len(staged) == 0 && len(built) == 0 {
 		return fmt.Errorf("no scenic features staged in %s", dir)
 	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return fmt.Errorf("open scenic dir: %w", err)
+	}
+	defer func() {
+		retErr = errors.Join(retErr, root.Close())
+	}()
 	for _, features := range staged {
-		city := strings.TrimSuffix(filepath.Base(features), ".geojsonseq")
-		layer := filepath.Join(dir, city+".csv")
-		if _, err := os.Stat(layer); errors.Is(err, os.ErrNotExist) {
-			cells, err := build(features, layer, rules)
-			if err != nil {
-				return fmt.Errorf("%s: %w", city, err)
-			}
-			logger.Printf("scenic layer of %s: %d cells", city, cells)
-		} else if err != nil {
-			return err
-		}
-		if err := os.Remove(features); err != nil {
+		if err := buildCity(root, filepath.Base(features), rules, logger); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// build writes the layer through a temporary file, so a failed run never leaves a partial one.
-func build(features, layer string, rules scenic.Rules) (int, error) {
-	in, err := os.Open(features)
+func loadRules(rulesPath string) (rules scenic.Rules, retErr error) {
+	rulesFile, err := os.Open(rulesPath)
 	if err != nil {
-		return 0, err
+		return scenic.Rules{}, fmt.Errorf("open rules: %w", err)
 	}
-	defer in.Close()
+	defer func() {
+		retErr = errors.Join(retErr, rulesFile.Close())
+	}()
+	return scenic.ParseRules(rulesFile)
+}
+
+func buildCity(root *os.Root, featuresFile string, rules scenic.Rules, logger *log.Logger) error {
+	city := strings.TrimSuffix(featuresFile, ".geojsonseq")
+	layer := city + ".csv"
+	_, statErr := root.Stat(layer)
+	switch {
+	case errors.Is(statErr, os.ErrNotExist):
+		cells, err := build(root, featuresFile, layer, rules)
+		if err != nil {
+			return fmt.Errorf("%s: %w", city, err)
+		}
+		logger.Printf("scenic layer of %s: %d cells", city, cells)
+	case statErr != nil:
+		return fmt.Errorf("stat layer %s: %w", layer, statErr)
+	}
+	if err := root.Remove(featuresFile); err != nil {
+		return fmt.Errorf("remove staged features %s: %w", featuresFile, err)
+	}
+	return nil
+}
+
+// build writes the layer through a temporary file, so a failed run never leaves a partial one.
+func build(root *os.Root, features, layer string, rules scenic.Rules) (cells int, retErr error) {
+	in, err := root.Open(features)
+	if err != nil {
+		return 0, fmt.Errorf("open features: %w", err)
+	}
+	defer func() {
+		retErr = errors.Join(retErr, in.Close())
+	}()
 	shares, err := scenic.Cover(in, rules)
 	if err != nil {
 		return 0, err
 	}
 	tmp := layer + ".tmp"
-	out, err := os.Create(tmp)
+	if err := writeLayerFile(root, tmp, shares); err != nil {
+		return 0, err
+	}
+	if err := root.Rename(tmp, layer); err != nil {
+		return 0, fmt.Errorf("rename layer: %w", err)
+	}
+	return len(shares), nil
+}
+
+func writeLayerFile(root *os.Root, tmp string, shares scenic.Shares) (retErr error) {
+	out, err := root.Create(tmp)
 	if err != nil {
-		return 0, err
+		return fmt.Errorf("create temp layer: %w", err)
 	}
-	if err := scenic.WriteLayer(out, shares); err != nil {
-		out.Close()
-		return 0, err
-	}
-	if err := out.Close(); err != nil {
-		return 0, err
-	}
-	return len(shares), os.Rename(tmp, layer)
+	defer func() {
+		if closeErr := out.Close(); closeErr != nil && retErr == nil {
+			retErr = fmt.Errorf("close temp layer: %w", closeErr)
+		}
+	}()
+	return scenic.WriteLayer(out, shares)
 }

@@ -3,6 +3,7 @@ package catalogcache
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"time"
 
@@ -84,30 +85,8 @@ func (s *Subscriber) listen(ctx context.Context, ps PubSub) {
 			return
 		}
 		now := s.cache.now()
-		switch {
-		case isTimeout(err):
-			if now.Sub(seen) > silentPings*cfg.HealthInterval {
-				s.lost("no reply from redis", nil)
-				return
-			}
-			if err := ps.Ping(ctx); err != nil {
-				s.lost("ping catalog subscription", err)
-				return
-			}
-		case err != nil:
-			s.lost("read catalog subscription", err)
+		if !s.handleReceive(ctx, ps, msg, err, now, &seen, &subscribed, &nextReconcile) {
 			return
-		default:
-			seen = now
-			switch m := msg.(type) {
-			case *goredis.Subscription:
-				if m.Kind == "subscribe" {
-					subscribed = true
-					nextReconcile = now
-				}
-			case *goredis.Message:
-				s.announce(m.Payload)
-			}
 		}
 		if subscribed && !now.Before(nextReconcile) {
 			nextReconcile = now.Add(cfg.ReconcileInterval)
@@ -116,6 +95,45 @@ func (s *Subscriber) listen(ctx context.Context, ps PubSub) {
 			}
 		}
 		s.afterReply()
+	}
+}
+
+func (s *Subscriber) handleReceive(
+	ctx context.Context,
+	ps PubSub,
+	msg any,
+	err error,
+	now time.Time,
+	seen *time.Time,
+	subscribed *bool,
+	nextReconcile *time.Time,
+) bool {
+	switch {
+	case isTimeout(err):
+		if now.Sub(*seen) > silentPings*s.cache.cfg.HealthInterval {
+			s.lost("no reply from redis", nil)
+			return false
+		}
+		if pingErr := ps.Ping(ctx); pingErr != nil {
+			s.lost("ping catalog subscription", pingErr)
+			return false
+		}
+		return true
+	case err != nil:
+		s.lost("read catalog subscription", err)
+		return false
+	default:
+		*seen = now
+		switch m := msg.(type) {
+		case *goredis.Subscription:
+			if m.Kind == "subscribe" {
+				*subscribed = true
+				*nextReconcile = now
+			}
+		case *goredis.Message:
+			s.announce(m.Payload)
+		}
+		return true
 	}
 }
 
@@ -156,7 +174,7 @@ func (s *Subscriber) announce(payload string) {
 		s.log.Warn("catalog announcement", zap.Error(err))
 		return
 	}
-	s.cache.Announce(m)
+	s.cache.Announce(&m)
 }
 
 func isTimeout(err error) bool {
@@ -169,11 +187,26 @@ type redisPubSub struct {
 }
 
 func (r redisPubSub) Receive(ctx context.Context, timeout time.Duration) (any, error) {
-	return r.ps.ReceiveTimeout(ctx, timeout)
+	msg, err := r.ps.ReceiveTimeout(ctx, timeout)
+	if err != nil {
+		return nil, fmt.Errorf("pubsub receive: %w", err)
+	}
+	return msg, nil
 }
 
-func (r redisPubSub) Ping(ctx context.Context) error { return r.ps.Ping(ctx) }
-func (r redisPubSub) Close() error                   { return r.ps.Close() }
+func (r redisPubSub) Ping(ctx context.Context) error {
+	if err := r.ps.Ping(ctx); err != nil {
+		return fmt.Errorf("pubsub ping: %w", err)
+	}
+	return nil
+}
+
+func (r redisPubSub) Close() error {
+	if err := r.ps.Close(); err != nil {
+		return fmt.Errorf("pubsub close: %w", err)
+	}
+	return nil
+}
 
 type disconnected struct{}
 

@@ -50,10 +50,18 @@ func oneVisit(r *domain.OptimizeRequest) {
 }
 
 func equalPair() []domain.Candidate {
-	return []domain.Candidate{place(1, domain.CategoryCulture, north(origin, -500)), place(2, domain.CategoryCulture, north(origin, 500))}
+	return []domain.Candidate{
+		place(1, domain.CategoryCulture, north(origin, -500)),
+		place(2, domain.CategoryCulture, north(origin, 500)),
+	}
 }
 
-func optimizeWith(t *testing.T, cfg Config, scenic ScenicProvider, change func(*domain.OptimizeRequest)) domain.OptimizeResult {
+func optimizeWith(
+	t *testing.T,
+	cfg Config,
+	scenic ScenicProvider,
+	change func(*domain.OptimizeRequest),
+) domain.OptimizeResult {
 	t.Helper()
 	var opts []Option
 	if scenic != nil {
@@ -65,7 +73,7 @@ func optimizeWith(t *testing.T, cfg Config, scenic ScenicProvider, change func(*
 	}
 	req := request()
 	change(&req)
-	res, err := p.Optimize(context.Background(), req)
+	res, err := p.Optimize(context.Background(), &req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,16 +83,18 @@ func optimizeWith(t *testing.T, cfg Config, scenic ScenicProvider, change func(*
 	return res
 }
 
-func firstPlace(res domain.OptimizeResult) byte {
+func firstPlace(res *domain.OptimizeResult) byte {
 	return res.Routes[0].Steps[0].Catalog.PlaceID[0]
 }
 
 func TestOptimizePrefersScenicWalks(t *testing.T) {
-	if got := firstPlace(optimizeWith(t, scenicConfig(), nil, oneVisit)); got != 1 {
+	res1 := optimizeWith(t, scenicConfig(), nil, oneVisit)
+	if got := firstPlace(&res1); got != 1 {
 		t.Fatalf("without scenic the tie went to place %d", got)
 	}
 	scenic := &fakeScenic{}
-	if got := firstPlace(optimizeWith(t, scenicConfig(), scenic, oneVisit)); got != 2 {
+	res2 := optimizeWith(t, scenicConfig(), scenic, oneVisit)
+	if got := firstPlace(&res2); got != 2 {
 		t.Fatalf("scenic walk not preferred, got place %d", got)
 	}
 	if scenic.city != "perm" || scenic.revision != freshness.CatalogRevision {
@@ -95,14 +105,14 @@ func TestOptimizePrefersScenicWalks(t *testing.T) {
 func TestOptimizeWithoutScenicWeightSkipsScenic(t *testing.T) {
 	scenic := &fakeScenic{}
 	res := optimizeWith(t, config(), scenic, oneVisit)
-	if scenic.calls != 0 || firstPlace(res) != 1 {
+	if scenic.calls != 0 || firstPlace(&res) != 1 {
 		t.Fatalf("city without a weight used scenic: %d calls", scenic.calls)
 	}
 }
 
 func TestOptimizeSurvivesScenicFailure(t *testing.T) {
 	res := optimizeWith(t, scenicConfig(), &fakeScenic{err: errors.New("catalog down")}, oneVisit)
-	if firstPlace(res) != 1 {
+	if firstPlace(&res) != 1 {
 		t.Fatal("failed scenic still changed the route")
 	}
 }

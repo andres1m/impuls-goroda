@@ -38,6 +38,19 @@ func TestIdentityRepositoryIntegration(t *testing.T) {
 	}
 
 	now := time.Now().UTC().Truncate(time.Microsecond)
+	account, session := assertMaxSessionLifecycle(ctx, t, pool, transactor, queries, now)
+	assertTestSessionAndDisabledAccount(ctx, t, pool, transactor, queries, now, &account, &session)
+}
+
+func assertMaxSessionLifecycle(
+	ctx context.Context,
+	t *testing.T,
+	pool *pgxpool.Pool,
+	transactor *Transactor,
+	queries *Queries,
+	now time.Time,
+) (domain.UserAccount, domain.AuthSession) {
+	t.Helper()
 	userID := domain.UserID(randomID(t))
 	sessionID := domain.SessionID(randomID(t))
 	tokenHash := randomHash(t)
@@ -58,7 +71,7 @@ func TestIdentityRepositoryIntegration(t *testing.T) {
 		ExpiresAt: now.Add(24 * time.Hour),
 	}
 
-	storedAccount, storedSession, err := transactor.IssueMaxSession(ctx, account, session)
+	storedAccount, storedSession, err := transactor.IssueMaxSession(ctx, &account, &session)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +82,7 @@ func TestIdentityRepositoryIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !pair.Session.ValidFor(pair.Account, now.Add(time.Minute)) {
+	if !pair.Session.ValidFor(&pair.Account, now.Add(time.Minute)) {
 		t.Fatal("stored session is not valid")
 	}
 	revoked, err := queries.RevokeSession(ctx, sessionID, userID, now.Add(2*time.Minute))
@@ -88,17 +101,34 @@ func TestIdentityRepositoryIntegration(t *testing.T) {
 	invalidSession.ID = domain.SessionID(randomID(t))
 	invalidSession.UserID = rollbackUserID
 	invalidSession.TokenHash = [32]byte{}
-	if _, _, err := transactor.IssueMaxSession(ctx, rollbackAccount, invalidSession); err == nil {
+	if _, _, issueErr := transactor.IssueMaxSession(ctx, &rollbackAccount, &invalidSession); issueErr == nil {
 		t.Fatal("invalid session did not roll back")
 	}
 	var count int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM identity.user_account WHERE max_user_id = $1`, rollbackAccount.MaxUserID).Scan(&count); err != nil {
-		t.Fatal(err)
+	if scanErr := pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM identity.user_account WHERE max_user_id = $1`,
+		rollbackAccount.MaxUserID,
+	).Scan(&count); scanErr != nil {
+		t.Fatal(scanErr)
 	}
 	if count != 0 {
 		t.Fatalf("rolled back account count = %d", count)
 	}
+	return account, session
+}
 
+func assertTestSessionAndDisabledAccount(
+	ctx context.Context,
+	t *testing.T,
+	pool *pgxpool.Pool,
+	transactor *Transactor,
+	queries *Queries,
+	now time.Time,
+	account *domain.UserAccount,
+	session *domain.AuthSession,
+) {
+	t.Helper()
 	testUserID := domain.UserID(randomID(t))
 	testAccount := domain.UserAccount{
 		ID:         testUserID,
@@ -116,7 +146,7 @@ func TestIdentityRepositoryIntegration(t *testing.T) {
 		CreatedAt: now,
 		ExpiresAt: now.Add(time.Minute),
 	}
-	storedTestAccount, _, err := transactor.IssueTestSession(ctx, testAccount, testSession)
+	storedTestAccount, _, err := transactor.IssueTestSession(ctx, &testAccount, &testSession)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,17 +165,30 @@ func TestIdentityRepositoryIntegration(t *testing.T) {
 		t.Fatalf("deleted sessions = %d, want 1", deleted)
 	}
 
-	if _, err := pool.Exec(ctx, `UPDATE identity.user_account SET account_state = 'disabled' WHERE id = $1`, encodeUUID([16]byte(userID))); err != nil {
-		t.Fatal(err)
+	if _, execErr := pool.Exec(
+		ctx,
+		`UPDATE identity.user_account SET account_state = 'disabled' WHERE id = $1`,
+		encodeUUID([16]byte(account.ID)),
+	); execErr != nil {
+		t.Fatal(execErr)
 	}
-	disabledSession := session
+	disabledSession := *session
 	disabledSession.ID = domain.SessionID(randomID(t))
 	disabledSession.TokenHash = randomHash(t)
-	if _, _, err := transactor.IssueMaxSession(ctx, account, disabledSession); !errors.Is(err, ErrAccountDisabled) {
-		t.Fatalf("disabled account issue error = %v", err)
+	if _, _, issueErr := transactor.IssueMaxSession(
+		ctx,
+		account,
+		&disabledSession,
+	); !errors.Is(issueErr, ErrAccountDisabled) {
+		t.Fatalf("disabled account issue error = %v", issueErr)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM identity.auth_session WHERE token_hash = $1`, disabledSession.TokenHash[:]).Scan(&count); err != nil {
-		t.Fatal(err)
+	var count int
+	if scanErr := pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM identity.auth_session WHERE token_hash = $1`,
+		disabledSession.TokenHash[:],
+	).Scan(&count); scanErr != nil {
+		t.Fatal(scanErr)
 	}
 	if count != 0 {
 		t.Fatal("disabled account received a session")
@@ -216,11 +259,17 @@ WHERE n.nspname = $1 AND c.relname = $2`, objectParts[0], objectParts[1], tc.pri
 			}
 			defer pool.Close()
 			var superuser, createDB, createRole bool
-			if err := pool.QueryRow(ctx, `SELECT rolsuper, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname = current_user`).Scan(&superuser, &createDB, &createRole); err != nil {
+			if err := pool.QueryRow(ctx, `SELECT rolsuper, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname = current_user`).
+				Scan(&superuser, &createDB, &createRole); err != nil {
 				t.Fatal(err)
 			}
 			if superuser || createDB || createRole {
-				t.Fatalf("unsafe role attributes: superuser=%v createdb=%v createrole=%v", superuser, createDB, createRole)
+				t.Fatalf(
+					"unsafe role attributes: superuser=%v createdb=%v createrole=%v",
+					superuser,
+					createDB,
+					createRole,
+				)
 			}
 		})
 	}
@@ -231,7 +280,8 @@ WHERE n.nspname = $1 AND c.relname = $2`, objectParts[0], objectParts[1], tc.pri
 	}
 	defer gatewayPool.Close()
 	var canPurge bool
-	if err := gatewayPool.QueryRow(ctx, `SELECT has_function_privilege(current_user, 'planning.purge_route(uuid, uuid)', 'EXECUTE')`).Scan(&canPurge); err != nil {
+	if err := gatewayPool.QueryRow(ctx, `SELECT has_function_privilege(current_user, 'planning.purge_route(uuid, uuid)', 'EXECUTE')`).
+		Scan(&canPurge); err != nil {
 		t.Fatal(err)
 	}
 	if !canPurge {

@@ -26,11 +26,11 @@ type Envelope struct {
 	SchemaVersion string           `json:"schema_version"`
 }
 
-func (e Envelope) Key() string {
+func (e *Envelope) Key() string {
 	return string(e.City) + ":" + e.ExternalID
 }
 
-func (e Envelope) Validate() error {
+func (e *Envelope) Validate() error {
 	if e.Version != EnvelopeVersion {
 		return fmt.Errorf("unsupported envelope version %d", e.Version)
 	}

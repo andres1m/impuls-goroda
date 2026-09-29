@@ -13,6 +13,16 @@ import (
 const (
 	DefaultPlaceMinDuration         = 30 * time.Minute
 	DefaultPlaceRecommendedDuration = time.Hour
+
+	openingHoursPairLen = 2
+	hoursPerDay         = 24
+	minutesPerHour      = 60
+	minutesPerDay       = hoursPerDay * minutesPerHour
+	maxClockHour        = 23
+	maxClockMinute      = 59
+	clockFormatLen      = 5
+	clockColonPos       = 2
+	decimalBase         = 10
 )
 
 var weekdayKeys = []string{"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
@@ -32,7 +42,7 @@ func (h *OpeningHours) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	if len(raw) != 2 {
+	if len(raw) != openingHoursPairLen {
 		return errors.New("opening hours interval must contain start and end")
 	}
 	h.Start, h.End = raw[0], raw[1]
@@ -88,39 +98,59 @@ func (r OpeningRules) Validate() error {
 		if !ok || intervals == nil {
 			return fmt.Errorf("opening rules missing weekday %q", day)
 		}
-		prevEnd := -1
-		for _, iv := range intervals {
-			startMin, err := parseClockMinutes(iv.Start, false)
-			if err != nil {
-				return fmt.Errorf("%s start %q: %w", day, iv.Start, err)
-			}
-			endMin, err := parseClockMinutes(iv.End, true)
-			if err != nil {
-				return fmt.Errorf("%s end %q: %w", day, iv.End, err)
-			}
-			if endMin <= startMin {
-				return fmt.Errorf("%s interval %s-%s must have end after start", day, iv.Start, iv.End)
-			}
-			if startMin < prevEnd {
-				return fmt.Errorf("%s intervals must be sorted and non-overlapping", day)
-			}
-			prevEnd = endMin
+		if err := validateWeekdayIntervals(day, intervals); err != nil {
+			return err
 		}
 	}
-	for _, d := range r.ClosedDates {
-		if len(d) != len("2006-01-02") {
+	return validateClosedDates(r.ClosedDates)
+}
+
+func validateWeekdayIntervals(day string, intervals []OpeningHours) error {
+	prevEnd := -1
+	for _, iv := range intervals {
+		startMin, err := parseClockMinutes(iv.Start, false)
+		if err != nil {
+			return fmt.Errorf("%s start %q: %w", day, iv.Start, err)
+		}
+		endMin, err := parseClockMinutes(iv.End, true)
+		if err != nil {
+			return fmt.Errorf("%s end %q: %w", day, iv.End, err)
+		}
+		if endMin <= startMin {
+			return fmt.Errorf("%s interval %s-%s must have end after start", day, iv.Start, iv.End)
+		}
+		if startMin < prevEnd {
+			return fmt.Errorf("%s intervals must be sorted and non-overlapping", day)
+		}
+		prevEnd = endMin
+	}
+	return nil
+}
+
+func validateClosedDates(dates []string) error {
+	for _, d := range dates {
+		if len(d) != len(time.DateOnly) {
 			return fmt.Errorf("invalid closed date %q", d)
 		}
-		if _, err := time.Parse("2006-01-02", d); err != nil {
+		if _, err := time.Parse(time.DateOnly, d); err != nil {
 			return fmt.Errorf("invalid closed date %q: %w", d, err)
 		}
 	}
 	return nil
 }
 
+type openingSpan struct {
+	start time.Time
+	end   time.Time
+}
+
 // Windows expands the weekly schedule into continuous UTC visit windows overlapping [start, end]
 // by at least minDuration. Adjacent intervals across midnight are merged before filtering.
-func (r OpeningRules) Windows(start, end time.Time, loc *time.Location, minDuration, recommendedDuration time.Duration) ([]VisitWindow, error) {
+func (r OpeningRules) Windows(
+	start, end time.Time,
+	loc *time.Location,
+	minDuration, recommendedDuration time.Duration,
+) ([]VisitWindow, error) {
 	if err := r.Validate(); err != nil {
 		return nil, err
 	}
@@ -142,10 +172,17 @@ func (r OpeningRules) Windows(start, end time.Time, loc *time.Location, minDurat
 	firstDay := time.Date(localStart.Year(), localStart.Month(), localStart.Day(), 0, 0, 0, 0, loc).AddDate(0, 0, -1)
 	lastDay := time.Date(localEnd.Year(), localEnd.Month(), localEnd.Day(), 0, 0, 0, 0, loc).AddDate(0, 0, 1)
 
-	type span struct{ start, end time.Time }
-	var spans []span
+	spans, err := r.buildSpans(firstDay, lastDay, loc)
+	if err != nil {
+		return nil, err
+	}
+	return filterOpeningWindows(spans, start.UTC(), end.UTC(), minDuration, recommendedDuration), nil
+}
+
+func (r OpeningRules) buildSpans(firstDay, lastDay time.Time, loc *time.Location) ([]openingSpan, error) {
+	var spans []openingSpan
 	for day := firstDay; !day.After(lastDay); day = day.AddDate(0, 0, 1) {
-		if slices.Contains(r.ClosedDates, day.Format("2006-01-02")) {
+		if slices.Contains(r.ClosedDates, day.Format(time.DateOnly)) {
 			continue
 		}
 		for _, iv := range r.Weekly[weekdayKey(day.Weekday())] {
@@ -157,19 +194,31 @@ func (r OpeningRules) Windows(start, end time.Time, loc *time.Location, minDurat
 			if err != nil {
 				return nil, err
 			}
-			s := clockAt(day, startMin, loc).UTC()
-			e := clockAt(day, endMin, loc).UTC()
-			if n := len(spans); n > 0 && !s.After(spans[n-1].end) {
-				if e.After(spans[n-1].end) {
-					spans[n-1].end = e
-				}
-				continue
-			}
-			spans = append(spans, span{start: s, end: e})
+			spans = appendOrMergeSpan(
+				spans,
+				clockAt(day, startMin, loc).UTC(),
+				clockAt(day, endMin, loc).UTC(),
+			)
 		}
 	}
+	return spans, nil
+}
 
-	startUTC, endUTC := start.UTC(), end.UTC()
+func appendOrMergeSpan(spans []openingSpan, s, e time.Time) []openingSpan {
+	if n := len(spans); n > 0 && !s.After(spans[n-1].end) {
+		if e.After(spans[n-1].end) {
+			spans[n-1].end = e
+		}
+		return spans
+	}
+	return append(spans, openingSpan{start: s, end: e})
+}
+
+func filterOpeningWindows(
+	spans []openingSpan,
+	startUTC, endUTC time.Time,
+	minDuration, recommendedDuration time.Duration,
+) []VisitWindow {
 	var windows []VisitWindow
 	for _, sp := range spans {
 		if sp.end.Sub(sp.start) < minDuration {
@@ -194,7 +243,7 @@ func (r OpeningRules) Windows(start, end time.Time, loc *time.Location, minDurat
 			RecommendedDuration: recommendedDuration,
 		})
 	}
-	return windows, nil
+	return windows
 }
 
 func weekdayKey(d time.Weekday) string {
@@ -211,21 +260,23 @@ func weekdayKey(d time.Weekday) string {
 		return "fri"
 	case time.Saturday:
 		return "sat"
-	default:
+	case time.Sunday:
 		return "sun"
+	default:
+		return ""
 	}
 }
 
 func clockAt(day time.Time, minutes int, loc *time.Location) time.Time {
 	y, m, d := day.Date()
-	if minutes == 24*60 {
+	if minutes == minutesPerDay {
 		return time.Date(y, m, d+1, 0, 0, 0, 0, loc)
 	}
-	return time.Date(y, m, d, minutes/60, minutes%60, 0, 0, loc)
+	return time.Date(y, m, d, minutes/minutesPerHour, minutes%minutesPerHour, 0, 0, loc)
 }
 
 func parseClockMinutes(s string, allow2400 bool) (int, error) {
-	if len(s) != 5 || s[2] != ':' {
+	if len(s) != clockFormatLen || s[clockColonPos] != ':' {
 		return 0, errors.New("clock must be HH:MM")
 	}
 	h, okH := parseTwoDigits(s[0], s[1])
@@ -233,18 +284,18 @@ func parseClockMinutes(s string, allow2400 bool) (int, error) {
 	if !okH || !okM {
 		return 0, errors.New("clock must be HH:MM")
 	}
-	if allow2400 && h == 24 && m == 0 {
-		return 24 * 60, nil
+	if allow2400 && h == hoursPerDay && m == 0 {
+		return minutesPerDay, nil
 	}
-	if h > 23 || m > 59 {
+	if h > maxClockHour || m > maxClockMinute {
 		return 0, errors.New("clock out of range")
 	}
-	return h*60 + m, nil
+	return h*minutesPerHour + m, nil
 }
 
 func parseTwoDigits(a, b byte) (int, bool) {
 	if a < '0' || a > '9' || b < '0' || b > '9' {
 		return 0, false
 	}
-	return int(a-'0')*10 + int(b-'0'), true
+	return int(a-'0')*decimalBase + int(b-'0'), true
 }

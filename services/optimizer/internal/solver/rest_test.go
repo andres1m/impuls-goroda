@@ -8,14 +8,20 @@ import (
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
 )
 
-func restProblem() Problem {
+func restProblem() *Problem {
 	p := problem()
 	p.Load = LoadProfile{RestEvery: 2, Rest: 15 * time.Minute}
 	return p
 }
 
 func TestRestAfterEverySecondVisit(t *testing.T) {
-	categories := []domain.Category{domain.CategoryCulture, domain.CategoryWalk, domain.CategorySport, domain.CategoryTourism, domain.CategoryVolunteer}
+	categories := []domain.Category{
+		domain.CategoryCulture,
+		domain.CategoryWalk,
+		domain.CategorySport,
+		domain.CategoryTourism,
+		domain.CategoryVolunteer,
+	}
 	var pool []domain.Candidate
 	for i := byte(1); i <= 5; i++ {
 		pool = append(pool, place(i, categories[i-1], 0, north(origin, float64(i)*100)))
@@ -24,7 +30,8 @@ func TestRestAfterEverySecondVisit(t *testing.T) {
 	if len(b.Visits) < 3 {
 		t.Fatalf("only %d visits", len(b.Visits))
 	}
-	if len(b.Rests) == 0 || b.Rests[0].At != 2 || b.Rests[0].EndAt.Sub(b.Rests[0].StartAt) != 15*time.Minute || !b.Rests[0].StartAt.Equal(b.Visits[1].EndAt) {
+	if len(b.Rests) == 0 || b.Rests[0].At != 2 || b.Rests[0].EndAt.Sub(b.Rests[0].StartAt) != 15*time.Minute ||
+		!b.Rests[0].StartAt.Equal(b.Visits[1].EndAt) {
 		t.Fatalf("rests %+v", b.Rests)
 	}
 	if b.Visits[2].ArrivalAt.Before(b.Rests[0].EndAt) {
@@ -39,7 +46,7 @@ func TestRestYieldsToAnAnchor(t *testing.T) {
 	concert := session(3, domain.CategorySport, north(origin, 300), at(12, 10), at(13, 0))
 	p := restProblem()
 	p.End = at(13, 10)
-	p.Anchors = []Anchor{anchor(concert)}
+	p.Anchors = []Anchor{anchor(&concert)}
 	b := search(t, wide, p, []domain.Candidate{first, second, concert})[0]
 	if len(b.Visits) != 3 || b.Visits[2].Candidate.Session == nil || len(b.Rests) != 0 {
 		t.Fatalf("visits %v rests %+v", placeIDs(b), b.Rests)
@@ -73,7 +80,15 @@ func TestSkippingARestThatFitsCosts(t *testing.T) {
 func TestNoRestsWithoutAProfile(t *testing.T) {
 	var pool []domain.Candidate
 	for i := byte(1); i <= 4; i++ {
-		pool = append(pool, place(i, []domain.Category{domain.CategoryCulture, domain.CategoryWalk, domain.CategorySport, domain.CategoryTourism}[i-1], 0, north(origin, float64(i)*100)))
+		pool = append(
+			pool,
+			place(
+				i,
+				[]domain.Category{domain.CategoryCulture, domain.CategoryWalk, domain.CategorySport, domain.CategoryTourism}[i-1],
+				0,
+				north(origin, float64(i)*100),
+			),
+		)
 	}
 	if b := search(t, wide, problem(), pool)[0]; len(b.Rests) != 0 {
 		t.Fatalf("rests %+v", b.Rests)
@@ -98,7 +113,7 @@ func threeHalfHours() []domain.Candidate {
 }
 
 // requireFreeSkip checks the rested search keeps three visits without the rest and scores as if no rest was asked for.
-func requireFreeSkip(t *testing.T, rested, unrested Problem, pool []domain.Candidate) {
+func requireFreeSkip(t *testing.T, rested, unrested *Problem, pool []domain.Candidate) {
 	t.Helper()
 	b := search(t, wide, rested, pool)[0]
 	if len(b.Visits) != 3 || len(b.Rests) != 0 {
@@ -123,13 +138,13 @@ func TestRestYieldsToTheWayToTheDestination(t *testing.T) {
 	}
 	// The day ends as soon as the three visits and the way to the destination are done.
 	unrested.End = day.Visits[2].EndAt.Add(day.Finish.Duration)
-	rested := unrested
+	rested := *unrested
 	rested.Load = LoadProfile{RestEvery: 2, Rest: 45 * time.Minute}
 	restEnd := day.Visits[1].EndAt.Add(rested.Load.Rest)
 	if restEnd.After(unrested.End) {
 		t.Fatal("the rest itself must fit into the day, or the destination check is never reached")
 	}
-	requireFreeSkip(t, rested, unrested, pool)
+	requireFreeSkip(t, &rested, unrested, pool)
 }
 
 func TestRestYieldsToLunch(t *testing.T) {
@@ -143,12 +158,12 @@ func TestRestYieldsToLunch(t *testing.T) {
 	unrested := problem()
 	unrested.Lunch = &LunchSlot{Start: lunchAt, End: lunchAt.Add(45 * time.Minute), Duration: 45 * time.Minute}
 	unrested.End = unrested.Lunch.End
-	rested := unrested
+	rested := *unrested
 	rested.Load = LoadProfile{RestEvery: 2, Rest: 45 * time.Minute}
 	if !day.Visits[1].EndAt.Add(rested.Load.Rest).After(lunchAt) {
 		t.Fatal("the rest must push lunch past its latest start")
 	}
-	requireFreeSkip(t, rested, unrested, pool)
+	requireFreeSkip(t, &rested, unrested, pool)
 }
 
 func TestVisitsBeforeTheRunCountTowardsTheFirstRest(t *testing.T) {

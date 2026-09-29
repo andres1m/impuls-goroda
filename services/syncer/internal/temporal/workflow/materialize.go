@@ -13,11 +13,12 @@ import (
 // A city is published in batches: each batch is one catalog revision, and every revision makes
 // readers rebuild their copy of the city, so records are gathered rather than published one by one.
 const (
-	batchSize     = 500
-	quietFlush    = 2 * time.Second
-	longestWait   = 10 * time.Second
-	batchesPerRun = 100
-	idleExit      = time.Minute
+	batchSize         = 500
+	quietFlush        = 2 * time.Second
+	longestWait       = 10 * time.Second
+	batchesPerRun     = 100
+	idleExit          = time.Minute
+	applyBatchTimeout = 5 * time.Minute
 )
 
 // signalsPerRun keeps a run well below the server's limits on signals and history per execution;
@@ -27,7 +28,10 @@ var signalsPerRun = 2000
 // MaterializeCity gathers the city's raw record ids from signals and publishes them in batches.
 // It ends after a minute without records; the next signal starts it again.
 func MaterializeCity(ctx workflow.Context, city domain.City, carried []string) error {
-	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{StartToCloseTimeout: 5 * time.Minute, RetryPolicy: retries})
+	ctx = workflow.WithActivityOptions(
+		ctx,
+		workflow.ActivityOptions{StartToCloseTimeout: applyBatchTimeout, RetryPolicy: retries},
+	)
 	signals := workflow.GetSignalChannel(ctx, activity.MaterializeSignal)
 	b := &buffer{seen: make(map[string]bool)}
 	for _, id := range carried {
@@ -40,42 +44,70 @@ func MaterializeCity(ctx workflow.Context, city domain.City, carried []string) e
 		received++
 		b.add(id, workflow.Now(ctx))
 	}
-	drain := func() {
-		var id string
-		for signals.ReceiveAsync(&id) {
-			b.add(id, workflow.Now(ctx))
-		}
-	}
 
 	for batches := 0; ; {
 		if received >= signalsPerRun || workflow.GetInfo(ctx).GetContinueAsNewSuggested() {
-			drain()
+			drainSignals(ctx, signals, b)
 			return workflow.NewContinueAsNewError(ctx, MaterializeCity, city, b.ids)
 		}
 		if len(b.ids) == 0 {
-			if !waitFor(ctx, signals, receive, idleExit) {
-				drain()
-				if len(b.ids) == 0 {
-					return nil
-				}
+			if !waitWhenIdle(ctx, signals, receive, b) {
+				return nil
 			}
 			continue
 		}
-		if len(b.ids) < batchSize {
-			if wait := min(quietFlush, b.first.Add(longestWait).Sub(workflow.Now(ctx))); wait > 0 && waitFor(ctx, signals, receive, wait) {
-				continue
-			}
+		if waitForMore(ctx, signals, receive, b) {
+			continue
 		}
 		apply(ctx, city, b.take(batchSize))
-		if batches++; batches >= batchesPerRun {
-			drain()
+		batches++
+		if batches >= batchesPerRun {
+			drainSignals(ctx, signals, b)
 			return workflow.NewContinueAsNewError(ctx, MaterializeCity, city, b.ids)
 		}
 	}
 }
 
+func drainSignals(ctx workflow.Context, signals workflow.ReceiveChannel, b *buffer) {
+	var id string
+	for signals.ReceiveAsync(&id) {
+		b.add(id, workflow.Now(ctx))
+	}
+}
+
+func waitWhenIdle(
+	ctx workflow.Context,
+	signals workflow.ReceiveChannel,
+	receive func(workflow.ReceiveChannel, bool),
+	b *buffer,
+) bool {
+	if waitFor(ctx, signals, receive, idleExit) {
+		return true
+	}
+	drainSignals(ctx, signals, b)
+	return len(b.ids) > 0
+}
+
+func waitForMore(
+	ctx workflow.Context,
+	signals workflow.ReceiveChannel,
+	receive func(workflow.ReceiveChannel, bool),
+	b *buffer,
+) bool {
+	if len(b.ids) >= batchSize {
+		return false
+	}
+	wait := min(quietFlush, b.first.Add(longestWait).Sub(workflow.Now(ctx)))
+	return wait > 0 && waitFor(ctx, signals, receive, wait)
+}
+
 // waitFor reports whether a signal came before the timeout.
-func waitFor(ctx workflow.Context, signals workflow.ReceiveChannel, receive func(workflow.ReceiveChannel, bool), timeout time.Duration) bool {
+func waitFor(
+	ctx workflow.Context,
+	signals workflow.ReceiveChannel,
+	receive func(workflow.ReceiveChannel, bool),
+	timeout time.Duration,
+) bool {
 	timerCtx, cancel := workflow.WithCancel(ctx)
 	defer cancel()
 	received := false

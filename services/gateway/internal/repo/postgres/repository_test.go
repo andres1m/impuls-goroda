@@ -110,7 +110,7 @@ func TestUpsertMaxAccountKeepsStoredDisabledState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	stored, err := queries.UpsertMaxAccount(context.Background(), input)
+	stored, err := queries.UpsertMaxAccount(context.Background(), &input)
 	if err != nil {
 		t.Fatal(err)
 	}

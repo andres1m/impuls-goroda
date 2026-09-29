@@ -11,7 +11,11 @@ import (
 func TestLoadStrictEnvironment(t *testing.T) {
 	t.Setenv("TEST_DB_URL", "postgres://user:password@localhost/db")
 	p := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(p, []byte("database:\n  host: ${TEST_DB_URL}\n  connection-timeout: 3s\n"), 0600); err != nil {
+	if err := os.WriteFile(
+		p,
+		[]byte("database:\n  host: ${TEST_DB_URL}\n  connection-timeout: 3s\n"),
+		0o600,
+	); err != nil {
 		t.Fatal(err)
 	}
 	var c struct {
@@ -24,7 +28,7 @@ func TestLoadStrictEnvironment(t *testing.T) {
 		t.Fatal("incorrect config")
 	}
 	for _, input := range []string{"unknown: secret-value", "database: [secret-value]", "database:\n  host: ${MISSING_TEST_ENV_VAR}", "database: {}\n---\ndatabase: {}"} {
-		if err := os.WriteFile(p, []byte(input), 0600); err != nil {
+		if err := os.WriteFile(p, []byte(input), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		err := Load(p, &c)

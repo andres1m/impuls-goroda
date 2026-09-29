@@ -13,7 +13,12 @@ import (
 
 var ErrInvalidVisitAction = errors.New("invalid visit action")
 
-func (q *Queries) currentVisit(ctx context.Context, routeID domain.RouteID, revision domain.RouteRevisionNumber, visitID domain.VisitID) error {
+func (q *Queries) currentVisit(
+	ctx context.Context,
+	routeID domain.RouteID,
+	revision domain.RouteRevisionNumber,
+	visitID domain.VisitID,
+) error {
 	var exists bool
 	err := q.db.QueryRow(ctx, `SELECT EXISTS (
     SELECT 1 FROM planning.route_step s
@@ -29,7 +34,12 @@ func (q *Queries) currentVisit(ctx context.Context, routeID domain.RouteID, revi
 	return nil
 }
 
-func (q *Queries) Participation(ctx context.Context, routeID domain.RouteID, visitID domain.VisitID, revision domain.RouteRevisionNumber) (domain.Participation, error) {
+func (q *Queries) Participation(
+	ctx context.Context,
+	routeID domain.RouteID,
+	visitID domain.VisitID,
+	revision domain.RouteRevisionNumber,
+) (domain.Participation, error) {
 	if err := q.currentVisit(ctx, routeID, revision, visitID); err != nil {
 		return domain.Participation{}, err
 	}
@@ -58,10 +68,17 @@ FROM planning.participation WHERE route_id = $1 AND visit_id = $2 FOR UPDATE`,
 		value := item.ExternalLinkOpenedAt.UTC()
 		item.ExternalLinkOpenedAt = &value
 	}
-	return item, item.Validate()
+	if valErr := item.Validate(); valErr != nil {
+		return domain.Participation{}, valErr
+	}
+	return item, nil
 }
 
-func (q *Queries) InitialParticipation(ctx context.Context, routeID domain.RouteID, visitID domain.VisitID) (domain.ParticipationStatus, error) {
+func (q *Queries) InitialParticipation(
+	ctx context.Context,
+	routeID domain.RouteID,
+	visitID domain.VisitID,
+) (domain.ParticipationStatus, error) {
 	var status domain.ParticipationStatus
 	err := q.db.QueryRow(ctx, `SELECT COALESCE(participation_snapshot->>'status', participation_snapshot->>'Status')
 FROM planning.route_step
@@ -77,23 +94,39 @@ ORDER BY revision LIMIT 1`, encodeUUID([16]byte(routeID)), encodeUUID([16]byte(v
 	return status, nil
 }
 
-func (q *Queries) RecordLinkOpened(ctx context.Context, current domain.Participation, now time.Time) (domain.Participation, error) {
-	if current.ExternalLinkOpenedAt != nil {
-		return current, nil
+func (q *Queries) RecordLinkOpened(
+	ctx context.Context,
+	current *domain.Participation,
+	now time.Time,
+) (domain.Participation, error) {
+	if current == nil {
+		return domain.Participation{}, errors.New("participation is required")
 	}
+	if current.ExternalLinkOpenedAt != nil {
+		return *current, nil
+	}
+	updated := *current
 	err := q.db.QueryRow(ctx, `UPDATE planning.participation
 SET external_link_opened_at = $3, updated_at = $3
 WHERE route_id = $1 AND visit_id = $2
-RETURNING updated_at`, encodeUUID([16]byte(current.RouteID)), encodeUUID([16]byte(current.VisitID)), now).Scan(&current.UpdatedAt)
+RETURNING updated_at`, encodeUUID([16]byte(current.RouteID)), encodeUUID([16]byte(current.VisitID)), now).Scan(&updated.UpdatedAt)
 	if err != nil {
 		return domain.Participation{}, mapQueryError("record external link", err)
 	}
-	current.UpdatedAt = current.UpdatedAt.UTC()
-	current.ExternalLinkOpenedAt = &now
-	return current, nil
+	updated.UpdatedAt = updated.UpdatedAt.UTC()
+	updated.ExternalLinkOpenedAt = &now
+	return updated, nil
 }
 
-func (q *Queries) UpdateParticipation(ctx context.Context, current domain.Participation, next domain.Participation, revision domain.RouteRevisionNumber) error {
+func (q *Queries) UpdateParticipation(
+	ctx context.Context,
+	current *domain.Participation,
+	next *domain.Participation,
+	revision domain.RouteRevisionNumber,
+) error {
+	if current == nil || next == nil {
+		return errors.New("participation state is required")
+	}
 	_, err := q.db.Exec(ctx, `UPDATE planning.participation
 SET status = $3, evidence_source = $4, private_reference = $5,
     updated_in_revision = $6, updated_at = $7
@@ -106,7 +139,12 @@ WHERE route_id = $1 AND visit_id = $2`,
 	return nil
 }
 
-func (q *Queries) Execution(ctx context.Context, routeID domain.RouteID, visitID domain.VisitID, revision domain.RouteRevisionNumber) (domain.Execution, error) {
+func (q *Queries) Execution(
+	ctx context.Context,
+	routeID domain.RouteID,
+	visitID domain.VisitID,
+	revision domain.RouteRevisionNumber,
+) (domain.Execution, error) {
 	if err := q.currentVisit(ctx, routeID, revision, visitID); err != nil {
 		return domain.Execution{}, err
 	}
@@ -130,10 +168,20 @@ FROM planning.execution WHERE route_id = $1 AND visit_id = $2 FOR UPDATE`,
 		value := item.ActualEndedAt.UTC()
 		item.ActualEndedAt = &value
 	}
-	return item, item.Validate()
+	if valErr := item.Validate(); valErr != nil {
+		return domain.Execution{}, valErr
+	}
+	return item, nil
 }
 
-func (q *Queries) UpdateExecution(ctx context.Context, next domain.Execution, revision domain.RouteRevisionNumber) error {
+func (q *Queries) UpdateExecution(
+	ctx context.Context,
+	next *domain.Execution,
+	revision domain.RouteRevisionNumber,
+) error {
+	if next == nil {
+		return errors.New("execution state is required")
+	}
 	_, err := q.db.Exec(ctx, `UPDATE planning.execution
 SET status = $3, actual_started_at = $4, actual_ended_at = $5,
     confirmation_kind = $6, updated_in_revision = $7, updated_at = $8
@@ -147,7 +195,15 @@ WHERE route_id = $1 AND visit_id = $2`,
 	return nil
 }
 
-func (q *Queries) CloneVisitRevision(ctx context.Context, routeID domain.RouteID, previous domain.RouteRevisionNumber, visitID domain.VisitID, mutation domain.RouteMutationKind, participation *domain.ParticipationSnapshot, now time.Time) (domain.RouteRevisionNumber, error) {
+func (q *Queries) CloneVisitRevision(
+	ctx context.Context,
+	routeID domain.RouteID,
+	previous domain.RouteRevisionNumber,
+	visitID domain.VisitID,
+	mutation domain.RouteMutationKind,
+	participation *domain.ParticipationSnapshot,
+	now time.Time,
+) (domain.RouteRevisionNumber, error) {
 	next := previous + 1
 	var snapshot []byte
 	if participation != nil {

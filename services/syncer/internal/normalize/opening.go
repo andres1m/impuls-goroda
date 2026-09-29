@@ -10,7 +10,13 @@ import (
 // Weekdays are the keys of a weekly schedule, Monday first.
 var Weekdays = [...]string{"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
 
-const openingRulesSchemaVersion = 1
+const (
+	openingRulesSchemaVersion = 1
+	hoursPerDay               = 24
+	minutesPerHour            = 60
+	minutesPerDay             = hoursPerDay * minutesPerHour
+	clockFormatLen            = 5
+)
 
 // OpeningRules are a place's weekly hours in the city's local time. An empty day is a day off.
 type OpeningRules struct {
@@ -28,29 +34,36 @@ func (r OpeningRules) Validate() error {
 		if !ok {
 			return fmt.Errorf("weekly: %s is missing", day)
 		}
-		previousEnd := 0
-		for i, interval := range intervals {
-			start, err := ClockMinutes(interval[0], false)
-			if err != nil {
-				return fmt.Errorf("weekly %s: %w", day, err)
-			}
-			end, err := ClockMinutes(interval[1], true)
-			if err != nil {
-				return fmt.Errorf("weekly %s: %w", day, err)
-			}
-			if start >= end {
-				return fmt.Errorf("weekly %s: %s-%s is empty or crosses midnight", day, interval[0], interval[1])
-			}
-			if i > 0 && start < previousEnd {
-				return fmt.Errorf("weekly %s: intervals overlap or are not sorted", day)
-			}
-			previousEnd = end
+		if err := validateDayIntervals(day, intervals); err != nil {
+			return err
 		}
 	}
 	for _, date := range r.ClosedDates {
 		if _, err := time.Parse(time.DateOnly, date); err != nil {
 			return fmt.Errorf("closed date %q is not YYYY-MM-DD", date)
 		}
+	}
+	return nil
+}
+
+func validateDayIntervals(day string, intervals [][2]string) error {
+	previousEnd := 0
+	for i, interval := range intervals {
+		start, err := ClockMinutes(interval[0], false)
+		if err != nil {
+			return fmt.Errorf("weekly %s: %w", day, err)
+		}
+		end, err := ClockMinutes(interval[1], true)
+		if err != nil {
+			return fmt.Errorf("weekly %s: %w", day, err)
+		}
+		if start >= end {
+			return fmt.Errorf("weekly %s: %s-%s is empty or crosses midnight", day, interval[0], interval[1])
+		}
+		if i > 0 && start < previousEnd {
+			return fmt.Errorf("weekly %s: intervals overlap or are not sorted", day)
+		}
+		previousEnd = end
 	}
 	return nil
 }
@@ -81,14 +94,14 @@ func (r OpeningRules) MarshalJSON() ([]byte, error) {
 // ClockMinutes parses HH:MM; 24:00 is accepted only where the end of the day is meant.
 func ClockMinutes(value string, endOfDayAllowed bool) (int, error) {
 	if value == "24:00" && endOfDayAllowed {
-		return 24 * 60, nil
+		return minutesPerDay, nil
 	}
-	if len(value) != 5 {
+	if len(value) != clockFormatLen {
 		return 0, fmt.Errorf("time %q is not HH:MM", value)
 	}
 	parsed, err := time.Parse("15:04", value)
 	if err != nil {
 		return 0, fmt.Errorf("time %q is not HH:MM", value)
 	}
-	return parsed.Hour()*60 + parsed.Minute(), nil
+	return parsed.Hour()*minutesPerHour + parsed.Minute(), nil
 }

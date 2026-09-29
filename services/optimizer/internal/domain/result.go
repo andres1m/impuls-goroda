@@ -33,7 +33,7 @@ type OptimizeResult struct {
 	ComputationTime time.Duration
 }
 
-func (r OptimizeResult) Validate() error {
+func (r *OptimizeResult) Validate() error {
 	switch r.Status {
 	case ResultReady, ResultPartial:
 		if len(r.Routes) == 0 {
@@ -49,15 +49,8 @@ func (r OptimizeResult) Validate() error {
 	default:
 		return errors.New("invalid result status")
 	}
-	archetypes := make(map[Archetype]struct{}, len(r.Routes))
-	for i, route := range r.Routes {
-		if err := route.Validate(); err != nil {
-			return fmt.Errorf("route %d: %w", i+1, err)
-		}
-		if _, repeated := archetypes[route.Archetype]; repeated {
-			return errors.New("result repeats an archetype")
-		}
-		archetypes[route.Archetype] = struct{}{}
+	if err := r.validateRoutes(); err != nil {
+		return err
 	}
 	for _, warning := range r.Warnings {
 		if err := warning.Validate(); err != nil {
@@ -70,9 +63,24 @@ func (r OptimizeResult) Validate() error {
 	return validateOutcome(r.Conflicts, r.Data, r.ComputationTime)
 }
 
+func (r *OptimizeResult) validateRoutes() error {
+	archetypes := make(map[Archetype]struct{}, len(r.Routes))
+	for i := range r.Routes {
+		route := &r.Routes[i]
+		if err := route.Validate(); err != nil {
+			return fmt.Errorf("route %d: %w", i+1, err)
+		}
+		if _, repeated := archetypes[route.Archetype]; repeated {
+			return errors.New("result repeats an archetype")
+		}
+		archetypes[route.Archetype] = struct{}{}
+	}
+	return nil
+}
+
 func validateOutcome(conflicts []Conflict, data DataFreshness, elapsed time.Duration) error {
-	for _, conflict := range conflicts {
-		if err := conflict.Validate(); err != nil {
+	for i := range conflicts {
+		if err := conflicts[i].Validate(); err != nil {
 			return err
 		}
 	}
@@ -99,7 +107,7 @@ type RecomputeResult struct {
 	ComputationTime time.Duration
 }
 
-func (r RecomputeResult) Validate() error {
+func (r *RecomputeResult) Validate() error {
 	switch r.Status {
 	case RecomputeProposed:
 		if r.Candidate == nil {
@@ -121,8 +129,8 @@ func (r RecomputeResult) Validate() error {
 			return fmt.Errorf("candidate: %w", err)
 		}
 	}
-	for _, change := range r.Changes {
-		if err := change.Validate(); err != nil {
+	for i := range r.Changes {
+		if err := r.Changes[i].Validate(); err != nil {
 			return err
 		}
 	}

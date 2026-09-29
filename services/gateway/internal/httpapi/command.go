@@ -62,25 +62,38 @@ func MapCommandError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var conflict *command.RevisionConflict
-	if errors.As(err, &conflict) {
+	if conflict, ok := errors.AsType[*command.RevisionConflictError](err); ok {
 		return &Error{
 			Status: http.StatusConflict, Code: "REVISION_CONFLICT", Message: "Route revision is stale",
 			CurrentRevision: conflict.Current,
 		}
 	}
 	if errors.Is(err, command.ErrIdempotencyKeyReused) {
-		return &Error{Status: http.StatusConflict, Code: "IDEMPOTENCY_KEY_REUSED", Message: "Idempotency key was already used for another command"}
+		return &Error{
+			Status:  http.StatusConflict,
+			Code:    "IDEMPOTENCY_KEY_REUSED",
+			Message: "Idempotency key was already used for another command",
+		}
 	}
 	if errors.Is(err, postgres.ErrNotFound) {
-		return &Error{Status: http.StatusNotFound, Code: "NOT_FOUND", Message: "Resource not found"}
+		return &Error{Status: http.StatusNotFound, Code: codeNotFound, Message: msgNotFound}
 	}
 	if errors.Is(err, postgres.ErrInvalidVisitAction) {
-		return &Error{Status: http.StatusUnprocessableEntity, Code: "VALIDATION_FAILED", Message: "Visit action is invalid"}
+		return &Error{
+			Status:  http.StatusUnprocessableEntity,
+			Code:    "VALIDATION_FAILED",
+			Message: "Visit action is invalid",
+		}
 	}
-	return &Error{Status: http.StatusServiceUnavailable, Code: "DATABASE_UNAVAILABLE", Message: "Service is temporarily unavailable", Retryable: true, Cause: err}
+	return &Error{
+		Status:    http.StatusServiceUnavailable,
+		Code:      "DATABASE_UNAVAILABLE",
+		Message:   "Service is temporarily unavailable",
+		Retryable: true,
+		Cause:     err,
+	}
 }
 
 func malformedCommandHeader() *Error {
-	return &Error{Status: http.StatusBadRequest, Code: "MALFORMED_REQUEST", Message: "Request cannot be parsed"}
+	return &Error{Status: http.StatusBadRequest, Code: codeMalformedRequest, Message: msgMalformedRequest}
 }

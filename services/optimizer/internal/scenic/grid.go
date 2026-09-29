@@ -3,6 +3,7 @@ package scenic
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,7 +55,9 @@ func (g *Grid) Score(from, to domain.Coordinate) float64 {
 	}
 	key := [2]h3.Cell{a, b}
 	if score, ok := g.walks.Load(key); ok {
-		return score.(float64)
+		if s, valid := score.(float64); valid {
+			return s
+		}
 	}
 	path, err := h3.GridPath(a, b)
 	if err != nil || len(path) == 0 {
@@ -79,7 +82,7 @@ func (g *Grid) Score(from, to domain.Coordinate) float64 {
 func LoadLayers(dir string) (map[string]Shares, error) {
 	files, err := filepath.Glob(filepath.Join(dir, "*.csv"))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("glob scenic layers: %w", err)
 	}
 	layers := make(map[string]Shares, len(files))
 	for _, path := range files {
@@ -95,12 +98,15 @@ func LoadLayers(dir string) (map[string]Shares, error) {
 func readLayerFile(path string) (Shares, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open scenic layer: %w", err)
 	}
-	defer f.Close()
-	shares, err := ReadLayer(f)
-	if err != nil {
-		return nil, errors.Join(errors.New(filepath.Base(path)), err)
+	shares, readErr := ReadLayer(f)
+	closeErr := f.Close()
+	if readErr != nil {
+		return nil, errors.Join(errors.New(filepath.Base(path)), readErr)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("close scenic layer: %w", closeErr)
 	}
 	return shares, nil
 }

@@ -1,6 +1,7 @@
 package kudago
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -39,7 +40,11 @@ func TestFetchWalksAllPages(t *testing.T) {
 				return
 			}
 			next := server.URL + eventsPath + "?location=msk&page=2"
-			w.Write([]byte(`{"count":3,"next":"` + next + `","previous":null,"results":[` + firstEvent + `,{"id":0,"title":"broken"}]}`))
+			w.Write(
+				[]byte(
+					`{"count":3,"next":"` + next + `","previous":null,"results":[` + firstEvent + `,{"id":0,"title":"broken"}]}`,
+				),
+			)
 		case "2":
 			w.Write([]byte(`{"count":3,"next":null,"previous":"x","results":[` + secondEvent + `]}`))
 		default:
@@ -87,10 +92,10 @@ func TestContentHashIgnoresTagOrder(t *testing.T) {
 	shuffled := serve(strings.Replace(event, "%s", `"дети","концерты"`, 1))
 	changed := serve(strings.Replace(strings.Replace(event, "%s", `"дети","концерты"`, 1), `"a"`, `"b"`, 1))
 
-	if len(first.ContentHash) == 0 || string(first.ContentHash) != string(shuffled.ContentHash) {
+	if len(first.ContentHash) == 0 || !bytes.Equal(first.ContentHash, shuffled.ContentHash) {
 		t.Fatalf("tag order changed the hash: %x vs %x", first.ContentHash, shuffled.ContentHash)
 	}
-	if string(changed.ContentHash) == string(shuffled.ContentHash) {
+	if bytes.Equal(changed.ContentHash, shuffled.ContentHash) {
 		t.Fatal("changed title kept the hash")
 	}
 	if !strings.Contains(string(shuffled.Payload), `"дети","концерты"`) {

@@ -29,8 +29,11 @@ func (r *Recorder) Percentile(p float64) time.Duration {
 	return sorted[max(rank, 1)-1]
 }
 
+const microsecondsPerMillisecond = 1000
+
 func (r *Recorder) Report(b *testing.B) {
 	for _, p := range []float64{50, 95, 99} {
-		b.ReportMetric(float64(r.Percentile(p).Microseconds())/1000, "p"+strconv.FormatFloat(p, 'f', -1, 64)+"-ms")
+		ms := float64(r.Percentile(p).Microseconds()) / microsecondsPerMillisecond
+		b.ReportMetric(ms, "p"+strconv.FormatFloat(p, 'f', -1, 64)+"-ms")
 	}
 }

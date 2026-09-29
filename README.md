@@ -138,7 +138,7 @@ log, err := logger.New(
 if err != nil {
     return err
 }
-pool, err := db.NewDb(log.Log, cfg.Database)
+pool, err := db.NewDB(log.Log, cfg.Database)
 if err != nil {
     _ = log.Stop(context.Background())
     return err

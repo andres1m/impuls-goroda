@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -39,9 +40,23 @@ func newMaterializeFixture(t *testing.T) *materializeFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	f := &materializeFixture{ctx: ctx, pool: pool, landing: NewLanding(pool), store: NewMaterializeStore(func() *pgxpool.Pool { return pool }),
-		source: domain.SourceKey("test_" + randomSuffix(t))}
-	f.sourceID, err = f.landing.EnsureSource(ctx, domain.Source{Key: f.source, Name: "Materialize test", AccessMode: domain.AccessAPI, SchemaVersion: "1", DataMode: domain.Live})
+	f := &materializeFixture{
+		ctx:     ctx,
+		pool:    pool,
+		landing: NewLanding(pool),
+		store:   NewMaterializeStore(func() *pgxpool.Pool { return pool }),
+		source:  domain.SourceKey("test_" + randomSuffix(t)),
+	}
+	f.sourceID, err = f.landing.EnsureSource(
+		ctx,
+		&domain.Source{
+			Key:           f.source,
+			Name:          "Materialize test",
+			AccessMode:    domain.AccessAPI,
+			SchemaVersion: "1",
+			DataMode:      domain.Live,
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,15 +83,20 @@ func (f *materializeFixture) cleanup(t *testing.T) {
 // save lands a record and returns its raw ingest id.
 func (f *materializeFixture) save(t *testing.T, externalID, payload string, at time.Time) materialize.Raw {
 	t.Helper()
-	rec := domain.RawRecord{ExternalID: externalID, SourceURL: "https://example.test/" + externalID, Payload: []byte(payload), ContentType: "application/json"}
-	if _, err := f.landing.SaveRecord(f.ctx, f.sourceID, domain.Perm, domain.Live, rec, at); err != nil {
+	rec := domain.RawRecord{
+		ExternalID:  externalID,
+		SourceURL:   "https://example.test/" + externalID,
+		Payload:     []byte(payload),
+		ContentType: "application/json",
+	}
+	if _, err := f.landing.SaveRecord(f.ctx, f.sourceID, domain.Perm, domain.Live, &rec, at); err != nil {
 		t.Fatal(err)
 	}
 	envelopes, err := f.landing.Unpublished(f.ctx, f.sourceID, domain.Perm)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := len(envelopes) - 1; i >= 0; i-- {
+	for i := range slices.Backward(envelopes) {
 		if envelopes[i].ExternalID == externalID {
 			return materialize.Raw{ID: envelopes[i].RawIngestID}
 		}
@@ -106,7 +126,8 @@ func (f *materializeFixture) revision(t *testing.T) int64 {
 func (f *materializeFixture) state(t *testing.T, rawID string) string {
 	t.Helper()
 	var s string
-	if err := f.pool.QueryRow(f.ctx, `SELECT processing_state FROM integration.raw_ingest WHERE id = $1`, rawID).Scan(&s); err != nil {
+	if err := f.pool.QueryRow(f.ctx, `SELECT processing_state FROM integration.raw_ingest WHERE id = $1`, rawID).
+		Scan(&s); err != nil {
 		t.Fatal(err)
 	}
 	return s
@@ -116,7 +137,8 @@ func (f *materializeFixture) watermark(t *testing.T) *time.Time {
 	t.Helper()
 	var at *time.Time
 	err := f.pool.QueryRow(f.ctx, `SELECT (materialized_watermark->>'fetched_at')::timestamptz FROM integration.sync_cursor
-		WHERE source_id = $1 AND city = 'perm'`, uuidParam(f.sourceID)).Scan(&at)
+		WHERE source_id = $1 AND city = 'perm'`, uuidParam(f.sourceID)).
+		Scan(&at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,18 +158,31 @@ func TestMaterializeStoreIntegration(t *testing.T) {
 	broken := f.save(t, "node/3", `{"v":3}`, base.Add(2*time.Second))
 
 	raws := f.pending(t, cafe.ID, museum.ID, broken.ID, "00000000-0000-0000-0000-000000000000")
-	if len(raws) != 3 || !raws[0].Latest || raws[0].Source != f.source || raws[0].ExternalID != "node/1" || string(raws[0].Payload) != `{"v":1}` {
+	if len(raws) != 3 || !raws[0].Latest || raws[0].Source != f.source || raws[0].ExternalID != "node/1" ||
+		string(raws[0].Payload) != `{"v":1}` {
 		t.Fatalf("pending %+v", raws)
 	}
 
-	before := f.revision(t)
-	outcome := materialize.Outcome{
+	outcome := &materialize.Outcome{
 		Apply: []materialize.Normalized{
 			{Raw: raws[0], Place: draft("node/1", "gastro", "Кофейня", "gastro_coffee")},
 			{Raw: raws[1], Place: draft("node/2", "culture", "Музей", "classical_art")},
 		},
 		Failed: []materialize.Rejected{{Raw: raws[2], Code: "missing_name"}},
 	}
+	revision := f.assertInitialPublish(t, outcome, cafe.ID, broken.ID, base)
+	f.assertRetryAndSuperseded(t, outcome, cafe.ID, revision, base)
+	f.assertLateRetryAndIdentical(t, outcome, base)
+}
+
+func (f *materializeFixture) assertInitialPublish(
+	t *testing.T,
+	outcome *materialize.Outcome,
+	cafeID, brokenID string,
+	base time.Time,
+) int64 {
+	t.Helper()
+	before := f.revision(t)
 	revision, published, err := f.store.Publish(f.ctx, domain.Perm, outcome, base)
 	if err != nil || !published || revision != before+1 || f.revision(t) != before+1 {
 		t.Fatalf("publish revision %d published %v err %v, before %d", revision, published, err, before)
@@ -161,48 +196,73 @@ func TestMaterializeStoreIntegration(t *testing.T) {
 		t.Fatalf("projection %v %b %d %v", categories, tagMask, poiRevision, err)
 	}
 	var deliveries int
-	if err := f.pool.QueryRow(f.ctx, `SELECT count(*) FROM integration.change_delivery WHERE city = 'perm' AND catalog_revision = $1`, revision).Scan(&deliveries); err != nil || deliveries != 1 {
-		t.Fatalf("deliveries %d, %v", deliveries, err)
+	if qErr := f.pool.QueryRow(f.ctx, `SELECT count(*) FROM integration.change_delivery WHERE city = 'perm' AND catalog_revision = $1`, revision).
+		Scan(&deliveries); qErr != nil ||
+		deliveries != 1 {
+		t.Fatalf("deliveries %d, %v", deliveries, qErr)
 	}
-	if f.state(t, cafe.ID) != "applied" || f.state(t, broken.ID) != "failed" {
-		t.Fatalf("states %s %s", f.state(t, cafe.ID), f.state(t, broken.ID))
+	if f.state(t, cafeID) != "applied" || f.state(t, brokenID) != "failed" {
+		t.Fatalf("states %s %s", f.state(t, cafeID), f.state(t, brokenID))
 	}
 	if w := f.watermark(t); w == nil || !w.Equal(base.Add(time.Second)) {
 		t.Fatalf("watermark %v stops before the failed record", w)
 	}
+	return revision
+}
 
-	// A retried publish of the same batch finds nothing pending and changes nothing.
+func (f *materializeFixture) assertRetryAndSuperseded(
+	t *testing.T,
+	outcome *materialize.Outcome,
+	cafeID string,
+	revision int64,
+	base time.Time,
+) {
+	t.Helper()
 	again, published, err := f.store.Publish(f.ctx, domain.Perm, outcome, base)
 	if err != nil || published || again != revision || f.revision(t) != revision {
 		t.Fatalf("retry revision %d published %v err %v", again, published, err)
 	}
-	if raws := f.pending(t, cafe.ID); len(raws) != 0 {
-		t.Fatalf("applied record still pending: %+v", raws)
+	if pendingRaws := f.pending(t, cafeID); len(pendingRaws) != 0 {
+		t.Fatalf("applied record still pending: %+v", pendingRaws)
 	}
 
-	// A new raw record with the accepted content is unchanged; an older one is superseded.
 	older := f.save(t, "node/1", `{"v":"old"}`, base.Add(3*time.Second))
 	same := f.save(t, "node/1", `{"v":1}`, base.Add(4*time.Second))
-	raws = f.pending(t, older.ID, same.ID)
-	if len(raws) != 2 || raws[0].Latest || !raws[1].Latest || string(raws[1].AcceptedHash) != string(raws[1].ContentHash) {
+	raws := f.pending(t, older.ID, same.ID)
+	if len(raws) != 2 || raws[0].Latest || !raws[1].Latest || !bytes.Equal(raws[1].AcceptedHash, raws[1].ContentHash) {
 		t.Fatalf("pending %+v", raws)
 	}
-	revision, published, err = f.store.Publish(f.ctx, domain.Perm, materialize.Outcome{Superseded: raws[:1], Unchanged: raws[1:]}, base)
+	rev, published, err := f.store.Publish(
+		f.ctx,
+		domain.Perm,
+		&materialize.Outcome{Superseded: raws[:1], Unchanged: raws[1:]},
+		base,
+	)
 	if err != nil || published || f.revision(t) != again {
-		t.Fatalf("unchanged batch revision %d published %v err %v", revision, published, err)
+		t.Fatalf("unchanged batch revision %d published %v err %v", rev, published, err)
 	}
 	if f.state(t, older.ID) != "applied" || f.state(t, same.ID) != "applied" {
 		t.Fatal("unchanged and superseded records stay pending")
 	}
+}
 
-	// A late retry of the first batch must not bring back the title a newer version replaced.
+func (f *materializeFixture) assertLateRetryAndIdentical(
+	t *testing.T,
+	outcome *materialize.Outcome,
+	base time.Time,
+) {
+	t.Helper()
 	renamed := f.save(t, "node/1", `{"v":"renamed"}`, base.Add(6*time.Second))
-	raws = f.pending(t, renamed.ID)
-	if _, published, err = f.store.Publish(f.ctx, domain.Perm, materialize.Outcome{Apply: []materialize.Normalized{
-		{Raw: raws[0], Place: draft("node/1", "gastro", "Новая кофейня", "gastro_coffee")}}}, base); err != nil || !published {
+	raws := f.pending(t, renamed.ID)
+	if _, published, err := f.store.Publish(f.ctx, domain.Perm, &materialize.Outcome{Apply: []materialize.Normalized{
+		{
+			Raw:   raws[0],
+			Place: draft("node/1", "gastro", "Новая кофейня", "gastro_coffee"),
+		},
+	}}, base); err != nil || !published {
 		t.Fatalf("rename published %v, err %v", published, err)
 	}
-	if _, _, err = f.store.Publish(f.ctx, domain.Perm, outcome, base); err != nil {
+	if _, _, err := f.store.Publish(f.ctx, domain.Perm, outcome, base); err != nil {
 		t.Fatal(err)
 	}
 	var title string
@@ -211,35 +271,38 @@ func TestMaterializeStoreIntegration(t *testing.T) {
 		t.Fatalf("title after a late retry %q, %v", title, err)
 	}
 
-	// The same content again leaves the place row as it is.
 	reapply := f.save(t, "node/2", `{"v":"2b"}`, base.Add(5*time.Second))
 	raws = f.pending(t, reapply.ID)
-	_, published, err = f.store.Publish(f.ctx, domain.Perm, materialize.Outcome{Apply: []materialize.Normalized{
+	_, published, err := f.store.Publish(f.ctx, domain.Perm, &materialize.Outcome{Apply: []materialize.Normalized{
 		{Raw: raws[0], Place: draft("node/2", "culture", "Музей", "classical_art")}}}, base)
 	if err != nil || published {
 		t.Fatalf("identical place published %v, err %v", published, err)
 	}
 }
 
-func ptr[T any](v T) *T { return &v }
-
-func eventNormalized(raw materialize.Raw, placeKey string, starts ...time.Time) materialize.Normalized {
+func eventNormalized(raw *materialize.Raw, placeKey string, starts ...time.Time) materialize.Normalized {
 	event := &normalize.EventDraft{ExternalID: "event:1@place:" + placeKey, Title: "Лекция", NormalizedTitle: "лекция",
 		Category: "culture", Tags: []string{"lectures_workshops"}}
 	for _, s := range starts {
 		event.Sessions = append(event.Sessions, normalize.SessionDraft{StartsAt: s, EndsAt: s.Add(time.Hour),
 			SlotType: "FIXED_SESSION", MinDuration: time.Hour, RecommendedDuration: time.Hour, AccessType: "ticket",
-			Price: normalize.PriceDraft{Status: "fixed", AmountMin: ptr(int64(500)), AmountMax: ptr(int64(500))}})
+			Price: normalize.PriceDraft{Status: "fixed", AmountMin: new(int64(500)), AmountMax: new(int64(500))}})
 	}
-	return materialize.Normalized{Raw: raw, Place: draft("place:"+placeKey, "", "Зал "+placeKey), Event: event}
+	return materialize.Normalized{Raw: *raw, Place: draft("place:"+placeKey, "", "Зал "+placeKey), Event: event}
 }
 
-func (f *materializeFixture) publishEvent(t *testing.T, version int, at time.Time, placeKey string, starts ...time.Time) bool {
+func (f *materializeFixture) publishEvent(
+	t *testing.T,
+	version int,
+	at time.Time,
+	placeKey string,
+	starts ...time.Time,
+) bool {
 	t.Helper()
 	saved := f.save(t, "event:1", fmt.Sprintf(`{"v":%d}`, version), at.Add(time.Duration(version)*time.Second))
 	raws := f.pending(t, saved.ID)
 	_, published, err := f.store.Publish(f.ctx, domain.Perm,
-		materialize.Outcome{Apply: []materialize.Normalized{eventNormalized(raws[0], placeKey, starts...)}}, at)
+		&materialize.Outcome{Apply: []materialize.Normalized{eventNormalized(&raws[0], placeKey, starts...)}}, at)
 	if err != nil {
 		t.Fatalf("publish version %d: %v", version, err)
 	}
@@ -268,7 +331,8 @@ func (f *materializeFixture) session(t *testing.T, id uuid.UUID) materializedSes
 func (f *materializeFixture) eventActive(t *testing.T, id uuid.UUID) bool {
 	t.Helper()
 	var active bool
-	if err := f.pool.QueryRow(f.ctx, `SELECT is_active FROM catalog.event WHERE city = 'perm' AND id = $1`, id).Scan(&active); err != nil {
+	if err := f.pool.QueryRow(f.ctx, `SELECT is_active FROM catalog.event WHERE city = 'perm' AND id = $1`, id).
+		Scan(&active); err != nil {
 		t.Fatal(err)
 	}
 	return active
@@ -277,12 +341,14 @@ func (f *materializeFixture) eventActive(t *testing.T, id uuid.UUID) bool {
 func (f *materializeFixture) poiCategories(t *testing.T, placeID uuid.UUID) []string {
 	t.Helper()
 	var categories []string
-	if err := f.pool.QueryRow(f.ctx, `SELECT categories FROM catalog.leisure_poi WHERE city = 'perm' AND id = $1`, placeID).Scan(&categories); err != nil {
+	if err := f.pool.QueryRow(f.ctx, `SELECT categories FROM catalog.leisure_poi WHERE city = 'perm' AND id = $1`, placeID).
+		Scan(&categories); err != nil {
 		t.Fatal(err)
 	}
 	return categories
 }
 
+//nolint:cyclop // integration scenario verifies one atomic event lifecycle
 func TestMaterializeEventsIntegration(t *testing.T) {
 	f := newMaterializeFixture(t)
 	now := time.Now().UTC().Truncate(time.Second)
@@ -291,7 +357,16 @@ func TestMaterializeEventsIntegration(t *testing.T) {
 	placeB := normalize.EntityID(string(f.source) + ":place:b")
 	eventA := normalize.EntityID(string(f.source) + ":event:1@place:a")
 	eventB := normalize.EntityID(string(f.source) + ":event:1@place:b")
-	pastA, day1A, day2A := normalize.SessionID(eventA, past), normalize.SessionID(eventA, day1), normalize.SessionID(eventA, day2)
+	pastA, day1A, day2A := normalize.SessionID(
+		eventA,
+		past,
+	), normalize.SessionID(
+		eventA,
+		day1,
+	), normalize.SessionID(
+		eventA,
+		day2,
+	)
 
 	before := f.revision(t)
 	if !f.publishEvent(t, 1, now, "a", past, day1, day2) || f.revision(t) != before+1 {
@@ -301,7 +376,9 @@ func TestMaterializeEventsIntegration(t *testing.T) {
 		t.Fatalf("projection categories %v", got)
 	}
 	var category *string
-	if err := f.pool.QueryRow(f.ctx, `SELECT category FROM catalog.place WHERE city = 'perm' AND id = $1`, placeA).Scan(&category); err != nil || category != nil {
+	if err := f.pool.QueryRow(f.ctx, `SELECT category FROM catalog.place WHERE city = 'perm' AND id = $1`, placeA).
+		Scan(&category); err != nil ||
+		category != nil {
 		t.Fatalf("event venue category %v, %v", category, err)
 	}
 	if s := f.session(t, day2A); s.status != "unknown" || s.version != 1 || !s.priceActive {
@@ -317,7 +394,11 @@ func TestMaterializeEventsIntegration(t *testing.T) {
 	if !f.publishEvent(t, 3, now, "a", day1) {
 		t.Fatal("a withdrawn session did not publish")
 	}
-	if s := f.session(t, day2A); s.status != "cancelled" || s.reason == nil || *s.reason != "source_removed" || s.version != 2 || s.priceActive {
+	if s := f.session(
+		t,
+		day2A,
+	); s.status != "cancelled" || s.reason == nil || *s.reason != "source_removed" || s.version != 2 ||
+		s.priceActive {
 		t.Fatalf("withdrawn session %+v", s)
 	}
 	if s := f.session(t, pastA); s.status != "unknown" || s.version != 1 {
@@ -355,7 +436,9 @@ func TestMaterializeEventsIntegration(t *testing.T) {
 		t.Fatalf("session at the new place %+v", s)
 	}
 	var oldActive bool
-	if err := f.pool.QueryRow(f.ctx, `SELECT is_active FROM catalog.leisure_poi WHERE city = 'perm' AND id = $1`, placeA).Scan(&oldActive); err != nil || oldActive {
+	if err := f.pool.QueryRow(f.ctx, `SELECT is_active FROM catalog.leisure_poi WHERE city = 'perm' AND id = $1`, placeA).
+		Scan(&oldActive); err != nil ||
+		oldActive {
 		t.Fatalf("old place without events still searchable: %v, %v", oldActive, err)
 	}
 	if got := f.poiCategories(t, placeB); !slices.Equal(got, []string{"culture"}) {
@@ -372,7 +455,7 @@ func TestReopenIntegration(t *testing.T) {
 	waiting := f.save(t, "node/3", `{"v":4}`, base.Add(3*time.Second))
 	raws := f.pending(t, older.ID, latest.ID, broken.ID)
 	place := materialize.Normalized{Raw: raws[1], Place: draft("node/1", "gastro", "Кофейня", "gastro_coffee")}
-	if _, _, err := f.store.Publish(f.ctx, domain.Perm, materialize.Outcome{
+	if _, _, err := f.store.Publish(f.ctx, domain.Perm, &materialize.Outcome{
 		Superseded: raws[:1], Apply: []materialize.Normalized{place},
 		Failed: []materialize.Rejected{{Raw: raws[2], Code: "missing_name"}},
 	}, base); err != nil {
@@ -400,7 +483,13 @@ func TestReopenIntegration(t *testing.T) {
 	}
 	revision := f.revision(t)
 	place.Raw = reopened[0]
-	if _, published, err := f.store.Publish(f.ctx, domain.Perm, materialize.Outcome{Apply: []materialize.Normalized{place}}, base); err != nil || published || f.revision(t) != revision {
+	if _, published, err := f.store.Publish(
+		f.ctx,
+		domain.Perm,
+		&materialize.Outcome{Apply: []materialize.Normalized{place}},
+		base,
+	); err != nil || published ||
+		f.revision(t) != revision {
 		t.Fatalf("republish published %v, err %v", published, err)
 	}
 	if f.state(t, latest.ID) != "applied" {
@@ -419,8 +508,14 @@ func TestReopenKeepsSessionVersionsIntegration(t *testing.T) {
 	}
 	raws := f.pending(t, ids...)
 	revision := f.revision(t)
-	if _, published, err := f.store.Publish(f.ctx, domain.Perm,
-		materialize.Outcome{Apply: []materialize.Normalized{eventNormalized(raws[0], "a", day1)}}, now); err != nil || published {
+	if _, published, err := f.store.Publish(
+		f.ctx,
+		domain.Perm,
+		&materialize.Outcome{
+			Apply: []materialize.Normalized{eventNormalized(&raws[0], "a", day1)},
+		},
+		now,
+	); err != nil || published {
 		t.Fatalf("republish published %v, err %v", published, err)
 	}
 	session := normalize.SessionID(normalize.EntityID(string(f.source)+":event:1@place:a"), day1)
@@ -434,21 +529,37 @@ func TestReopenKeepsSessionVersionsIntegration(t *testing.T) {
 func TestSharedPlaceDoesNotFlapIntegration(t *testing.T) {
 	f := newMaterializeFixture(t)
 	now := time.Now().UTC().Truncate(time.Second)
-	batch := func(version int) materialize.Outcome {
-		first := f.save(t, "event:1", fmt.Sprintf(`{"v":%d,"e":1}`, version), now.Add(time.Duration(2*version)*time.Second))
-		second := f.save(t, "event:2", fmt.Sprintf(`{"v":%d,"e":2}`, version), now.Add(time.Duration(2*version+1)*time.Second))
+	batch := func(version int) *materialize.Outcome {
+		first := f.save(
+			t,
+			"event:1",
+			fmt.Sprintf(`{"v":%d,"e":1}`, version),
+			now.Add(time.Duration(2*version)*time.Second),
+		)
+		second := f.save(
+			t,
+			"event:2",
+			fmt.Sprintf(`{"v":%d,"e":2}`, version),
+			now.Add(time.Duration(2*version+1)*time.Second),
+		)
 		raws := f.pending(t, first.ID, second.ID)
-		a := eventNormalized(raws[0], "a", now.Add(24*time.Hour))
-		b := eventNormalized(raws[1], "a", now.Add(48*time.Hour))
+		a := eventNormalized(&raws[0], "a", now.Add(24*time.Hour))
+		b := eventNormalized(&raws[1], "a", now.Add(48*time.Hour))
 		b.Event.ExternalID = "event:2@place:a"
-		a.Place.Address, b.Place.Address = ptr("ул Радио, д 17"), ptr("ул Радио,д 17")
-		return materialize.Outcome{Apply: []materialize.Normalized{a, b}}
+		a.Place.Address, b.Place.Address = new("ул Радио, д 17"), new("ул Радио,д 17")
+		return &materialize.Outcome{Apply: []materialize.Normalized{a, b}}
 	}
 	if _, published, err := f.store.Publish(f.ctx, domain.Perm, batch(1), now); err != nil || !published {
 		t.Fatalf("first batch published %v, err %v", published, err)
 	}
 	revision := f.revision(t)
-	if _, published, err := f.store.Publish(f.ctx, domain.Perm, batch(2), now); err != nil || published || f.revision(t) != revision {
+	if _, published, err := f.store.Publish(
+		f.ctx,
+		domain.Perm,
+		batch(2),
+		now,
+	); err != nil || published ||
+		f.revision(t) != revision {
 		t.Fatalf("same batch again published %v, err %v, revision %d → %d", published, err, revision, f.revision(t))
 	}
 	var address string

@@ -41,7 +41,8 @@ func TestRedisStoreIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, ok, err := store.Get(ctx, want.City, want.Revision)
-	if err != nil || !ok || got.Revision != want.Revision || len(got.Sessions) != 1 || got.Places[0].Rules.Validate() != nil {
+	if err != nil || !ok || got.Revision != want.Revision || len(got.Sessions) != 1 ||
+		got.Places[0].Rules.Validate() != nil {
 		t.Fatalf("stored slice: ok %v, %v, %+v", ok, err, got)
 	}
 	if ttl := client.TTL(ctx, key(want.City, want.Revision)).Val(); ttl <= 0 || ttl > time.Minute {
@@ -86,7 +87,14 @@ func TestSubscriberSurvivesAKilledConnectionIntegration(t *testing.T) {
 	loader.mu.Lock()
 	loader.revision = 4
 	loader.mu.Unlock()
-	payload, err := catalogevent.Encode(catalogevent.Invalidation{City: "perm", CatalogRevision: 4, Reason: catalogevent.ReasonUrgent, PublishedAt: time.Now()})
+	payload, err := catalogevent.Encode(
+		catalogevent.Invalidation{
+			City:            "perm",
+			CatalogRevision: 4,
+			Reason:          catalogevent.ReasonUrgent,
+			PublishedAt:     time.Now(),
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
