@@ -99,7 +99,8 @@ func (w *NotificationWorker) runOne(ctx context.Context) {
 	if len(job.Payload) > 1024 || payloadErr != nil || !errors.Is(decoder.Decode(new(any)), io.EOF) || payload.SchemaVersion != 1 || payload.RouteID != uuid.UUID(job.RouteID).String() || linkErr != nil {
 		state, code = "failed", "INVALID_NOTIFICATION_PAYLOAD"
 	} else {
-		_, sendErr := w.client.SendRouteNotification(workCtx, userID, uuid.UUID(job.RouteID), "В вашем маршруте есть отменённое посещение. Откройте маршрут, чтобы посмотреть изменения.")
+		message := "Посещение в вашем маршруте стало недоступно. Откройте маршрут, чтобы посмотреть изменения."
+		_, sendErr := w.client.SendRouteNotification(workCtx, userID, uuid.UUID(job.RouteID), message)
 		if sendErr != nil {
 			state, code = "failed", "MAX_REQUEST_REJECTED"
 			var failure *maxbot.NotificationSendError

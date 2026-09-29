@@ -83,6 +83,9 @@ func (r *Runtime) runCancellationJob(ctx context.Context) {
 	if errors.Is(err, errCancellationHistoryIncomplete) {
 		code = "EXECUTION_TIMES_REQUIRED"
 	}
+	if errors.Is(err, postgres.ErrCancellationProposalPending) {
+		code = "OWNER_PROPOSAL_PENDING"
+	}
 	retryCtx, done := context.WithTimeout(ctx, 3*time.Second)
 	defer done()
 	if retryErr := r.deferCancellationJob(retryCtx, *job, code); retryErr != nil {
@@ -143,18 +146,27 @@ func (r *Runtime) processCancellationJob(ctx context.Context, job postgres.Cance
 			return err
 		}
 		result := cancellationJobResult{Status: computed.Diagnostics.Status, Conflicts: computed.Diagnostics.Conflicts}
+		catalogRevision := d.CatalogRevision(computed.Diagnostics.CatalogRevision)
 		if computed.Diagnostics.Status == "PROPOSED" {
 			proposal, err := q.SaveCancellationProposal(ctx, state, visits, minimum, computed, now)
 			if err != nil {
 				return err
 			}
 			result.ProposalID = proposal.ProposalID
-			if err := q.ExplainCancellationProblem(ctx, job.RouteID, visits, d.CatalogRevision(computed.Diagnostics.CatalogRevision), "CANCELLATION_PROPOSAL_READY", "Сеанс отменён. Подготовлено предложение обновления маршрута. Просмотрите изменения перед применением."); err != nil {
-				return err
+			message := "Посещение стало недоступно. Подготовлено предложение обновления маршрута. Просмотрите изменения перед применением."
+			explainErr := q.ExplainCancellationProblem(
+				ctx, job.RouteID, visits, catalogRevision, "CANCELLATION_PROPOSAL_READY", message,
+			)
+			if explainErr != nil {
+				return explainErr
 			}
 		} else if computed.Diagnostics.Status == "CONFLICT" {
-			if err := q.ExplainCancellationProblem(ctx, job.RouteID, visits, d.CatalogRevision(computed.Diagnostics.CatalogRevision), "CANCELLATION_RECOMPUTE_CONFLICT", "Сеанс отменён. Сохранить остальные условия маршрута не удалось. Измените условия или удалите отменённое посещение."); err != nil {
-				return err
+			message := "Посещение стало недоступно. Сохранить остальные условия маршрута не удалось. Измените условия или удалите недоступное посещение."
+			explainErr := q.ExplainCancellationProblem(
+				ctx, job.RouteID, visits, catalogRevision, "CANCELLATION_RECOMPUTE_CONFLICT", message,
+			)
+			if explainErr != nil {
+				return explainErr
 			}
 		}
 		encoded, err := json.Marshal(result)
@@ -166,11 +178,15 @@ func (r *Runtime) processCancellationJob(ctx context.Context, job postgres.Cance
 }
 
 func (r *Runtime) deferCancellationJob(ctx context.Context, job postgres.CancellationJob, code string) error {
-	message := "Сеанс отменён. Пересчёт пока недоступен; расписание не изменено. Попробуйте обновить маршрут позже."
+	message := "Посещение стало недоступно. Пересчёт пока недоступен; расписание не изменено. Попробуйте обновить маршрут позже."
 	issueCode := "CANCELLATION_RECOMPUTE_DEFERRED"
 	if code == "EXECUTION_TIMES_REQUIRED" {
 		issueCode = code
-		message = "Сеанс отменён. Для пересчёта укажите фактическое начало и конец пройденных посещений. Расписание пока не изменено."
+		message = "Посещение стало недоступно. Для пересчёта укажите фактическое начало и конец пройденных посещений. Расписание пока не изменено."
+	}
+	if code == "OWNER_PROPOSAL_PENDING" {
+		issueCode = code
+		message = "Для маршрута уже есть предложение изменений. Сначала примите или отклоните его."
 	}
 	return r.transactor.WithinTx(ctx, nil, func(q *postgres.Queries) error {
 		if _, err := q.LockOwnedRoute(ctx, job.RouteID, job.OwnerID); err != nil {

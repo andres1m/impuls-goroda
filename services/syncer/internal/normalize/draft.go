@@ -30,6 +30,7 @@ type EventDraft struct {
 type SessionDraft struct {
 	StartsAt, EndsAt    time.Time
 	SlotType            string
+	AvailabilityStatus  string
 	MinDuration         time.Duration
 	RecommendedDuration time.Duration
 	AccessType          string

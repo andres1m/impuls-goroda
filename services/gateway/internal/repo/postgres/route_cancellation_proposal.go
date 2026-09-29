@@ -25,6 +25,8 @@ type cancellationCandidate struct {
 	Changes            []routewire.RecomputedChange `json:"changes"`
 }
 
+var ErrCancellationProposalPending = errors.New("another route proposal awaits the owner")
+
 func (q *Queries) SaveCancellationProposal(ctx context.Context, state RecomputeState, visitIDs []d.VisitID, minCatalogRevision d.CatalogRevision, result routewire.RecomputedResult, now time.Time) (routewire.PendingProposal, error) {
 	if result.Diagnostics.Status != "PROPOSED" || result.Candidate == nil || now.IsZero() {
 		return routewire.PendingProposal{}, routewire.ErrInvalidResult
@@ -78,8 +80,14 @@ func (q *Queries) SaveCancellationProposal(ctx context.Context, state RecomputeS
 		return routewire.PendingProposal{}, err
 	}
 	route := encodeUUID([16]byte(access.RouteID))
-	if _, err := q.db.Exec(ctx, `UPDATE planning.route_proposal SET state='invalidated',resolved_at=$2 WHERE route_id=$1 AND state='pending'`, route, now); err != nil {
+	var pending bool
+	if err := q.db.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM planning.route_proposal WHERE route_id=$1 AND state='pending')`, route,
+	).Scan(&pending); err != nil {
 		return routewire.PendingProposal{}, err
+	}
+	if pending {
+		return routewire.PendingProposal{}, ErrCancellationProposalPending
 	}
 	if _, err := q.db.Exec(ctx, `INSERT INTO planning.route_proposal
 (id,route_id,base_revision,base_catalog_revision,reason,state,candidate_schema_version,candidate,changes,conflicts,created_at)

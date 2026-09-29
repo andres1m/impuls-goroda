@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/andres1m/impuls-goroda/pkg/ai"
@@ -37,15 +39,16 @@ const configPath = "config.yaml"
 const healthcheckTimeout = 3 * time.Second
 
 type appConfig struct {
-	Logger    config.Logger     `yaml:"logger"`
-	Telemetry config.Telemetry  `yaml:"telemetry"`
-	Database  config.Database   `yaml:"database"`
-	Redis     config.Redis      `yaml:"redis"`
-	Temporal  config.Temporal   `yaml:"temporal"`
-	OpsServer config.HTTPServer `yaml:"ops-server"`
-	AI        ai.Config         `yaml:"ai"`
-	Kafka     kafka.Config      `yaml:"kafka"`
-	Delivery  delivery.Config   `yaml:"delivery"`
+	Logger        config.Logger     `yaml:"logger"`
+	Telemetry     config.Telemetry  `yaml:"telemetry"`
+	Database      config.Database   `yaml:"database"`
+	Redis         config.Redis      `yaml:"redis"`
+	Temporal      config.Temporal   `yaml:"temporal"`
+	OpsServer     config.HTTPServer `yaml:"ops-server"`
+	AI            ai.Config         `yaml:"ai"`
+	Kafka         kafka.Config      `yaml:"kafka"`
+	Delivery      delivery.Config   `yaml:"delivery"`
+	GatewayClient config.GRPCClient `yaml:"gateway-client"`
 }
 
 type infrastructureComponents struct {
@@ -140,16 +143,36 @@ func run(ctx context.Context) error {
 	}
 	defer deadLetters.Close()
 	consumer := kafka.NewConsumer(infra.log.Log, &infra.cfg.Kafka, starter, deadLetters)
-	relay, err := delivery.NewRelay(infra.cfg.Delivery, postgres.NewDeliveries(poolDB{client: infra.pool}),
-		map[string]delivery.Sender{
-			catalogevent.Destination: delivery.NewRedisSender(func() delivery.Publisher {
-				if infra.redis.Pool == nil {
-					return nil
-				}
-				return infra.redis.Pool
-			}),
-			ingest.DeadLetterDestination: deadLetters,
-		}, infra.log.Log)
+	kafkaSender, err := delivery.NewKafkaLifecycleSender(infra.cfg.Kafka.Brokers)
+	if err != nil {
+		return fmt.Errorf("create lifecycle kafka sender: %w", err)
+	}
+	defer kafkaSender.Close()
+	senders := map[string]delivery.Sender{
+		"kafka": delivery.EventSender{
+			delivery.LifecycleEventType: kafkaSender,
+			ingest.DeadLetterEventType:  deadLetters,
+		},
+		catalogevent.Destination: delivery.NewRedisSender(func() delivery.Publisher {
+			if infra.redis.Pool == nil {
+				return nil
+			}
+			return infra.redis.Pool
+		}),
+	}
+	if secret := os.Getenv("LIFECYCLE_SHARED_SECRET"); secret != "" {
+		if infra.cfg.GatewayClient.Host == "" || infra.cfg.GatewayClient.Port <= 0 {
+			return errors.New("lifecycle gateway address is required")
+		}
+		address := net.JoinHostPort(infra.cfg.GatewayClient.Host, strconv.Itoa(infra.cfg.GatewayClient.Port))
+		gatewaySender, err := delivery.NewGatewaySender(address, secret)
+		if err != nil {
+			return fmt.Errorf("create lifecycle gateway sender: %w", err)
+		}
+		defer func() { _ = gatewaySender.Close() }()
+		senders["gateway"] = gatewaySender
+	}
+	relay, err := delivery.NewRelay(infra.cfg.Delivery, postgres.NewDeliveries(poolDB{client: infra.pool}), senders, infra.log.Log)
 	if err != nil {
 		return fmt.Errorf("create delivery relay error: %w", err)
 	}

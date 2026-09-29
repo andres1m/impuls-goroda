@@ -201,7 +201,8 @@ func run(ctx context.Context) error {
 		}
 		components = append(components, app.NewCancellationWorker(authRuntime))
 	}
-	if cfg := infra.cfg.LifecycleServer; cfg != nil {
+	if cfg := infra.cfg.LifecycleServer; cfg != nil && os.Getenv("LIFECYCLE_SHARED_SECRET") != "" {
+		secret := os.Getenv("LIFECYCLE_SHARED_SECRET")
 		if cfg.Port <= 0 || cfg.Port > 65535 {
 			return errors.New("invalid catalog lifecycle server port")
 		}
@@ -209,7 +210,8 @@ func run(ctx context.Context) error {
 		bounded.MaxRecvMsgSize = 64 * 1024
 		lifecycleServer := rpc.NewServer("gateway-lifecycle", infra.log.Log, &bounded)
 		lifecycleServer.OnInit(func(server *rpc.Server) {
-			gatewaypb.RegisterLifecycleServiceServer(server.GetServer(), grpcapi.NewLifecycleServer(authRuntime))
+			handler := grpcapi.NewLifecycleServer(authRuntime, secret)
+			gatewaypb.RegisterLifecycleServiceServer(server.GetServer(), handler)
 		})
 		components = append(components, lifecycleServer)
 	}
@@ -257,7 +259,7 @@ func newAuthRuntime(infra *infrastructureComponents) (*app.Runtime, error) {
 		NotificationDeliveryEnabled:   notificationDelivery,
 		MAXDeliveryEventsEnabled:      deliveryEvents,
 		CancellationWorkerEnabled:     cfg.CancellationWorker.Enabled,
-		LifecycleEnabled:              infra.cfg.LifecycleServer != nil,
+		LifecycleEnabled:              infra.cfg.LifecycleServer != nil && os.Getenv("LIFECYCLE_SHARED_SECRET") != "",
 		Optimizer:                     infra.optimizer,
 		BotToken:                      cfg.Auth.BotToken,
 		WebhookSecret:                 cfg.Auth.WebhookSecret,
