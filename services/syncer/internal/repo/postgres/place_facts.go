@@ -114,13 +114,27 @@ func recordPlace(
 		if err != nil {
 			return fmt.Errorf("encode %s of %s: %w", f.attribute, n.Place.ExternalID, err)
 		}
+		// The same raw record read again (after a normalization change) says its new value in the place of
+		// the old one: two facts of one fetch could not be told apart by time.
+		replaced, err := tx.Exec(ctx, `
+			UPDATE integration.attribute_fact SET value = $4::jsonb
+			WHERE entity_link_id = $1 AND attribute_name = $2 AND raw_ingest_id = $3 AND value IS DISTINCT FROM $4::jsonb`,
+			linkID, f.attribute, n.Raw.ID, string(value))
+		if err != nil {
+			return fmt.Errorf("replace %s of %s: %w", f.attribute, n.Place.ExternalID, err)
+		}
+		if replaced.RowsAffected() > 0 {
+			continue
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO integration.attribute_fact (id, entity_link_id, raw_ingest_id, source_record_id, target_kind, target_id, city,
 				attribute_name, value, fetched_at, data_mode, trust_rank, is_selected)
 			SELECT $1, $2, $3, $4, 'place', $5, $6, $7, $8::jsonb, $9, $10, $11, false
-			WHERE (SELECT value FROM integration.attribute_fact
-				WHERE entity_link_id = $2 AND attribute_name = $7 ORDER BY fetched_at DESC, id LIMIT 1)
-				IS DISTINCT FROM $8::jsonb`,
+			WHERE NOT EXISTS (SELECT 1 FROM integration.attribute_fact
+					WHERE entity_link_id = $2 AND attribute_name = $7 AND raw_ingest_id = $3)
+				AND (SELECT value FROM integration.attribute_fact
+					WHERE entity_link_id = $2 AND attribute_name = $7 ORDER BY fetched_at DESC, id LIMIT 1)
+					IS DISTINCT FROM $8::jsonb`,
 			uuid.New().String(), linkID, n.Raw.ID, n.Raw.SourceRecordID, placeID, city, f.attribute, string(value),
 			n.Raw.FetchedAt, n.Raw.DataMode, trust.Rank(f.attribute, n.Raw.Source)); err != nil {
 			return fmt.Errorf("store %s of %s: %w", f.attribute, n.Place.ExternalID, err)
