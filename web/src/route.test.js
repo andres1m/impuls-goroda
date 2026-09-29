@@ -4,7 +4,7 @@ import { loadSelectedRoute, RouteRequestError } from './route.js';
 
 const selectedID = '11111111-1111-4111-8111-111111111111';
 const context = { confirmed_input: {}, selected_route_id: selectedID };
-const route = { route_id: selectedID, plan: { steps: [] } };
+const route = { route_id: selectedID, revision: '1', lifecycle: 'saved', plan: { steps: [] } };
 
 test('loads only the selected owner route with bearer authorization', async () => {
   const calls = [];

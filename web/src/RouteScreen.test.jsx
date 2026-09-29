@@ -10,7 +10,7 @@ Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, co
 globalThis.HTMLElement = dom.window.HTMLElement;
 globalThis.MutationObserver = dom.window.MutationObserver;
 
-const { cleanup, render, screen } = await import('@testing-library/react');
+const { cleanup, fireEvent, render, screen } = await import('@testing-library/react');
 const { default: RouteScreen } = await import('./RouteScreen.jsx');
 
 test('renders real route steps and keeps unknown costs and prepared data explicit', () => {
@@ -27,10 +27,12 @@ test('renders real route steps and keeps unknown costs and prepared data explici
     },
   };
   render(createElement(RouteScreen, { route }));
-  assert.match(screen.getByRole('heading', { name: 'Расписание' }).parentElement.parentElement.textContent, /Название из каталога/);
+  assert.ok(screen.getByRole('heading', { name: 'По пути' }));
+  fireEvent.click(screen.getByRole('button', { name: /Название из каталога/ }));
+  assert.match(document.body.textContent, /Название из каталога/);
   assert.match(document.body.textContent, /Доступность неизвестна/);
-  assert.match(document.body.textContent, /подготовленные/);
-  assert.match(document.body.textContent, /Есть неучтённые расходы/);
+  assert.match(document.body.textContent, /Подготовленные данные/);
+  assert.ok(screen.getByLabelText('Есть неучтённые расходы'));
   assert.match(document.body.textContent, /12:30/);
   cleanup();
 });

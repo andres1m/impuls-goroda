@@ -26,12 +26,15 @@ test('opens on the selected-route state instead of the input form', async () => 
     if (String(url).endsWith('/auth/max')) {
       return { ok: true, status: 200, json: async () => ({ access_token: 'session', token_type: 'Bearer', expires_at: '2026-09-27T00:00:00Z' }) };
     }
-    return { ok: true, status: 200, json: async () => ({ confirmed_input: {} }) };
+    if (String(url).endsWith('/api/v1/me/context')) {
+      return { ok: true, status: 200, json: async () => ({ confirmed_input: {} }) };
+    }
+    return { ok: true, status: 200, json: async () => ({ request_id: 'test', scenario: null }) };
   };
 
   try {
     render(createElement(App));
-    await screen.findByRole('heading', { name: 'Маршрута пока нет' });
+    await screen.findByRole('heading', { name: 'Как проведём день?' });
     assert.equal(screen.queryByRole('heading', { name: 'Соберите день под себя' }), null);
     assert.equal(requested.filter((url) => url.endsWith('/api/v1/me/context')).length, 1);
   } finally {
