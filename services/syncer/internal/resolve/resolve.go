@@ -81,8 +81,18 @@ func (r *Resolver) Resolve(ctx context.Context, city domain.City, places []Place
 		return nil, err
 	}
 	out := make([]Resolution, len(places))
+	type placeKey struct {
+		source domain.SourceKey
+		key    string
+	}
+	// Records that describe the same place (many events at one venue) get one decision.
+	decided := make(map[placeKey]Resolution, len(places))
 	for i := range places {
 		p := &places[i]
+		if prior, again := decided[placeKey{p.Source, p.Key}]; again {
+			out[i] = prior
+			continue
+		}
 		switch {
 		case p.Source == domain.SyntheticSource:
 			out[i] = Resolution{Kind: Own}
@@ -100,6 +110,7 @@ func (r *Resolver) Resolve(ctx context.Context, city domain.City, places []Place
 			}
 			out[i] = r.decide(ctx, p, append(cands, batchMates(places, out, i)...))
 		}
+		decided[placeKey{p.Source, p.Key}] = out[i]
 		count(out[i])
 	}
 	return out, nil
@@ -166,7 +177,13 @@ type reachable struct {
 func (r *Resolver) decide(ctx context.Context, p *Place, cands []Candidate) Resolution {
 	var pairs []reachable
 	mine := Clean(p.NormalizedTitle)
+	seen := make(map[uuid.UUID]bool, len(cands))
 	for i := range cands {
+		// The catalog search and the batch can both offer one place, and so can several records of it.
+		if seen[cands[i].PlaceID] {
+			continue
+		}
+		seen[cands[i].PlaceID] = true
 		tri := Trigram(mine, Clean(cands[i].NormalizedTitle))
 		if Reachable(tri, cands[i].Distance) {
 			pairs = append(pairs, reachable{cands[i], tri})
