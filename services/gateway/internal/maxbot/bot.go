@@ -240,6 +240,20 @@ func (c *Client) respond(input string) message {
 }
 
 func (m *message) addKeyboard(rows [][]button) {
+	for i := range rows {
+		for j := range rows[i] {
+			if rows[i][j].Type == buttonTypeMessage {
+				rows[i][j].Type = "callback"
+				rows[i][j].Payload = rows[i][j].Text
+			}
+		}
+	}
+	for i := range m.Attachments {
+		if m.Attachments[i].Type == "inline_keyboard" {
+			m.Attachments[i].Payload.Buttons = append(m.Attachments[i].Payload.Buttons, rows...)
+			return
+		}
+	}
 	m.Attachments = append(m.Attachments, struct {
 		Type    string `json:"type"`
 		Payload struct {
@@ -251,6 +265,15 @@ func (m *message) addKeyboard(rows [][]button) {
 }
 
 func (c *Client) send(ctx context.Context, userID int64, body message) (err error) {
+	// Persisted replies may contain multiple keyboard attachments from older releases.
+	if len(body.Attachments) > 0 {
+		rows := [][]button{}
+		for _, attachment := range body.Attachments {
+			rows = append(rows, attachment.Payload.Buttons...)
+		}
+		body.Attachments = nil
+		body.addKeyboard(rows)
+	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("marshal MAX message: %w", err)

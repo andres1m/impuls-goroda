@@ -127,6 +127,14 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("create CORS middleware: %w", err)
 	}
+	var extractor *app.ScenarioExtractor
+	if infra.cfg.AI != nil {
+		models, err := ai.New(*infra.cfg.AI)
+		if err != nil {
+			return errors.New("invalid scenario model configuration")
+		}
+		extractor = app.NewScenarioExtractor(models.Text())
+	}
 	routers := []router.Router{
 		httpapi.NewReadinessRouter(authRuntime),
 		httpapi.NewAuthRouter(authRuntime),
@@ -135,7 +143,7 @@ func run(ctx context.Context) error {
 		httpapi.NewNotificationPreferenceRouter(authRuntime),
 		httpapi.NewDeleteRouter(authRuntime),
 		httpapi.NewRecoveryRouter(authRuntime),
-		httpapi.NewScenarioRouter(authRuntime),
+		httpapi.NewScenarioRouter(app.NewScenarioCreator(authRuntime, extractor)),
 		httpapi.NewPinRouter(authRuntime),
 		httpapi.NewProposalRouter(authRuntime),
 		httpapi.NewPanicRouter(authRuntime),
@@ -150,14 +158,6 @@ func run(ctx context.Context) error {
 			return fmt.Errorf("create MAX bot: %w", err)
 		}
 		botClient = bot
-		var extractor *app.ScenarioExtractor
-		if infra.cfg.AI != nil {
-			models, err := ai.New(*infra.cfg.AI)
-			if err != nil {
-				return errors.New("invalid bot model configuration")
-			}
-			extractor = app.NewScenarioExtractor(models.Text())
-		}
 		routers = append(routers, httpapi.NewBotRouter(authRuntime, app.NewBotHandlerWithExtractor(authRuntime, bot, extractor)))
 	}
 	apiServer := server.New("api-server", infra.cfg.APIServer,

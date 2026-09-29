@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -72,10 +73,12 @@ type lunchProviderResult struct {
 	} `json:"meta"`
 	Result *struct {
 		Items []struct {
-			ID      string `json:"id"`
-			Name    string `json:"name"`
-			Type    string `json:"type"`
-			Address string `json:"address_name"`
+			ID      string   `json:"id"`
+			Name    string   `json:"name"`
+			Type    string   `json:"type"`
+			Address string   `json:"address_name"`
+			Lat     *float64 `json:"lat"`
+			Lon     *float64 `json:"lon"`
 			Point   *struct {
 				Lon *float64 `json:"lon"`
 				Lat *float64 `json:"lat"`
@@ -137,13 +140,30 @@ func (r *LunchSearchRouter) search(c *echo.Context) error {
 }
 
 func (r *LunchSearchRouter) nearby(c *echo.Context, point lunchPosition, radius int) ([]lunchCandidate, time.Time, error) {
+	items, observed, err := r.nearbyFrom(c, point, radius, true)
+	if err == nil && len(items) > 0 {
+		return items, observed, nil
+	}
+	return r.nearbyFrom(c, point, radius, false)
+}
+
+func (r *LunchSearchRouter) nearbyFrom(c *echo.Context, point lunchPosition, radius int, markers bool) ([]lunchCandidate, time.Time, error) {
+	status, providerCode := 0, 0
 	failed := func() ([]lunchCandidate, time.Time, error) {
-		return nil, time.Time{}, lunchSearchError("LUNCH_SEARCH_UNAVAILABLE", true)
+		err := lunchSearchError("LUNCH_SEARCH_UNAVAILABLE", true)
+		err.Cause = fmt.Errorf("2GIS lunch response: HTTP %d, provider code %d", status, providerCode)
+		return nil, time.Time{}, err
 	}
 	position := strconv.FormatFloat(point.Longitude, 'f', -1, 64) + "," + strconv.FormatFloat(point.Latitude, 'f', -1, 64)
 	endpoint := url.URL{Scheme: "https", Host: "catalog.api.2gis.com", Path: "/3.0/items"}
 	query := url.Values{"key": {r.key}, "q": {"кафе"}, "type": {"branch"}, "point": {position}, "location": {position},
 		"radius": {strconv.Itoa(radius)}, "sort": {"distance"}, "page_size": {"20"}, "fields": {"items.point"}, "locale": {"ru_RU"}}
+	if markers {
+		endpoint.Path = "/3.0/markers"
+		query.Del("page_size")
+		query.Set("limit", "20")
+		query.Set("fields", "items.name")
+	}
 	endpoint.RawQuery = query.Encode()
 	request, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, endpoint.String(), nil)
 	if err != nil {
@@ -155,14 +175,12 @@ func (r *LunchSearchRouter) nearby(c *echo.Context, point lunchPosition, radius 
 		return failed()
 	}
 	defer response.Body.Close()
+	status = response.StatusCode
 	if response.StatusCode == 401 || response.StatusCode == 403 {
 		return nil, time.Time{}, lunchSearchError("LUNCH_SEARCH_ACCESS_DENIED", false)
 	}
 	if response.StatusCode == 429 {
 		return nil, time.Time{}, lunchSearchError("LUNCH_SEARCH_RATE_LIMITED", true)
-	}
-	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusNotFound {
-		return failed()
 	}
 	const limit = 1 << 20
 	body, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
@@ -173,6 +191,7 @@ func (r *LunchSearchRouter) nearby(c *echo.Context, point lunchPosition, radius 
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return failed()
 	}
+	providerCode = payload.Meta.Code
 	if payload.Meta.Code == 404 && payload.Meta.Error != nil && payload.Meta.Error.Type == "itemNotFound" && payload.Result == nil {
 		return []lunchCandidate{}, time.Now().UTC(), nil
 	}
@@ -182,7 +201,7 @@ func (r *LunchSearchRouter) nearby(c *echo.Context, point lunchPosition, radius 
 	if payload.Meta.Code == 429 {
 		return nil, time.Time{}, lunchSearchError("LUNCH_SEARCH_RATE_LIMITED", true)
 	}
-	if response.StatusCode != http.StatusOK || payload.Meta.Code != 200 || payload.Meta.Error != nil || payload.Result == nil || payload.Result.Items == nil || len(payload.Result.Items) > 20 {
+	if response.StatusCode != http.StatusOK || payload.Meta.Code != 200 || payload.Meta.Error != nil || payload.Result == nil || payload.Result.Items == nil || len(payload.Result.Items) > 2000 {
 		return failed()
 	}
 	observed := time.Now().UTC()
@@ -191,11 +210,15 @@ func (r *LunchSearchRouter) nearby(c *echo.Context, point lunchPosition, radius 
 	usable := 0
 	for _, item := range payload.Result.Items {
 		id, title := strings.TrimSpace(item.ID), strings.TrimSpace(item.Name)
-		if item.Type != "branch" || id == "" || utf8.RuneCountInString(id) > 128 || title == "" || utf8.RuneCountInString(title) > 500 ||
-			utf8.RuneCountInString(item.Address) > 1000 || item.Point == nil || item.Point.Lat == nil || item.Point.Lon == nil {
+		lat, lon := item.Lat, item.Lon
+		if item.Point != nil {
+			lat, lon = item.Point.Lat, item.Point.Lon
+		}
+		if (item.Type != "branch" && !(markers && item.Type == "")) || id == "" || utf8.RuneCountInString(id) > 128 || title == "" || utf8.RuneCountInString(title) > 500 ||
+			utf8.RuneCountInString(item.Address) > 1000 || lat == nil || lon == nil {
 			continue
 		}
-		target := lunchPosition{Longitude: *item.Point.Lon, Latitude: *item.Point.Lat}
+		target := lunchPosition{Longitude: *lon, Latitude: *lat}
 		if !validCoordinate([]float64{target.Latitude, target.Longitude}) {
 			continue
 		}
@@ -217,7 +240,7 @@ func (r *LunchSearchRouter) nearby(c *echo.Context, point lunchPosition, radius 
 		}
 		return items[i].DistanceMeters < items[j].DistanceMeters
 	})
-	return items, observed, nil
+	return items[:min(len(items), 20)], observed, nil
 }
 
 func validLunchRadius(radius int) bool {
