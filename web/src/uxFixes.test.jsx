@@ -279,3 +279,15 @@ test('ScenarioEntry and ScenarioVariants render compact topbar and archetype-acc
   }
 });
 
+test('movementModes includes car ("На автомобиле") for ScenarioEntry and scenarioExtraction', async () => {
+  const { reviewExtraction } = await import('./scenarioExtraction.js');
+  const proposal = reviewExtraction({
+    constraints: {
+      movement_modes: ['car', 'walk'],
+    },
+  });
+  assert.deepEqual(proposal.formPatch.modes, ['car', 'walk']);
+  assert.deepEqual(proposal.rows, [['Передвижение', 'На автомобиле, Пешком']]);
+});
+
+

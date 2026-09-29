@@ -26,6 +26,7 @@ export const categories = [
 export const movementModes = [
   ['walk', 'Пешком'],
   ['transit', 'Общественный транспорт'],
+  ['car', 'На автомобиле'],
 ];
 
 export function interestMask(selected) {

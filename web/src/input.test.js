@@ -52,8 +52,12 @@ test('requires a supported movement mode and validates excluded categories', () 
     () => validatePlanInput({ ...form('moscow'), movementModes: [] }),
     /способ передвижения/,
   );
+  assert.deepEqual(
+    validatePlanInput({ ...form('moscow'), movementModes: ['car'] }).movementModes,
+    ['car'],
+  );
   assert.throws(
-    () => validatePlanInput({ ...form('moscow'), movementModes: ['car'] }),
+    () => validatePlanInput({ ...form('moscow'), movementModes: ['scooter'] }),
     /способ передвижения/,
   );
   assert.throws(
