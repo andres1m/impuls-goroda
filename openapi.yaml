@@ -442,6 +442,49 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/routes/{route_id}/lunch/proposals:
+    parameters:
+      - $ref: '#/components/parameters/RouteID'
+    post:
+      tags: [Proposals]
+      operationId: proposeLunchChange
+      summary: Propose an owner-only change to saved lunch stops
+      description: Add, replace, move or remove a lunch stop. The route revision changes only after the owner explicitly applies a proposed result. A feasible unchanged result does not create a pending proposal. The server resolves any external venue and computes the complete schedule before returning a proposal.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LunchProposalRequest'
+      responses:
+        '200':
+          description: Proposed, unchanged or refused with a route conflict
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+            ETag:
+              $ref: '#/components/headers/RouteETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LunchProposalResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CommandConflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/routes/{route_id}/lunch/organizations/{external_id}:
     parameters:
       - $ref: '#/components/parameters/RouteID'
@@ -1366,6 +1409,103 @@ components:
           schema:
             $ref: '#/components/schemas/ProposalResponse'
   schemas:
+    LunchPlacement:
+      type: object
+      additionalProperties: false
+      required: [after_visit_id, duration_seconds]
+      properties:
+        after_visit_id:
+          $ref: '#/components/schemas/UUID'
+        duration_seconds:
+          type: integer
+          format: int32
+          minimum: 2700
+          maximum: 3600
+    LunchVenueChoice:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [provider, external_id]
+          properties:
+            provider:
+              type: string
+              const: 2gis
+            external_id:
+              type: string
+              minLength: 1
+              maxLength: 128
+        - type: object
+          additionalProperties: false
+          required: [catalog_visit_id]
+          properties:
+            catalog_visit_id:
+              $ref: '#/components/schemas/UUID'
+    LunchProposalRequest:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [action, placement]
+          properties:
+            action:
+              type: string
+              const: add
+            placement:
+              $ref: '#/components/schemas/LunchPlacement'
+            venue:
+              $ref: '#/components/schemas/LunchVenueChoice'
+        - type: object
+          additionalProperties: false
+          required: [action, lunch_id, placement, acknowledge_external_commitment]
+          properties:
+            action:
+              type: string
+              const: update
+            lunch_id:
+              $ref: '#/components/schemas/UUID'
+            placement:
+              $ref: '#/components/schemas/LunchPlacement'
+            venue:
+              $ref: '#/components/schemas/LunchVenueChoice'
+            acknowledge_external_commitment:
+              type: boolean
+        - type: object
+          additionalProperties: false
+          required: [action, lunch_id, acknowledge_external_commitment]
+          properties:
+            action:
+              type: string
+              const: remove
+            lunch_id:
+              $ref: '#/components/schemas/UUID'
+            acknowledge_external_commitment:
+              type: boolean
+      discriminator:
+        propertyName: action
+    LunchProposalResponse:
+      type: object
+      additionalProperties: false
+      required: [status, request_id, route_id, revision, changes, conflicts]
+      properties:
+        status:
+          type: string
+          enum: [PROPOSED, UNCHANGED, CONFLICT]
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        route_id:
+          $ref: '#/components/schemas/UUID'
+        revision:
+          $ref: '#/components/schemas/Revision'
+        proposal:
+          $ref: '#/components/schemas/RouteProposal'
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/RouteChange'
+        conflicts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Conflict'
+      description: proposal is present only for PROPOSED. CONFLICT has no candidate and does not change the route revision.
     LunchSearchRequest:
       type: object
       additionalProperties: false
@@ -2377,6 +2517,59 @@ components:
           type: string
           minLength: 1
           maxLength: 512
+    LunchMetadata:
+      type: object
+      additionalProperties: false
+      required: [after_visit_id, duration_seconds]
+      properties:
+        after_visit_id:
+          $ref: '#/components/schemas/UUID'
+        duration_seconds:
+          type: integer
+          format: int32
+          minimum: 2700
+          maximum: 3600
+    ExternalLunchVenue:
+      type: object
+      additionalProperties: false
+      required: [provider, external_id, title, position, observed_at, price, availability, hours_verification]
+      properties:
+        provider:
+          type: string
+          const: 2gis
+        external_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        address:
+          type: string
+          maxLength: 1000
+        position:
+          $ref: '#/components/schemas/Coordinate'
+        observed_at:
+          type: string
+          format: date-time
+        price:
+          type: object
+          additionalProperties: false
+          required: [status, currency]
+          properties:
+            status:
+              type: string
+              const: unknown
+            currency:
+              type: string
+              pattern: '^[A-Z]{3}$'
+        availability:
+          type: string
+          const: unknown
+        hours_verification:
+          type: string
+          const: unknown
     RouteStep:
       type: object
       additionalProperties: false
@@ -2386,7 +2579,7 @@ components:
           $ref: '#/components/schemas/UUID'
         kind:
           type: string
-          enum: [visit, free_time]
+          enum: [visit, free_time, external_lunch]
         position:
           type: integer
           format: int32
@@ -2421,7 +2614,37 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AppliedConstraint'
-      description: catalog and cost are required for visit and absent for free_time.
+        lunch:
+          $ref: '#/components/schemas/LunchMetadata'
+        external_venue:
+          $ref: '#/components/schemas/ExternalLunchVenue'
+      allOf:
+        - if:
+            properties:
+              kind:
+                const: visit
+          then:
+            required: [catalog, cost]
+            not:
+              required: [external_venue]
+        - if:
+            properties:
+              kind:
+                const: free_time
+          then:
+            not:
+              anyOf:
+                - required: [catalog]
+                - required: [cost]
+                - required: [external_venue]
+        - if:
+            properties:
+              kind:
+                const: external_lunch
+          then:
+            required: [lunch, external_venue, cost]
+            not:
+              required: [catalog]
     LegEvidence:
       type: object
       additionalProperties: false
@@ -2913,7 +3136,7 @@ components:
       properties:
         kind:
           type: string
-          enum: [kept, removed, replaced, time_shifted, cost_changed, participation_action, verification_changed]
+          enum: [kept, removed, replaced, time_shifted, cost_changed, participation_action, verification_changed, added]
         scope:
           type: string
           enum: [route, visit, leg]
@@ -2958,7 +3181,7 @@ components:
           $ref: '#/components/schemas/CatalogRevision'
         reason:
           type: string
-          enum: [delay, cancel, delete, pin, weather]
+          enum: [delay, cancel, delete, pin, weather, lunch]
         state:
           type: string
           enum: [pending, applied, rejected, invalidated]
