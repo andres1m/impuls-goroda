@@ -82,6 +82,8 @@ func runSubcommand(ctx context.Context, command string, args []string) bool {
 		err = runSeed(ctx, args)
 	case "embed":
 		err = runEmbed(ctx, args)
+	case "enrich":
+		err = runEnrich(ctx, args)
 	case "rematerialize":
 		err = runRematerialize(ctx, args)
 	case "boundary":
