@@ -4,8 +4,8 @@ import OwnerRouteScreen from './OwnerRouteScreen.jsx';
 import { loadOwnerRoute, loadSelectedRoute, RouteRequestError } from './route.js';
 import { createRouteAttempt, sendRouteCommand, terminalRouteError } from './routeCommands.js';
 import TwoGisRouteMap from './TwoGisRouteMap.jsx';
-import { completeScenario, createCompletionAttempt, loadScenario } from './scenario.js';
-import { confirmedScenarioInput, resolveStartCity, scenarioForm } from './scenarioForm.js';
+import { completeScenario, createCompletionAttempt, createDraftAttempt, loadScenario, saveScenarioDraft } from './scenario.js';
+import { confirmedScenarioInput, draftScenarioInput, resolveStartCity, scenarioForm } from './scenarioForm.js';
 import { cities } from './input.js';
 import { categories, interests, movementModes } from './taxonomy.js';
 
@@ -46,11 +46,64 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
   const [loadingID, setLoadingID] = useState(null);
   const [retrySelectionID, setRetrySelectionID] = useState(null);
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [savePending, setSavePending] = useState(false);
+  const draftRequest = useRef(null);
+  const savingRef = useRef(false);
+  const signature = JSON.stringify({ form, city, origin, destination });
+  const [savedSignature, setSavedSignature] = useState(signature);
+  const dirty = signature !== savedSignature;
   const request = useRef(null);
   const geoRequest = useRef(null);
   const selection = useRef(null);
   useEffect(() => () => { request.current?.abort(); geoRequest.current?.abort(); }, []);
-  const locked = busy || attempt !== null;
+  const locked = busy || attempt !== null || saving || savePending;
+  useEffect(() => {
+    if (!(current.status === 'draft' && dirty) && !savePending && !attempt) return;
+    const warn = (event) => { event.preventDefault(); event.returnValue = true; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [current.status, dirty, savePending, attempt]);
+
+  async function saveConditions() {
+    if (savingRef.current || busy || attempt || locating || current.status !== 'draft') return;
+    let command = draftRequest.current;
+    if (!command) {
+      try {
+        command = { attempt: createDraftAttempt(current, draftScenarioInput(current.input, form, city, origin, destination)), signature, acknowledged: false, conflicted: false };
+      } catch (failure) { setError(failure.message); return; }
+      draftRequest.current = command;
+    }
+    savingRef.current = true; setSaving(true); setSavePending(true); setReview(null); setError('');
+    request.current?.abort();
+    const controller = new AbortController(); request.current = controller;
+    try {
+      if (!command.acknowledged && !command.conflicted) {
+        const saved = await saveScenarioDraft(apiBaseUrl, accessToken, command.attempt, fetch, controller.signal);
+        command.acknowledged = true; command.savedVersion = saved.version;
+      }
+      const latest = await loadScenario(apiBaseUrl, accessToken, current.scenario_id, fetch, controller.signal);
+      if (controller.signal.aborted) return;
+      setCurrent(latest);
+      if (command.acknowledged && latest.version === command.savedVersion) {
+        setSavedSignature(command.signature);
+        setError('Условия сохранены. Можно продолжить позже.');
+      } else setError('Сценарий изменился в другой сессии. Ваш ввод оставлен на экране — проверьте его перед новым сохранением.');
+      draftRequest.current = null; setSavePending(false);
+    } catch (failure) {
+      if (controller.signal.aborted) return;
+      if (['SCENARIO_VERSION_CONFLICT', 'SCENARIO_ALREADY_COMPLETED'].includes(failure.code)) {
+        command.conflicted = true;
+        setError('Сценарий изменился. Нажмите «Обновить сценарий»; введённые поля останутся на экране.');
+      } else if (failure.httpStatus >= 400 && failure.httpStatus < 500 && ![401, 408, 429].includes(failure.httpStatus)) {
+        draftRequest.current = null; setSavePending(false);
+        setError('Не удалось сохранить условия. Проверьте поля перед новым сохранением.');
+      } else setError(failure.httpStatus === 401 ? 'Сессия закончилась. Откройте Mini App заново в MAX.' : 'Ответ не получен. Повторите сохранение — команда и введённые условия сохранены в этом окне.');
+    } finally {
+      savingRef.current = false;
+      if (!controller.signal.aborted) setSaving(false);
+    }
+  }
   function change(field, value) { setForm((old) => ({ ...old, [field]: value })); setReview(null); setError(''); }
   function toggle(field, value) { change(field, form[field].includes(value) ? form[field].filter((item) => item !== value) : [...form[field], value]); }
   async function pickPoint([latitude, longitude]) {
@@ -79,6 +132,7 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
     try {
       await completeScenario(apiBaseUrl, accessToken, command, fetch, controller.signal);
       await refresh(controller);
+      if (!controller.signal.aborted) setSavedSignature(signature);
     } catch (failure) {
       if (controller.signal.aborted) return;
       if (['SCENARIO_VERSION_CONFLICT', 'SCENARIO_ALREADY_COMPLETED'].includes(failure.code)) {
@@ -170,7 +224,9 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
           <label>Пожелания<textarea value={form.wishes} onChange={(e) => change('wishes', e.target.value)} rows={3} /></label>
         </fieldset>
         <RetainedConditions input={current.input} />
-        {!review && !attempt && <button className="scenario-option" disabled={locating || !city || !origin}>Проверить условия</button>}
+        <button type="button" className="scenario-option" disabled={saving || busy || Boolean(attempt) || locating || !dirty && !savePending} onClick={saveConditions}>{saving ? 'Сохраняем…' : draftRequest.current?.conflicted ? 'Обновить сценарий' : savePending ? 'Повторить сохранение' : 'Сохранить условия'}</button>
+        {dirty && <p className="scenario-timezone" role="status">Есть несохранённые изменения. Сохраните условия, чтобы продолжить после закрытия.</p>}
+        {!review && !attempt && <button className="scenario-option" disabled={locked || locating || !city || !origin}>Проверить условия</button>}
       </section>
     </form>}
     {review && <section className="scenario-card" aria-label="Подтверждение расчёта"><h2>Всё верно?</h2>

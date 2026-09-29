@@ -10,6 +10,7 @@ import (
 type ScenarioRequest struct {
 	PresetID   string
 	SourceText string
+	Resume     bool
 }
 
 func (c *Client) PrepareScenarioReply(update Update) (PreparedReply, *ScenarioRequest, bool, error) {
@@ -25,10 +26,11 @@ func (c *Client) PrepareScenarioReply(update Update) (PreparedReply, *ScenarioRe
 		input = update.Callback.Payload
 	}
 	text := strings.ToLower(strings.TrimSpace(input))
+	if text == "/continue" || text == "продолжить сценарий" {
+		return reply, &ScenarioRequest{Resume: true}, true, nil
+	}
 	if text == "" || text == "/start" || text == "/help" || text == "/route" || text == "меню" || text == "другой сценарий" {
-		body := welcome()
-		body.Text = "Выберите тему дня или напишите свой сценарий. Старт и условия уточним в Mini App."
-		reply.Body, err = json.Marshal(body)
+		reply.Body, err = c.ScenarioMenuReply()
 		return reply, nil, true, err
 	}
 	if !utf8.ValidString(input) {
@@ -42,7 +44,26 @@ func (c *Client) PrepareScenarioReply(update Update) (PreparedReply, *ScenarioRe
 }
 
 func (c *Client) ScenarioReply(scenarioID string) (json.RawMessage, error) {
-	body := message{Text: "Сценарий сохранён. Выберите старт и проверьте условия в Mini App — затем рассчитаем маршрут."}
+	return c.scenarioReply(scenarioID, "Сценарий сохранён. Выберите старт и проверьте условия в Mini App — затем рассчитаем маршрут.")
+}
+
+func (c *Client) ScenarioMenuReply() (json.RawMessage, error) {
+	body := welcome()
+	body.Text = "Выберите тему дня или напишите свой сценарий. Старт и условия уточним в Mini App."
+	body.addKeyboard([][]button{{{Type: "message", Text: "Продолжить сценарий"}}})
+	return json.Marshal(body)
+}
+
+func (c *Client) ResumeScenarioReply(scenarioID string, completed bool) (json.RawMessage, error) {
+	text := "Продолжите сохранённый сценарий в Mini App."
+	if completed {
+		text = "Откройте рассчитанные варианты в Mini App."
+	}
+	return c.scenarioReply(scenarioID, text)
+}
+
+func (c *Client) scenarioReply(scenarioID, text string) (json.RawMessage, error) {
+	body := message{Text: text}
 	body.addKeyboard([][]button{
 		{{Type: "open_app", Text: "Продолжить в Mini App", WebApp: c.username, Payload: "scenario_" + scenarioID}},
 		{{Type: "message", Text: "Другой сценарий"}},

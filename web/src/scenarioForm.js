@@ -62,6 +62,45 @@ export function confirmedScenarioInput(base, form, city, origin, destination) {
   return input;
 }
 
+export function draftScenarioInput(base, form, city, origin, destination) {
+  const input = { ...base, constraints: { ...(base.constraints || {}) } };
+  const constraints = input.constraints;
+  if (city) {
+    if (!cities[city]) throw new Error('Город старта пока не поддерживается.');
+    input.city = city; input.timezone = cities[city].timezone;
+  } else { delete input.city; delete input.timezone; }
+  for (const [field, value] of [['start_at', form.start], ['end_at', form.end]]) {
+    if (!value) { delete input[field]; continue; }
+    if (!input.timezone) throw new Error('Выберите старт перед сохранением времени.');
+    input[field] = base.timezone === input.timezone && value === localDateTime(base[field], input.timezone)
+      ? base[field] : zonedDateTime(value, input.timezone).value;
+  }
+  if (input.start_at && input.end_at && Date.parse(input.end_at) <= Date.parse(input.start_at)) throw new Error('Завершение должно быть позже начала.');
+  if (origin) input.origin = { ...origin }; else delete input.origin;
+  if (destination) input.destination = { ...destination }; else delete input.destination;
+  const unknownBits = BigInt(base.constraints?.interest_mask || '0x0') & ~((1n << BigInt(interests.length)) - 1n);
+  constraints.interest_mask = `0x${(unknownBits | BigInt(interestMask(form.interests))).toString(16).padStart(16, '0')}`;
+  if (form.modes.length) constraints.movement_modes = [...form.modes]; else delete constraints.movement_modes;
+  if (form.profile) constraints.load_profile = form.profile; else delete constraints.load_profile;
+  if (form.budgetMode) {
+    constraints.budget = { mode: form.budgetMode };
+    if (form.budgetMode !== 'none' && base.constraints?.budget?.limit?.currency && base.constraints.budget.limit.currency !== 'RUB') throw new Error('Форма бюджета поддерживает только рубли.');
+    if (form.budgetMode !== 'none' && form.budget) {
+      if (!/^(0|[1-9][0-9]*)([.,][0-9]{1,2})?$/.test(form.budget)) throw new Error('Укажите корректную сумму бюджета.');
+      const [whole, fraction = ''] = form.budget.replace(',', '.').split('.');
+      const amount = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0'));
+      if (amount > 9223372036854775807n) throw new Error('Сумма бюджета слишком велика.');
+      constraints.budget.limit = { amount_minor: amount.toString(), currency: 'RUB' };
+    }
+  } else delete constraints.budget;
+  constraints.pushkin_card_only = form.pushkin;
+  if (form.wishes.trim()) {
+    if ([...form.wishes].length > 1000) throw new Error('Пожелания должны быть не длиннее 1000 символов.');
+    constraints.semantic_query = form.wishes;
+  } else delete constraints.semantic_query;
+  return input;
+}
+
 export async function resolveStartCity(point, apiKey, signal) {
   if (!apiKey) throw new Error('Для определения города нужен доступ к карте.');
   const url = new URL('https://catalog.api.2gis.com/3.0/items/geocode');

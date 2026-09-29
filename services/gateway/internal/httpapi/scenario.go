@@ -18,6 +18,7 @@ type ScenarioRuntime interface {
 	ReadBotScenario(context.Context, d.UserID, string) (routewire.BotScenario, error)
 	ReadLatestBotScenario(context.Context, d.UserID) (*routewire.BotScenario, error)
 	CompleteBotScenario(context.Context, d.UserID, string, [16]byte, routewire.CompleteBotScenarioInput, string) (command.Result, error)
+	SaveBotScenarioDraft(context.Context, d.UserID, string, [16]byte, routewire.SaveBotScenarioDraftInput) (command.Result, error)
 }
 
 type ScenarioRouter struct{ runtime ScenarioRuntime }
@@ -28,6 +29,7 @@ func NewScenarioRouter(runtime ScenarioRuntime) *ScenarioRouter {
 
 func (r *ScenarioRouter) Routes() []router.Route {
 	return []router.Route{
+		router.NewRoute(http.MethodPost, "/scenarios/:scenario_id/draft", func() echo.HandlerFunc { return r.saveDraft }, shareNoStore, Authenticate(r.runtime), AuthenticatedRateLimit(r.runtime)),
 		router.NewRoute(http.MethodGet, "/me/scenario", func() echo.HandlerFunc { return r.read(true) }, Authenticate(r.runtime), AuthenticatedRateLimit(r.runtime)),
 		router.NewRoute(http.MethodGet, "/scenarios/:scenario_id", func() echo.HandlerFunc { return r.read(false) }, Authenticate(r.runtime), AuthenticatedRateLimit(r.runtime)),
 		router.NewRoute(http.MethodPost, "/scenarios/:scenario_id/complete", func() echo.HandlerFunc { return r.complete }, Authenticate(r.runtime), AuthenticatedRateLimit(r.runtime)),

@@ -88,3 +88,30 @@ export async function completeScenario(apiBaseUrl, accessToken, attempt, fetcher
   }, fetcher, signal);
   return parseOptimizeResponse(body);
 }
+
+export function createDraftAttempt(scenario, input, key = crypto.randomUUID()) {
+  const attempt = createCompletionAttempt(scenario, input, key);
+  return Object.freeze({ ...attempt, expectedVersion: scenario.version, pending: canonicalScenarioValue(scenario.pending_extraction) });
+}
+
+function canonicalScenarioValue(value, key) {
+  if (value === undefined) return undefined;
+  if (Array.isArray(value)) return value.map((item) => canonicalScenarioValue(item));
+  if (object(value)) return Object.fromEntries(Object.keys(value).sort().map((name) => [name, canonicalScenarioValue(value[name], name)]));
+  if (typeof value === 'string' && ['start_at', 'end_at', 'starts_at'].includes(key) && Number.isFinite(Date.parse(value))) return new Date(value).toISOString();
+  return value;
+}
+
+export async function saveScenarioDraft(apiBaseUrl, accessToken, attempt, fetcher = fetch, signal) {
+  if (!object(attempt) || !scenarioIDPattern.test(attempt.scenarioID) || !uuidPattern.test(attempt.key) || typeof attempt.body !== 'string' || !validScenarioVersion(attempt.expectedVersion)) {
+    throw new Error('Invalid draft attempt');
+  }
+  const body = await request(apiBaseUrl, `/api/v1/scenarios/${attempt.scenarioID}/draft`, accessToken, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': attempt.key }, body: attempt.body,
+  }, fetcher, signal);
+  const scenario = parseScenarioResponse(body, attempt.scenarioID);
+  if (!scenario || scenario.status !== 'draft' || scenario.outcome !== undefined || BigInt(scenario.version) !== BigInt(attempt.expectedVersion) + 1n ||
+      JSON.stringify(canonicalScenarioValue(scenario.input)) !== JSON.stringify(canonicalScenarioValue(JSON.parse(attempt.body).input)) ||
+      JSON.stringify(canonicalScenarioValue(scenario.pending_extraction)) !== JSON.stringify(attempt.pending)) throw invalidResponse();
+  return scenario;
+}
