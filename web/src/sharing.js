@@ -29,6 +29,51 @@ export function createRevokeShareAttempt(route, key = crypto.randomUUID()) {
   return Object.freeze({ ...shareTarget(route, key), operation: 'revoke' });
 }
 
+export function createCopyAttempt(shared, token, origin, acceptedUnknowns, key = crypto.randomUUID()) {
+  if (!validShareToken(token) || !revision(shared?.revision) || !uuid.test(key) ||
+      !Number.isFinite(origin?.latitude) || Math.abs(origin.latitude) > 90 ||
+      !Number.isFinite(origin?.longitude) || Math.abs(origin.longitude) > 180 ||
+      !Array.isArray(acceptedUnknowns) || new Set(acceptedUnknowns).size !== acceptedUnknowns.length ||
+      acceptedUnknowns.some((code) => typeof code !== 'string' || !code.trim() || code.length > 128)) {
+    throw new RouteRequestError(0, 'INVALID_COPY', false);
+  }
+  return Object.freeze({ token, revision: shared.revision, key,
+    origin: { latitude: origin.latitude, longitude: origin.longitude },
+    body: JSON.stringify({ origin, accepted_unknowns: [...acceptedUnknowns].sort() }),
+  });
+}
+
+export async function sendCopyCommand(apiBaseUrl, accessToken, attempt, fetcher = fetch, signal) {
+  if (!accessToken) throw new RouteRequestError(401, 'AUTH_REQUIRED', false);
+  if (!attempt || !validShareToken(attempt.token) || !revision(attempt.revision) || !uuid.test(attempt.key)) {
+    throw new RouteRequestError(0, 'INVALID_COPY', false);
+  }
+  const response = await shareFetch(`${apiBaseUrl}/api/v1/shared-routes/${attempt.token}/copy`, {
+    method: 'POST', signal, body: attempt.body,
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json',
+      'Idempotency-Key': attempt.key, 'If-Match': `"${attempt.revision}"` },
+  }, fetcher);
+  let body;
+  try { body = await response.json(); } catch { throw invalid(); }
+  if (response.status === 422 && ['CONFLICT', 'NO_FEASIBLE_ROUTE'].includes(body?.status)) {
+    if (typeof body.request_id !== 'string' || !body.request_id || !Array.isArray(body.conflicts) ||
+        !body.conflicts.length || body.conflicts.some((item) => !item || typeof item.code !== 'string' || typeof item.message !== 'string') ||
+        'route' in body) throw invalid();
+    return { status: body.status, conflicts: body.conflicts };
+  }
+  if (!response.ok) {
+    if (typeof body?.code !== 'string' || typeof body.retryable !== 'boolean') throw invalid();
+    throw new RouteRequestError(response.status, body.code, body.retryable);
+  }
+  const route = body?.route;
+  if (response.status !== 200 || !['READY', 'PARTIAL'].includes(body?.status) || typeof body.request_id !== 'string' || !body.request_id ||
+      !route || !uuid.test(route.route_id) || !revision(route.revision) || route.lifecycle !== 'draft' ||
+      !Array.isArray(route.plan?.steps) || !route.plan?.origin ||
+      route.plan.origin.latitude !== attempt.origin.latitude || route.plan.origin.longitude !== attempt.origin.longitude ||
+      response.headers.get('ETag') !== `"${route.revision}"`) throw invalid();
+  return { status: body.status, route };
+}
+
 function shareTarget(route, key) {
   if (!uuid.test(route?.route_id) || !revision(route.revision) || !uuid.test(key)) {
     throw new RouteRequestError(0, 'INVALID_SHARE', false);
