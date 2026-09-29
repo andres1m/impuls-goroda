@@ -1,0 +1,34 @@
+x-release-labels: &release-labels
+  org.opencontainers.image.revision: ${SOURCE_REVISION:?set SOURCE_REVISION to the release commit}
+
+services:
+  gateway:
+    image: impuls-goroda/gateway:${RELEASE_TAG:?set RELEASE_TAG for this release}
+    labels: *release-labels
+    environment:
+      POLZA_API_KEY: ${POLZA_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+
+  optimizer:
+    image: impuls-goroda/optimizer:${RELEASE_TAG:?set RELEASE_TAG for this release}
+    labels: *release-labels
+
+  syncer:
+    image: impuls-goroda/syncer:${RELEASE_TAG:?set RELEASE_TAG for this release}
+    labels: *release-labels
+
+  public-web:
+    labels: *release-labels
+    volumes:
+      - type: bind
+        source: ${WEB_RUNTIME_CONFIG:?set WEB_RUNTIME_CONFIG to the product config file}
+        target: /srv/config/config.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${WEB_DIST_DIR:?set WEB_DIST_DIR to the release web build}
+        target: /srv/web
+        read_only: true
+        bind:
+          create_host_path: false
