@@ -43,7 +43,7 @@ function RemovalControls({ step, participation, disabled, onRemove }) {
   </section>;
 }
 
-export default function RouteScreen({ route, mapApiKey, shared = false, actionsDisabled = false, onExecution, onParticipation, onPin, onRemoval }) {
+export default function RouteScreen({ route, mapApiKey, shared = false, actionsDisabled = false, lunchSearchDisabled = false, onLunch, onExecution, onParticipation, onPin, onRemoval }) {
   const { plan } = route;
   const projection = useMemo(() => projectRoute(route), [route]);
   const [selectedID, setSelectedID] = useState(null);
@@ -76,6 +76,8 @@ export default function RouteScreen({ route, mapApiKey, shared = false, actionsD
           <ol className="workspace-timeline">
             {projection.steps.map((step) => {
               const isVisit = step.kind === 'visit';
+              const isLunch = step.applied_constraints?.some((item) => item.code === 'LUNCH_WINDOW');
+              const opensLunch = !shared && !isVisit && isLunch && Boolean(onLunch);
               const visit = projection.visits.find((item) => item.id === step.visit_id);
               const executed = projection.execution.get(step.visit_id);
               const participation = route.participation?.find((item) => item.visit_id === step.visit_id) || step.participation;
@@ -85,15 +87,17 @@ export default function RouteScreen({ route, mapApiKey, shared = false, actionsD
               return <React.Fragment key={step.visit_id}>
                 {incoming.map((leg) => <Leg key={leg.position} leg={leg} timezone={timezone} />)}
                 <li ref={(node) => { if (node) cards.current.set(step.visit_id, node); else cards.current.delete(step.visit_id); }}>
-                  <button className={isVisit ? `workspace-visit${selected ? ' is-active' : ''}${visit?.completed ? ' is-completed' : ''}` : 'workspace-lunch-card server-free-time'} aria-expanded={selected} onClick={() => setSelectedID(selected ? null : step.visit_id)}>
+                  <button className={isVisit ? `workspace-visit${selected ? ' is-active' : ''}${visit?.completed ? ' is-completed' : ''}` : `workspace-lunch-card server-free-time${isLunch ? '' : ' server-pause'}`} aria-expanded={opensLunch ? undefined : selected} disabled={opensLunch && lunchSearchDisabled} onClick={() => opensLunch ? onLunch() : setSelectedID(selected ? null : step.visit_id)}>
                     <span className="workspace-visit-time">{localTime(step.visit_start_at, timezone)}</span>
-                    <span className="workspace-visit-main"><small>{isVisit && <span className="workspace-visit-marker" aria-hidden="true">{visit.completed ? '✓' : visit.number}</span>}{isVisit ? categoryTitles[step.catalog?.category] || 'Посещение' : 'Пауза'} · до {localTime(step.visit_end_at, timezone)}</small>
-                      <strong>{isVisit ? visit.title : 'Свободное время'}</strong>
+                    <span className="workspace-visit-main"><small>{isVisit && <span className="workspace-visit-marker" aria-hidden="true">{visit.completed ? '✓' : visit.number}</span>}{isLunch ? 'Обед' : isVisit ? categoryTitles[step.catalog?.category] || 'Посещение' : 'Пауза'} · до {localTime(step.visit_end_at, timezone)}</small>
+                      <strong>{isVisit ? visit.title : isLunch ? 'Время на обед' : 'Свободное время'}</strong>
+                      {opensLunch && <em>Найти кафе рядом со мной</em>}
                       {visit?.completed ? <em>Пройдено{executed.confirmation_kind === 'user_reported' ? ' · по вашей отметке' : ' · подтверждено источником'}</em> : executed?.status === 'skipped' ? <em>Пропущено</em> : step.obligation ? <em>Обязательное посещение</em> : step.pinned ? <em>Закреплено</em> : null}
-                    </span><span className="workspace-visit-chevron" aria-hidden="true">{selected ? '−' : '+'}</span>
+                    </span><span className="workspace-visit-chevron" aria-hidden="true">{opensLunch ? '›' : selected ? '−' : '+'}</span>
                   </button>
                   {selected && <div className="server-visit-details">
                     <p>Прибытие {localTime(step.arrival_at, timezone)} · выход {localTime(step.departure_at, timezone)}</p>
+                    {!shared && isVisit && isLunch && onLunch && <button className="scenario-option" disabled={lunchSearchDisabled} onClick={onLunch}>Другие кафе рядом со мной</button>}
                     {isVisit && <>
                       <p>{availabilityNames[step.catalog?.availability] || 'Доступность неизвестна'}</p>
                       <p>{dataNames[step.catalog?.data_mode] || 'Режим данных не указан'}</p>

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { coordinate } from './routeProjection.js';
 import { externalLegLink, openExternalNavigation } from './externalNavigation.js';
 
@@ -24,22 +24,39 @@ function searchMessage(status, code) {
   return 'Не удалось получить кафе рядом. Попробуйте снова.';
 }
 
-export default function LunchSearch({ routeID, apiBaseUrl, accessToken, disabled }) {
+export default function LunchSearch({ routeID, apiBaseUrl, accessToken, disabled, openRequest = 0 }) {
   const [open, setOpen] = useState(false);
   const [radius, setRadius] = useState(500);
   const [phase, setPhase] = useState('idle');
   const [message, setMessage] = useState('');
   const [results, setResults] = useState(null);
   const current = useRef(null);
+  const heading = useRef(null);
+  const opener = useRef(null);
+  const openFromTimeline = useEffectEvent(() => {
+    search(radius);
+    heading.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    heading.current?.focus({ preventScroll: true });
+  });
   useEffect(() => () => current.current?.abort(), []);
+  useEffect(() => { if (openRequest > 0) openFromTimeline(); }, [openRequest]);
+  useEffect(() => {
+    if (open) {
+      heading.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      heading.current?.focus({ preventScroll: true });
+    }
+  }, [open]);
 
   function close() {
     current.current?.abort(); current.current = null;
     setOpen(false); setResults(null); setMessage(''); setPhase('idle');
+    if (opener.current?.isConnected) opener.current.focus({ preventScroll: true });
+    opener.current = null;
   }
 
   async function search(nextRadius) {
     if (disabled) return;
+    if (!open) opener.current = document.activeElement;
     current.current?.abort();
     const controller = new AbortController();
     current.current = controller;
@@ -79,7 +96,7 @@ export default function LunchSearch({ routeID, apiBaseUrl, accessToken, disabled
   const busy = phase === 'locating' || phase === 'searching';
   return <section className="owner-route-actions lunch-search" aria-label="Кафе рядом">
     {!open ? <button className="scenario-option lunch-search-open" disabled={disabled} onClick={() => search(radius)}>Обед · кафе рядом</button> : <div className="lunch-search-panel">
-      <div className="lunch-search-heading"><h2>Где пообедать?</h2><button type="button" className="scenario-option" onClick={close}>Закрыть</button></div>
+      <div className="lunch-search-heading"><h2 ref={heading} tabIndex={-1}>Где пообедать?</h2><button type="button" className="scenario-option" onClick={close}>Закрыть</button></div>
       <div className="lunch-search-radii" aria-label="Радиус поиска">{radii.map((value) => <button type="button" className="scenario-option" key={value} aria-pressed={radius === value} disabled={disabled} onClick={() => search(value)}>{value === 1000 ? '1 км' : `${value} м`}</button>)}</div>
       {busy && <p role="status">{phase === 'locating' ? 'Определяем вашу позицию…' : 'Ищем кафе рядом…'}</p>}
       {message && <p className="scenario-error" role="alert">{message}</p>}
