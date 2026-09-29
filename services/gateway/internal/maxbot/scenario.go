@@ -11,6 +11,7 @@ type ScenarioRequest struct {
 	PresetID   string
 	SourceText string
 	Resume     bool
+	Result     bool
 }
 
 func (c *Client) PrepareScenarioReply(update Update) (PreparedReply, *ScenarioRequest, bool, error) {
@@ -26,6 +27,9 @@ func (c *Client) PrepareScenarioReply(update Update) (PreparedReply, *ScenarioRe
 		input = update.Callback.Payload
 	}
 	text := strings.ToLower(strings.TrimSpace(input))
+	if text == "/result" || text == "результат" {
+		return reply, &ScenarioRequest{Result: true}, true, nil
+	}
 	if text == "/continue" || text == "продолжить сценарий" {
 		return reply, &ScenarioRequest{Resume: true}, true, nil
 	}
@@ -58,7 +62,7 @@ func (c *Client) ExtractedScenarioReply(scenarioID string, extracted bool) (json
 func (c *Client) ScenarioMenuReply() (json.RawMessage, error) {
 	body := welcome()
 	body.Text = "Выберите тему дня или напишите свой сценарий. Старт и условия уточним в Mini App."
-	body.addKeyboard([][]button{{{Type: "message", Text: "Продолжить сценарий"}}})
+	body.addKeyboard([][]button{{{Type: "message", Text: "Продолжить сценарий"}, {Type: "message", Text: "Результат"}}})
 	return json.Marshal(body)
 }
 
@@ -70,11 +74,22 @@ func (c *Client) ResumeScenarioReply(scenarioID string, completed bool) (json.Ra
 	return c.scenarioReply(scenarioID, text)
 }
 
+func (c *Client) ResultScenarioReply(scenarioID, text, label string) (json.RawMessage, error) {
+	body := message{Text: text}
+	var rows [][]button
+	if label != "" {
+		rows = append(rows, []button{{Type: "open_app", Text: label, WebApp: c.username, Payload: "scenario_" + scenarioID}})
+	}
+	rows = append(rows, []button{{Type: "message", Text: "Результат"}, {Type: "message", Text: "Другой сценарий"}})
+	body.addKeyboard(rows)
+	return json.Marshal(body)
+}
+
 func (c *Client) scenarioReply(scenarioID, text string) (json.RawMessage, error) {
 	body := message{Text: text}
 	body.addKeyboard([][]button{
 		{{Type: "open_app", Text: "Продолжить в Mini App", WebApp: c.username, Payload: "scenario_" + scenarioID}},
-		{{Type: "message", Text: "Другой сценарий"}},
+		{{Type: "message", Text: "Результат"}, {Type: "message", Text: "Другой сценарий"}},
 	})
 	return json.Marshal(body)
 }

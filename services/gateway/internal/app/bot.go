@@ -113,12 +113,15 @@ func (h *BotHandler) createScenarioReply(ctx context.Context, q *postgres.Querie
 	if account.State != d.AccountActive {
 		return nil, postgres.ErrAccountDisabled
 	}
-	if request.Resume {
+	if request.Resume || request.Result {
 		latest, err := q.ReadLatestBotScenario(ctx, account.ID)
 		if err != nil {
 			return nil, err
 		}
 		if latest != nil {
+			if request.Result || latest.Outcome != nil {
+				return h.scenarioResultReply(ctx, q, account.ID, *latest)
+			}
 			return h.client.ResumeScenarioReply(latest.ScenarioID, latest.Status == "completed")
 		}
 		return h.client.ScenarioMenuReply()
