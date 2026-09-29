@@ -27,4 +27,10 @@ func TestStandConfigLoads(t *testing.T) {
 		cfg.Kafka.RawPartitions != 3 || cfg.Kafka.DLQTopic != "dlq.integration.raw" {
 		t.Fatalf("kafka = %+v", cfg.Kafka)
 	}
+	if cfg.Kafka.UrgentTopic != "events.lifecycle.urgent" {
+		t.Fatalf("urgent topic = %q", cfg.Kafka.UrgentTopic)
+	}
+	if cfg.Lifecycle.Host != "gateway" || cfg.Lifecycle.Port != 50052 || cfg.Lifecycle.UseTLS {
+		t.Fatalf("lifecycle = %+v", cfg.Lifecycle)
+	}
 }

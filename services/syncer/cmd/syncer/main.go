@@ -14,13 +14,16 @@ import (
 	"github.com/andres1m/impuls-goroda/pkg/db"
 	"github.com/andres1m/impuls-goroda/pkg/logger"
 	"github.com/andres1m/impuls-goroda/pkg/redis"
+	"github.com/andres1m/impuls-goroda/pkg/rpc"
 	"github.com/andres1m/impuls-goroda/pkg/server"
 	"github.com/andres1m/impuls-goroda/pkg/svc"
 	"github.com/andres1m/impuls-goroda/pkg/telemetry"
 	"github.com/andres1m/impuls-goroda/pkg/temporal"
+	gatewayv1 "github.com/andres1m/impuls-goroda/proto/gateway/v1"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/delivery"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/ingest"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/kafka"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/lifecycle"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/repo/postgres"
 	rawtemporal "github.com/andres1m/impuls-goroda/services/syncer/internal/temporal"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/temporal/activity"
@@ -46,6 +49,7 @@ type appConfig struct {
 	AI        ai.Config         `yaml:"ai"`
 	Kafka     kafka.Config      `yaml:"kafka"`
 	Delivery  delivery.Config   `yaml:"delivery"`
+	Lifecycle config.GRPCClient `yaml:"lifecycle"`
 }
 
 type infrastructureComponents struct {
@@ -139,6 +143,7 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("create dead letter writer error: %w", err)
 	}
 	defer deadLetters.Close()
+	gateway := rpc.NewClient("gateway", infra.log.Log, &infra.cfg.Lifecycle)
 	consumer := kafka.NewConsumer(infra.log.Log, &infra.cfg.Kafka, starter, deadLetters)
 	relay, err := delivery.NewRelay(infra.cfg.Delivery, postgres.NewDeliveries(poolDB{client: infra.pool}),
 		map[string]delivery.Sender{
@@ -149,6 +154,13 @@ func run(ctx context.Context) error {
 				return infra.redis.Pool
 			}),
 			ingest.DeadLetterDestination: deadLetters,
+			lifecycle.GatewayDestination: lifecycle.NewGatewaySender(func() gatewayv1.LifecycleServiceClient {
+				conn := gateway.GetConn()
+				if conn == nil {
+					return nil
+				}
+				return gatewayv1.NewLifecycleServiceClient(conn)
+			}),
 		}, infra.log.Log)
 	if err != nil {
 		return fmt.Errorf("create delivery relay error: %w", err)
@@ -162,6 +174,7 @@ func run(ctx context.Context) error {
 		infra.temporal,
 		temporalWorker,
 		consumer,
+		gateway,
 		relay,
 		opsServer,
 	}); err != nil {

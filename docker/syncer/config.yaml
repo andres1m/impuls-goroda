@@ -37,6 +37,8 @@ kafka:
   raw-partitions: 3
   # Raw data the syncer cannot read, with the reason, for a person to look at.
   dlq-topic: dlq.integration.raw
+  # Session cancellations for whoever needs to react at once.
+  urgent-topic: events.lifecycle.urgent
   consumer-group: syncer-raw
 
 # Sends catalog announcements recorded with each publication once it commits.
@@ -46,6 +48,12 @@ delivery:
   lease: 30s
   backoff-min: 1s
   backoff-max: 1m
+
+# Where gateway receives session cancellations. They wait in the outbox while it is unreachable.
+lifecycle:
+  host: gateway
+  port: 50052
+  use_tls: false
 
 ops-server:
   port: 9090
