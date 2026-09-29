@@ -21,10 +21,6 @@ import (
 )
 
 var (
-	schemaMismatch = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "ingestion_schema_mismatch_total",
-		Help: "Raw envelopes that could not be decoded or validated.",
-	}, []string{"source"})
 	rawWorkflows = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "syncer_raw_workflows_total",
 		Help: "Raw ingest workflow starts by outcome.",
@@ -40,6 +36,10 @@ type Starter interface {
 	Start(ctx context.Context, envelope *ingest.Envelope) (existed bool, err error)
 }
 
+type DeadLetterWriter interface {
+	Write(ctx context.Context, key []byte, letter *ingest.DeadLetter) error
+}
+
 type groupClient interface {
 	Ping(ctx context.Context) error
 	PollFetches(ctx context.Context) kgo.Fetches
@@ -49,21 +49,23 @@ type groupClient interface {
 }
 
 type Consumer struct {
-	log        *zap.Logger
-	cfg        Config
-	starter    Starter
-	client     groupClient
-	tracer     *kotel.Tracer
-	retryDelay func(attempt int) time.Duration
+	log         *zap.Logger
+	cfg         Config
+	starter     Starter
+	deadLetters DeadLetterWriter
+	client      groupClient
+	tracer      *kotel.Tracer
+	retryDelay  func(attempt int) time.Duration
 }
 
-func NewConsumer(log *zap.Logger, cfg Config, starter Starter) *Consumer {
+func NewConsumer(log *zap.Logger, cfg *Config, starter Starter, deadLetters DeadLetterWriter) *Consumer {
 	return &Consumer{
-		log:        log,
-		cfg:        cfg,
-		starter:    starter,
-		tracer:     kotel.NewTracer(kotel.ConsumerGroup(cfg.ConsumerGroup)),
-		retryDelay: startRetryDelay,
+		log:         log,
+		cfg:         *cfg,
+		starter:     starter,
+		deadLetters: deadLetters,
+		tracer:      kotel.NewTracer(kotel.ConsumerGroup(cfg.ConsumerGroup)),
+		retryDelay:  startRetryDelay,
 	}
 }
 
@@ -165,37 +167,50 @@ func (c *Consumer) handle(ctx context.Context, record *kgo.Record) error {
 	ctx = trace.ContextWithSpan(ctx, trace.SpanFromContext(recordCtx))
 	envelope, err := ingest.DecodeEnvelope(record.Value)
 	if err != nil {
-		// ponytail: an invalid envelope is counted and dropped; it goes to the dead letter topic once that exists.
-		schemaMismatch.WithLabelValues(sourceLabel(record.Value)).Inc()
-		c.log.Error(
-			"invalid raw envelope",
-			append(
-				[]zap.Field{
-					zap.Int32("partition", record.Partition),
-					zap.Int64("offset", record.Offset),
-					zap.Error(err),
-				},
-				telemetry.TraceFields(ctx)...)...)
-		return nil
+		return c.reject(ctx, record, err)
 	}
-	for attempt := 0; ; attempt++ {
+	return c.retry(ctx, "start raw ingest workflow", zap.String("raw_ingest_id", envelope.RawIngestID), func() error {
 		existed, startErr := c.starter.Start(ctx, &envelope)
 		if startErr == nil {
 			rawWorkflows.WithLabelValues(startResult(existed)).Inc()
+		}
+		return startErr
+	})
+}
+
+// reject sets an unreadable envelope aside in the dead letter topic; its offset is committed only
+// once the letter is there.
+func (c *Consumer) reject(ctx context.Context, record *kgo.Record, cause error) error {
+	source := sourceLabel(record.Value)
+	ingest.SchemaMismatch.WithLabelValues(source).Inc()
+	c.log.Error("invalid raw envelope", append([]zap.Field{
+		zap.Int32("partition", record.Partition), zap.Int64("offset", record.Offset), zap.Error(cause),
+	}, telemetry.TraceFields(ctx)...)...)
+	letter := &ingest.DeadLetter{
+		Version: ingest.DeadLetterVersion,
+		Stage:   ingest.StageEnvelope,
+		Reason:  domain.InvalidSchema,
+		Source:  domain.SourceKey(source),
+		Error:   cause.Error(),
+		Record:  record.Value,
+	}
+	return c.retry(ctx, "write dead letter", zap.Int64("offset", record.Offset), func() error {
+		return c.deadLetters.Write(ctx, record.Key, letter)
+	})
+}
+
+// retry repeats an effect the offset commit has to wait for until it succeeds or the consumer stops.
+func (c *Consumer) retry(ctx context.Context, what string, subject zap.Field, effect func() error) error {
+	for attempt := 0; ; attempt++ {
+		err := effect()
+		if err == nil {
 			return nil
 		}
-		c.log.Warn(
-			"start raw ingest workflow",
-			append(
-				[]zap.Field{
-					zap.String("raw_ingest_id", envelope.RawIngestID),
-					zap.Int("attempt", attempt),
-					zap.Error(startErr),
-				},
-				telemetry.TraceFields(ctx)...)...)
+		c.log.Warn(what, append([]zap.Field{subject, zap.Int("attempt", attempt), zap.Error(err)},
+			telemetry.TraceFields(ctx)...)...)
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("wait to retry workflow start: %w", ctx.Err())
+			return fmt.Errorf("%s: %w", what, ctx.Err())
 		case <-time.After(c.retryDelay(attempt)):
 		}
 	}

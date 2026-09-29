@@ -12,6 +12,9 @@ import (
 
 	"github.com/andres1m/impuls-goroda/pkg/catalogevent"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/delivery"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/ingest"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/materialize"
 )
 
 // EnqueueRevision records in the publication's own transaction that caches still have to learn about
@@ -39,6 +42,45 @@ func EnqueueRevision(ctx context.Context, tx pgx.Tx, m *catalogevent.Invalidatio
 	)
 	if err != nil {
 		return fmt.Errorf("enqueue catalog revision: %w", err)
+	}
+	return nil
+}
+
+// deadLetterChanges derives a dead letter's change id from its raw record, so a repeated batch
+// cannot queue the letter twice.
+var deadLetterChanges = uuid.MustParse("5d0c7a3e-9b41-4f6e-8a2d-3c7b1e9f4a60")
+
+// EnqueueDeadLetter records in the batch's transaction that a malformed raw record still has to reach
+// the dead letter topic.
+func EnqueueDeadLetter(
+	ctx context.Context,
+	tx pgx.Tx,
+	city domain.City,
+	raw *materialize.Raw,
+	code string,
+	at time.Time,
+) error {
+	payload, err := ingest.EncodeDeadLetter(&ingest.DeadLetter{
+		Version:     ingest.DeadLetterVersion,
+		Stage:       ingest.StagePayload,
+		Reason:      domain.InvalidSchema,
+		RawIngestID: raw.ID,
+		Source:      raw.Source,
+		City:        city,
+		ExternalID:  raw.ExternalID,
+		Error:       code,
+	})
+	if err != nil {
+		return fmt.Errorf("dead letter for %s: %w", raw.ID, err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO integration.change_delivery (id, change_id, city, destination, event_type, source_record_id,
+			raw_ingest_id, payload, state, next_attempt_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6::uuid, $7::uuid, $8, 'pending', $9, $9)
+		ON CONFLICT (change_id, destination, event_type) DO NOTHING`,
+		uuid.New(), uuid.NewSHA1(deadLetterChanges, []byte(raw.ID)), city, ingest.DeadLetterDestination,
+		ingest.DeadLetterEventType, raw.SourceRecordID, raw.ID, payload, at); err != nil {
+		return fmt.Errorf("enqueue dead letter %s: %w", raw.ID, err)
 	}
 	return nil
 }

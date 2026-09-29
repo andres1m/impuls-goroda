@@ -7,7 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/ingest"
 )
 
 const cafe = `{"type":"node","id":1,"lat":58.01,"lon":56.25,"tags":{"name":"Кофейня","amenity":"cafe"}}`
@@ -73,6 +76,18 @@ type fakeStore struct {
 	published []Outcome
 	revision  int64
 	err       error
+	outside   []bool
+	known     bool
+	points    []Point
+}
+
+func (f *fakeStore) OutsideBoundary(
+	_ context.Context,
+	_ domain.City,
+	points []Point,
+) (outside []bool, known bool, err error) {
+	f.points = points
+	return f.outside, f.known, nil
 }
 
 func (f *fakeStore) PendingBatch(context.Context, domain.City, []string) ([]Raw, error) {
@@ -182,5 +197,88 @@ func TestPrepareNormalizesKudaGoEvents(t *testing.T) {
 	o, deferred := Prepare(domain.Moscow, []Raw{r}, time.Now())
 	if len(deferred) != 0 || len(o.Failed) != 1 || o.Failed[0].Code != "missing_place" {
 		t.Fatalf("outcome %+v deferred %v", o, deferred)
+	}
+}
+
+const cafeWithoutCoordinates = `{"type":"node","id":7,"tags":{"name":"Кафе","amenity":"cafe"}}`
+
+func TestPrepareQuarantinesMalformedRecords(t *testing.T) {
+	unreadable := raw("r1", "node/1", `not json`)
+	nowhere := raw("r2", "node/2", cafeWithoutCoordinates)
+	nameless := raw("r3", "node/3", `{"type":"node","id":3,"lat":58,"lon":56,"tags":{"amenity":"cafe"}}`)
+
+	o, _ := Prepare(domain.Perm, []Raw{unreadable, nowhere, nameless}, time.Now())
+
+	want := []Quarantined{
+		{Raw: unreadable, Reason: domain.InvalidSchema, Details: QuarantineDetails{Code: "bad_payload"}},
+		{Raw: nowhere, Reason: domain.CorruptedGeometry, Details: QuarantineDetails{Code: "bad_coordinates"}},
+	}
+	if !reflect.DeepEqual(o.Quarantined, want) {
+		t.Fatalf("quarantined %+v", o.Quarantined)
+	}
+	if len(o.Failed) != 1 || o.Failed[0].Code != "missing_name" {
+		t.Fatalf("failed %+v", o.Failed)
+	}
+}
+
+func TestApplyQuarantinesPlacesOutsideTheCity(t *testing.T) {
+	far := raw(
+		"r2",
+		"node/2",
+		`{"type":"node","id":2,"lat":58.01,"lon":57.5,"tags":{"name":"Далеко","amenity":"cafe"}}`,
+	)
+	s := &fakeStore{pending: []Raw{raw("r1", "node/1", cafe), far}, outside: []bool{false, true}, known: true}
+
+	res, err := Apply(context.Background(), s, domain.Perm, []string{"r1", "r2"}, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.points) != 2 || s.points[1] != (Point{Lat: 58.01, Lon: 57.5}) {
+		t.Fatalf("points %+v", s.points)
+	}
+	if res.Applied != 1 || res.Quarantined != 1 || len(s.published) != 1 {
+		t.Fatalf("result %+v", res)
+	}
+	got := s.published[0].Quarantined
+	want := []Quarantined{{Raw: far, Reason: domain.GeoDiscrepancy,
+		Details: QuarantineDetails{Check: "outside_city_boundary", Lat: 58.01, Lon: 57.5}}}
+	if !reflect.DeepEqual(got, want) || s.published[0].Apply[0].Raw.ID != "r1" {
+		t.Fatalf("published %+v", s.published[0])
+	}
+	if len(res.Failures) != 1 || res.Failures[0] != (Failure{RawIngestID: "r2", Source: domain.OSM,
+		Code: "GEO_DISCREPANCY_QUARANTINE"}) {
+		t.Fatalf("failures %+v", res.Failures)
+	}
+}
+
+func TestApplyWithoutBoundaryAppliesEverything(t *testing.T) {
+	before := testutil.ToFloat64(geoChecks.WithLabelValues("perm", "no_boundary"))
+	s := &fakeStore{pending: []Raw{raw("r1", "node/1", cafe), raw("r2", "node/2", cafe)}}
+	res, err := Apply(context.Background(), s, domain.Perm, []string{"r1", "r2"}, time.Now)
+	if err != nil || res.Applied != 2 || res.Quarantined != 0 {
+		t.Fatalf("result %+v, err %v", res, err)
+	}
+	if testutil.ToFloat64(geoChecks.WithLabelValues("perm", "no_boundary")) != before+2 {
+		t.Fatal("unchecked places not counted")
+	}
+}
+
+func TestApplyPublishesAQuarantineOnlyBatch(t *testing.T) {
+	before := testutil.ToFloat64(ingest.SchemaMismatch.WithLabelValues("osm"))
+	s := &fakeStore{pending: []Raw{raw("r1", "node/1", `not json`)}, known: true}
+	res, err := Apply(context.Background(), s, domain.Perm, []string{"r1"}, time.Now)
+	if err != nil || res.Quarantined != 1 || len(s.published) != 1 || s.points != nil {
+		t.Fatalf("result %+v, published %d, points %v, err %v", res, len(s.published), s.points, err)
+	}
+	if testutil.ToFloat64(ingest.SchemaMismatch.WithLabelValues("osm")) != before+1 {
+		t.Fatal("malformed payload not counted as a schema mismatch")
+	}
+}
+
+func TestApplyRefusesAnIncompleteBoundaryAnswer(t *testing.T) {
+	s := &fakeStore{pending: []Raw{raw("r1", "node/1", cafe)}, known: true}
+	if _, err := Apply(context.Background(), s, domain.Perm, []string{"r1"}, time.Now); err == nil ||
+		len(s.published) != 0 {
+		t.Fatalf("err %v, published %d", err, len(s.published))
 	}
 }

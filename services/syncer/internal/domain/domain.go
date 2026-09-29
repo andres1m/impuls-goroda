@@ -66,3 +66,12 @@ type RawRecord struct {
 	// between requests while the content stays the same.
 	ContentHash []byte
 }
+
+// QuarantineReason tells why a raw record was set aside instead of reaching the catalog.
+type QuarantineReason string
+
+const (
+	InvalidSchema     QuarantineReason = "InvalidSchema"
+	CorruptedGeometry QuarantineReason = "CorruptedGeometry"
+	GeoDiscrepancy    QuarantineReason = "GEO_DISCREPANCY_QUARANTINE"
+)

@@ -35,6 +35,8 @@ kafka:
     - kafka:9092
   raw-topic: integration.raw
   raw-partitions: 3
+  # Raw data the syncer cannot read, with the reason, for a person to look at.
+  dlq-topic: dlq.integration.raw
   consumer-group: syncer-raw
 
 # Sends catalog announcements recorded with each publication once it commits.

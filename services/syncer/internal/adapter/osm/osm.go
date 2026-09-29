@@ -17,6 +17,8 @@ import (
 const (
 	DefaultBaseURL  = "https://overpass-api.de"
 	interpreterPath = "/api/interpreter"
+	codeDecode      = "decode"
+	codeRemark      = "overpass_remark"
 )
 
 var cityAreas = map[domain.City]string{
@@ -35,14 +37,46 @@ func query(city domain.City) string {
 		");out tags center;"
 }
 
+// Overpass often answers a heavy query with a timeout or an HTML error page; a moment later it works.
+const (
+	firstRetryDelay  = 10 * time.Second
+	secondRetryDelay = 30 * time.Second
+)
+
 type Adapter struct {
-	baseURL string
-	client  *http.Client
-	now     func() time.Time
+	baseURL     string
+	client      *http.Client
+	now         func() time.Time
+	retryDelays []time.Duration
 }
 
 func New(baseURL string, client *http.Client, now func() time.Time) *Adapter {
-	return &Adapter{baseURL: baseURL, client: client, now: now}
+	return &Adapter{baseURL: baseURL, client: client, now: now,
+		retryDelays: []time.Duration{firstRetryDelay, secondRetryDelay}}
+}
+
+// post sends an Overpass query and decodes the JSON answer into out.
+func (a *Adapter) post(ctx context.Context, q string, out any) error {
+	form := url.Values{"data": {q}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL+interpreterPath,
+		strings.NewReader(form.Encode()))
+	if err != nil {
+		return &ingest.FetchError{Code: "request", Err: err}
+	}
+	req.Header.Set("User-Agent", ingest.UserAgent)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return &ingest.FetchError{Code: "transport", Err: err}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return &ingest.FetchError{Code: fmt.Sprintf("http_status_%d", resp.StatusCode), Err: errors.New(resp.Status)}
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return &ingest.FetchError{Code: codeDecode, Err: err}
+	}
+	return nil
 }
 
 func (a *Adapter) Source() domain.Source {
@@ -72,37 +106,14 @@ type element struct {
 
 func (a *Adapter) Fetch(ctx context.Context, city domain.City, _ json.RawMessage) (ingest.Batch, error) {
 	snapshotAt := a.now().UTC()
-	form := url.Values{"data": {query(city)}}
-	req, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		a.baseURL+interpreterPath,
-		strings.NewReader(form.Encode()),
-	)
-	if err != nil {
-		return ingest.Batch{}, &ingest.FetchError{Code: "request", Err: err}
-	}
-	req.Header.Set("User-Agent", ingest.UserAgent)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return ingest.Batch{}, &ingest.FetchError{Code: "transport", Err: err}
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return ingest.Batch{}, &ingest.FetchError{
-			Code: fmt.Sprintf("http_status_%d", resp.StatusCode),
-			Err:  errors.New(resp.Status),
-		}
+	var body response
+	if err := a.post(ctx, query(city), &body); err != nil {
+		return ingest.Batch{}, err
 	}
 
-	var body response
-	if decodeErr := json.NewDecoder(resp.Body).Decode(&body); decodeErr != nil {
-		return ingest.Batch{}, &ingest.FetchError{Code: "decode", Err: decodeErr}
-	}
 	// A remark means the query failed on the server and the element list may be partial.
 	if body.Remark != "" {
-		return ingest.Batch{}, &ingest.FetchError{Code: "overpass_remark", Err: errors.New(body.Remark)}
+		return ingest.Batch{}, &ingest.FetchError{Code: codeRemark, Err: errors.New(body.Remark)}
 	}
 
 	cursor, err := json.Marshal(map[string]string{
@@ -116,7 +127,7 @@ func (a *Adapter) Fetch(ctx context.Context, city domain.City, _ json.RawMessage
 	for _, raw := range body.Elements {
 		var el element
 		if err := json.Unmarshal(raw, &el); err != nil {
-			return ingest.Batch{}, &ingest.FetchError{Code: "decode", Err: err}
+			return ingest.Batch{}, &ingest.FetchError{Code: codeDecode, Err: err}
 		}
 		if el.Type == "" || el.ID == 0 {
 			batch.Skipped++

@@ -1,6 +1,7 @@
 package kafka
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 	"go.uber.org/zap"
 
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/ingest"
 )
 
@@ -76,12 +78,36 @@ func envelopeBytes(t *testing.T) []byte {
 	return data
 }
 
+type fakeDeadLetters struct {
+	letters []ingest.DeadLetter
+	keys    [][]byte
+	calls   int
+	write   func(call int) error
+}
+
+func (d *fakeDeadLetters) Write(_ context.Context, key []byte, letter *ingest.DeadLetter) error {
+	d.calls++
+	if d.write != nil {
+		if err := d.write(d.calls); err != nil {
+			return err
+		}
+	}
+	d.letters = append(d.letters, *letter)
+	d.keys = append(d.keys, key)
+	return nil
+}
+
 func runConsumer(t *testing.T, group *fakeGroup, starter *fakeStarter) {
+	t.Helper()
+	runConsumerWith(t, group, starter, &fakeDeadLetters{})
+}
+
+func runConsumerWith(t *testing.T, group *fakeGroup, starter *fakeStarter, letters *fakeDeadLetters) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	group.cancel = cancel
-	consumer := NewConsumer(zap.NewNop(), testConfig("unused:9092"), starter)
+	consumer := NewConsumer(zap.NewNop(), new(testConfig("unused:9092")), starter, letters)
 	consumer.client = group
 	consumer.retryDelay = func(int) time.Duration { return 0 }
 	if err := consumer.Run(ctx); err != nil {
@@ -91,7 +117,7 @@ func runConsumer(t *testing.T, group *fakeGroup, starter *fakeStarter) {
 
 func counter(result string) float64 { return testutil.ToFloat64(rawWorkflows.WithLabelValues(result)) }
 func mismatches(source string) float64 {
-	return testutil.ToFloat64(schemaMismatch.WithLabelValues(source))
+	return testutil.ToFloat64(ingest.SchemaMismatch.WithLabelValues(source))
 }
 
 func TestConsumerCommitsAfterStart(t *testing.T) {
@@ -147,21 +173,64 @@ func TestConsumerStopsRetryingWithoutCommit(t *testing.T) {
 	}
 }
 
-func TestConsumerCountsAndSkipsInvalidEnvelopes(t *testing.T) {
+func TestConsumerSendsInvalidEnvelopesToDeadLetters(t *testing.T) {
 	unknown, kudago := mismatches("unknown"), mismatches("kudago")
-	group := &fakeGroup{polls: []kgo.Fetches{pollOf(
+	values := [][]byte{
 		[]byte(`not json`),
 		[]byte(`{"version":2,"source":"kudago"}`),
 		[]byte(`{"version":1,"source":"<arbitrary text>"}`),
-	)}}
+	}
+	poll := pollOf(values...)
+	poll[0].Topics[0].Partitions[0].Records[0].Key = []byte("perm:node/1")
+	group := &fakeGroup{polls: []kgo.Fetches{poll}}
 	starter := &fakeStarter{start: func(int) (bool, error) { return false, nil }}
+	letters := &fakeDeadLetters{}
 
-	runConsumer(t, group, starter)
-	if starter.calls != 0 || len(group.committed) != 1 || len(group.committed[0]) != 3 {
-		t.Fatalf("calls = %d, committed = %+v", starter.calls, group.committed)
+	runConsumerWith(t, group, starter, letters)
+	if starter.calls != 0 || len(group.committed) != 1 || len(group.committed[0]) != 3 || len(letters.letters) != 3 {
+		t.Fatalf("calls = %d, committed = %+v, letters = %d", starter.calls, group.committed, len(letters.letters))
+	}
+	for i, letter := range letters.letters {
+		if letter.Stage != ingest.StageEnvelope || letter.Reason != domain.InvalidSchema ||
+			!bytes.Equal(letter.Record, values[i]) || letter.Error == "" {
+			t.Fatalf("letter %d = %+v", i, letter)
+		}
+	}
+	if string(letters.keys[0]) != "perm:node/1" || letters.letters[1].Source != domain.KudaGo ||
+		letters.letters[2].Source != "unknown" {
+		t.Fatalf("keys %q, letters %+v", letters.keys, letters.letters)
 	}
 	if mismatches("unknown") != unknown+2 || mismatches("kudago") != kudago+1 {
 		t.Fatalf("unknown +%v, kudago +%v", mismatches("unknown")-unknown, mismatches("kudago")-kudago)
+	}
+}
+
+func TestConsumerRetriesDeadLetterBeforeCommit(t *testing.T) {
+	group := &fakeGroup{polls: []kgo.Fetches{pollOf([]byte(`not json`))}}
+	letters := &fakeDeadLetters{write: func(call int) error {
+		if call < 3 {
+			return errors.New("dead letter topic unavailable")
+		}
+		return nil
+	}}
+	runConsumerWith(t, group, &fakeStarter{}, letters)
+	if letters.calls != 3 || len(letters.letters) != 1 || len(group.committed) != 1 {
+		t.Fatalf("calls = %d, letters = %d, committed = %d", letters.calls, len(letters.letters), len(group.committed))
+	}
+}
+
+func TestConsumerStopsDeadLetterRetryWithoutCommit(t *testing.T) {
+	group := &fakeGroup{polls: []kgo.Fetches{pollOf([]byte(`not json`))}}
+	letters := &fakeDeadLetters{}
+	letters.write = func(call int) error {
+		if call == 2 {
+			group.cancel()
+		}
+		return errors.New("dead letter topic unavailable")
+	}
+	runConsumerWith(t, group, &fakeStarter{}, letters)
+	if len(group.committed) != 0 {
+		t.Fatalf("committed %d batches without the dead letter", len(group.committed))
 	}
 }
 
@@ -190,7 +259,7 @@ func TestConsumerReleasesRebalanceOnExit(t *testing.T) {
 func TestConsumerStopHonorsDeadline(t *testing.T) {
 	group := &fakeGroup{closeBlocks: make(chan struct{})}
 	defer close(group.closeBlocks)
-	consumer := NewConsumer(zap.NewNop(), testConfig("unused:9092"), &fakeStarter{})
+	consumer := NewConsumer(zap.NewNop(), new(testConfig("unused:9092")), &fakeStarter{}, &fakeDeadLetters{})
 	consumer.client = group
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)

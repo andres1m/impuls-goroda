@@ -127,7 +127,7 @@ func apply(ctx workflow.Context, city domain.City, ids []string) {
 		return
 	}
 	workflow.GetLogger(ctx).Info("materialized batch", "city", city, "applied", res.Applied, "unchanged", res.Unchanged,
-		"superseded", res.Superseded, "failed", res.Failed, "deferred", res.Deferred, "catalog_revision", res.CatalogRevision)
+		"superseded", res.Superseded, "failed", res.Failed, "quarantined", res.Quarantined, "deferred", res.Deferred, "catalog_revision", res.CatalogRevision)
 }
 
 type buffer struct {

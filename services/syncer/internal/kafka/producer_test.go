@@ -26,7 +26,8 @@ func testEnvelope(rawIngestID string) ingest.Envelope {
 }
 
 func testConfig(brokers ...string) Config {
-	return Config{Brokers: brokers, RawTopic: "integration.raw", RawPartitions: 3, ConsumerGroup: "syncer-raw"}
+	return Config{Brokers: brokers, RawTopic: "integration.raw", RawPartitions: 3, DLQTopic: "dlq.integration.raw",
+		ConsumerGroup: "syncer-raw"}
 }
 
 func TestConfigValidate(t *testing.T) {
@@ -38,6 +39,7 @@ func TestConfigValidate(t *testing.T) {
 		{Brokers: []string{"kafka:9092"}, RawPartitions: 3, ConsumerGroup: "g"},
 		{Brokers: []string{"kafka:9092"}, RawTopic: "t", ConsumerGroup: "g"},
 		{Brokers: []string{"kafka:9092"}, RawTopic: "t", RawPartitions: 3},
+		{Brokers: []string{"kafka:9092"}, RawTopic: "t", RawPartitions: 3, ConsumerGroup: "g"},
 	}
 	for _, cfg := range broken {
 		if err := cfg.Validate(); err == nil {

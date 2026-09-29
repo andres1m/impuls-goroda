@@ -317,3 +317,21 @@ func TestBackoff(t *testing.T) {
 		}
 	}
 }
+
+func TestTickDoesNotWaitOnADestinationThatFailedThisTick(t *testing.T) {
+	queue := items(3, 1)
+	queue[0].Destination, queue[1].Destination = "kafka", "kafka"
+	store := &fakeStore{queue: queue}
+	kafka, redis := &fakeSender{err: errors.New("kafka down")}, &fakeSender{}
+	if err := newTestRelay(t, store, map[string]Sender{"kafka": kafka, "redis": redis}).
+		Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(kafka.sent) != 1 || len(store.failed) != 2 || len(redis.sent) != 1 || len(store.delivered) != 1 {
+		t.Fatalf("kafka sent %d, failed %d, redis sent %d, delivered %d",
+			len(kafka.sent), len(store.failed), len(redis.sent), len(store.delivered))
+	}
+	if !store.failed[1].next.Equal(now.Add(time.Second)) {
+		t.Fatalf("skipped row due at %v", store.failed[1].next)
+	}
+}
