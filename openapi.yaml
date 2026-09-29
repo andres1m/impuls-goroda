@@ -167,6 +167,37 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/scenarios:
+    post:
+      tags: [Context]
+      operationId: createScenario
+      summary: Create an owner scenario from a theme or custom text
+      description: Requires Idempotency-Key. Creates a draft without calculating routes. Custom text may produce a separately confirmed AI suggestion. Replay returns the original response.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateScenarioRequest'
+      responses:
+        '200':
+          description: Owner draft scenario
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BotScenarioResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '409':
+          $ref: '#/components/responses/CommandConflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/scenarios/{scenario_id}:
     parameters:
       - $ref: '#/components/parameters/ScenarioID'
@@ -1676,6 +1707,25 @@ components:
       pattern: '^[1-9][0-9]*$'
       maxLength: 19
       description: Positive signed 64-bit scenario version, independent of route revisions.
+    CreateScenarioRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        preset_id:
+          type: string
+          enum: [vibe, mood, culture, energy, balance, benefit]
+        source_text:
+          type: string
+          minLength: 1
+          maxLength: 4000
+          pattern: '\S'
+      oneOf:
+        - required: [preset_id]
+          not:
+            required: [source_text]
+        - required: [source_text]
+          not:
+            required: [preset_id]
     BotScenarioResponse:
       type: object
       additionalProperties: false
