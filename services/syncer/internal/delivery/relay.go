@@ -204,8 +204,10 @@ func (r *Relay) Run(ctx context.Context) error {
 	}
 }
 
-// Tick delivers every row that is due now.
+// Tick delivers every row that is due now. After one failure a destination gets no more sends this
+// tick: a destination that is down would otherwise make every row behind its rows wait for its timeout.
 func (r *Relay) Tick(ctx context.Context) error {
+	down := make(map[string]bool)
 	for {
 		now := r.now()
 		items, err := r.store.Claim(ctx, now, now.Add(r.cfg.Lease), r.destinations, r.cfg.Batch)
@@ -213,7 +215,14 @@ func (r *Relay) Tick(ctx context.Context) error {
 			return fmt.Errorf("claim outbox rows: %w", err)
 		}
 		for i := range items {
-			r.deliver(ctx, &items[i])
+			item := &items[i]
+			if down[item.Destination] {
+				r.retryLater(ctx, item)
+				continue
+			}
+			if err := r.deliver(ctx, item); err != nil {
+				down[item.Destination] = true
+			}
 		}
 		if len(items) < r.cfg.Batch {
 			break
@@ -230,18 +239,23 @@ func (r *Relay) Tick(ctx context.Context) error {
 
 // deliver leaves a row whose mark cannot be written to the lease, so it is sent again later;
 // the receivers treat a repeat as a no-op.
-func (r *Relay) deliver(ctx context.Context, item *Item) {
+func (r *Relay) deliver(ctx context.Context, item *Item) error {
 	err := r.senders[item.Destination].Send(ctx, item)
 	if err == nil {
 		deliveries.WithLabelValues(item.Destination, "delivered").Inc()
 		if markErr := r.store.Delivered(ctx, item, r.now()); markErr != nil {
 			r.log.Warn("mark outbox row delivered", zap.Stringer("id", item.ID), zap.Error(markErr))
 		}
-		return
+		return nil
 	}
 	deliveries.WithLabelValues(item.Destination, "failed").Inc()
 	r.log.Warn("outbox delivery failed", zap.Stringer("id", item.ID), zap.String("destination", item.Destination),
 		zap.Int("attempts", item.Attempts), zap.Error(err))
+	r.retryLater(ctx, item)
+	return err
+}
+
+func (r *Relay) retryLater(ctx context.Context, item *Item) {
 	next := r.now().Add(Backoff(item.Attempts, r.cfg.BackoffMin, r.cfg.BackoffMax))
 	if markErr := r.store.Failed(ctx, item, next); markErr != nil {
 		r.log.Warn("mark outbox row failed", zap.Stringer("id", item.ID), zap.Error(markErr))

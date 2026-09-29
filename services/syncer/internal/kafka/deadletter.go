@@ -20,6 +20,10 @@ var deadLetterWrites = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "Records written to the dead letter topic, by the stage that rejected them.",
 }, []string{"stage"})
 
+// deadLetterTimeout stays well below the outbox lease: a send outliving the lease cannot record its
+// failure, and the row returns at once instead of after a backoff.
+const deadLetterTimeout = 10 * time.Second
+
 type producerClient interface {
 	ProduceSync(ctx context.Context, records ...*kgo.Record) kgo.ProduceResults
 }
@@ -53,7 +57,7 @@ func NewDeadLetters(cfg *Config) (*DeadLetters, error) {
 		cfg:     *cfg,
 		client:  client,
 		close:   client.Close,
-		timeout: publishTimeout,
+		timeout: deadLetterTimeout,
 		ensure:  func(ctx context.Context) error { return EnsureTopic(ctx, client, cfg.DLQTopic, cfg.RawPartitions) },
 	}, nil
 }

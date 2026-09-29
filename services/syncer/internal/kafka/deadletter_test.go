@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 
@@ -99,5 +100,19 @@ func TestDeadLettersReportBrokerErrors(t *testing.T) {
 	letter := payloadLetter()
 	if err := testDeadLetters(producer, &ensured).Write(context.Background(), nil, &letter); err == nil {
 		t.Fatal("broker error lost")
+	}
+}
+
+// A send that outlives the relay's 30 s lease loses its failure mark, and the row comes back at once
+// instead of after a backoff.
+func TestDeadLettersGiveUpWellWithinTheOutboxLease(t *testing.T) {
+	cfg := testConfig("unused:9092")
+	d, err := NewDeadLetters(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if d.timeout > 10*time.Second {
+		t.Fatalf("timeout %v", d.timeout)
 	}
 }
