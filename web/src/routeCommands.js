@@ -50,12 +50,14 @@ export async function sendRouteCommand(apiBaseUrl, accessToken, attempt, fetcher
       'If-Match': `"${attempt.revision}"`, ...(attempt.body === undefined ? {} : { 'Content-Type': 'application/json' }),
     }, body: attempt.body, credentials: 'omit', cache: 'no-store', signal,
   });
+  if (attempt.operation === 'delete' && response.status === 204) return { status: 'DELETED' };
   let body;
   try { body = await response.json(); } catch { throw new RouteRequestError(0, 'INVALID_RESPONSE', true); }
   if (!response.ok) {
     if (typeof body?.code !== 'string' || typeof body.retryable !== 'boolean') throw new RouteRequestError(0, 'INVALID_RESPONSE', true);
     throw new RouteRequestError(response.status, body.code, body.retryable);
   }
+  if (attempt.operation === 'delete') throw new RouteRequestError(0, 'INVALID_RESPONSE', true);
   if (response.status !== 200 || typeof body?.request_id !== 'string' || !body.request_id ||
       typeof body.route_id !== 'string' || body.route_id.toLowerCase() !== attempt.routeID || !validRevision(body.revision)) {
     throw new RouteRequestError(0, 'INVALID_RESPONSE', true);
@@ -118,4 +120,12 @@ export function createPinAttempt(route, visitID, kind, key = crypto.randomUUID()
 
 export function terminalRouteError(error) {
   return error instanceof RouteRequestError && error.status >= 400 && error.status < 500 && ![401, 408, 429].includes(error.status);
+}
+
+export function createDeleteAttempt(route, acknowledge, key = crypto.randomUUID()) {
+  const base = createRouteAttempt('save', route, key);
+  if (typeof acknowledge !== 'boolean') throw new RouteRequestError(0, 'INVALID_INPUT', false);
+  return Object.freeze({ ...base, operation: 'delete', path: `/api/v1/routes/${base.routeID}/delete`,
+    body: JSON.stringify({ acknowledge_external_commitments: acknowledge }),
+  });
 }

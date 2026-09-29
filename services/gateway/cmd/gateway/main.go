@@ -121,6 +121,7 @@ func run(ctx context.Context) error {
 		httpapi.NewAuthRouter(authRuntime),
 		httpapi.NewVisitRouter(authRuntime),
 		httpapi.NewRouteRouter(authRuntime),
+		httpapi.NewDeleteRouter(authRuntime),
 		httpapi.NewRecoveryRouter(authRuntime),
 		httpapi.NewScenarioRouter(authRuntime),
 		httpapi.NewPinRouter(authRuntime),
