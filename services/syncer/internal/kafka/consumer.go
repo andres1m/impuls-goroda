@@ -58,10 +58,10 @@ type Consumer struct {
 	retryDelay  func(attempt int) time.Duration
 }
 
-func NewConsumer(log *zap.Logger, cfg Config, starter Starter, deadLetters DeadLetterWriter) *Consumer {
+func NewConsumer(log *zap.Logger, cfg *Config, starter Starter, deadLetters DeadLetterWriter) *Consumer {
 	return &Consumer{
 		log:         log,
-		cfg:         cfg,
+		cfg:         *cfg,
 		starter:     starter,
 		deadLetters: deadLetters,
 		tracer:      kotel.NewTracer(kotel.ConsumerGroup(cfg.ConsumerGroup)),

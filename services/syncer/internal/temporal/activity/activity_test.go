@@ -51,7 +51,11 @@ func (f *fakeStore) Publish(
 	return 0, false, nil
 }
 
-func (f *fakeStore) OutsideBoundary(context.Context, domain.City, []materialize.Point) ([]bool, bool, error) {
+func (f *fakeStore) OutsideBoundary(
+	context.Context,
+	domain.City,
+	[]materialize.Point,
+) (outside []bool, known bool, err error) {
 	return nil, false, nil
 }
 

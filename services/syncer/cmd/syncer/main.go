@@ -134,12 +134,12 @@ func run(ctx context.Context) error {
 		func() client.Client { return infra.temporal.TemporalClient },
 		infra.temporal.TaskQueue(),
 	)
-	deadLetters, err := kafka.NewDeadLetters(infra.cfg.Kafka)
+	deadLetters, err := kafka.NewDeadLetters(&infra.cfg.Kafka)
 	if err != nil {
 		return fmt.Errorf("create dead letter writer error: %w", err)
 	}
 	defer deadLetters.Close()
-	consumer := kafka.NewConsumer(infra.log.Log, infra.cfg.Kafka, starter, deadLetters)
+	consumer := kafka.NewConsumer(infra.log.Log, &infra.cfg.Kafka, starter, deadLetters)
 	relay, err := delivery.NewRelay(infra.cfg.Delivery, postgres.NewDeliveries(poolDB{client: infra.pool}),
 		map[string]delivery.Sender{
 			catalogevent.Destination: delivery.NewRedisSender(func() delivery.Publisher {

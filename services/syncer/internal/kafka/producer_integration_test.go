@@ -91,14 +91,14 @@ func TestDeadLettersIntegration(t *testing.T) {
 	cfg.DLQTopic = "dlq.integration.raw.test-" + randomSuffix(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	d, err := NewDeadLetters(cfg)
+	d, err := NewDeadLetters(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer d.Close()
 	letter := payloadLetter()
-	if err := d.Write(ctx, letter.Key(), &letter); err != nil {
-		t.Fatal(err)
+	if writeErr := d.Write(ctx, letter.Key(), &letter); writeErr != nil {
+		t.Fatal(writeErr)
 	}
 	reader, err := kgo.NewClient(kgo.SeedBrokers(cfg.Brokers...), kgo.ConsumeTopics(cfg.DLQTopic),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()))

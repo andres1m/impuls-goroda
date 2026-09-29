@@ -81,7 +81,11 @@ type fakeStore struct {
 	points    []Point
 }
 
-func (f *fakeStore) OutsideBoundary(_ context.Context, _ domain.City, points []Point) ([]bool, bool, error) {
+func (f *fakeStore) OutsideBoundary(
+	_ context.Context,
+	_ domain.City,
+	points []Point,
+) (outside []bool, known bool, err error) {
 	f.points = points
 	return f.outside, f.known, nil
 }
@@ -218,7 +222,11 @@ func TestPrepareQuarantinesMalformedRecords(t *testing.T) {
 }
 
 func TestApplyQuarantinesPlacesOutsideTheCity(t *testing.T) {
-	far := raw("r2", "node/2", `{"type":"node","id":2,"lat":58.01,"lon":57.5,"tags":{"name":"Далеко","amenity":"cafe"}}`)
+	far := raw(
+		"r2",
+		"node/2",
+		`{"type":"node","id":2,"lat":58.01,"lon":57.5,"tags":{"name":"Далеко","amenity":"cafe"}}`,
+	)
 	s := &fakeStore{pending: []Raw{raw("r1", "node/1", cafe), far}, outside: []bool{false, true}, known: true}
 
 	res, err := Apply(context.Background(), s, domain.Perm, []string{"r1", "r2"}, time.Now)

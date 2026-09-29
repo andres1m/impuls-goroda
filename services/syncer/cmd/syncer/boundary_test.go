@@ -8,10 +8,16 @@ import (
 )
 
 func TestParseBoundaryArgs(t *testing.T) {
-	if got, err := parseBoundaryArgs(nil); err != nil || !reflect.DeepEqual(got, []domain.City{domain.Moscow, domain.Perm}) {
+	if got, err := parseBoundaryArgs(
+		nil,
+	); err != nil ||
+		!reflect.DeepEqual(got, []domain.City{domain.Moscow, domain.Perm}) {
 		t.Fatalf("no args: %v, %v", got, err)
 	}
-	if got, err := parseBoundaryArgs([]string{"perm"}); err != nil || !reflect.DeepEqual(got, []domain.City{domain.Perm}) {
+	if got, err := parseBoundaryArgs(
+		[]string{"perm"},
+	); err != nil ||
+		!reflect.DeepEqual(got, []domain.City{domain.Perm}) {
 		t.Fatalf("perm: %v, %v", got, err)
 	}
 	for _, args := range [][]string{{"kazan"}, {"perm", "moscow"}} {

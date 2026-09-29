@@ -15,7 +15,7 @@ func TestSaveBoundaryIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck // the test leaves the stored boundary as it was
+	defer tx.Rollback(ctx)
 
 	halves := [][][2]float64{
 		{{56.0, 57.9}, {56.5, 57.9}, {56.5, 58.1}},

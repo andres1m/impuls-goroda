@@ -51,7 +51,14 @@ func runBoundary(ctx context.Context, args []string) (resultErr error) {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("%s: relation %d, osm base %s, %d parts, %.0f km2\n", city, b.RelationID, b.OSMBase, stats.Parts, stats.AreaKm2)
+		fmt.Printf(
+			"%s: relation %d, osm base %s, %d parts, %.0f km2\n",
+			city,
+			b.RelationID,
+			b.OSMBase,
+			stats.Parts,
+			stats.AreaKm2,
+		)
 	}
 	return nil
 }

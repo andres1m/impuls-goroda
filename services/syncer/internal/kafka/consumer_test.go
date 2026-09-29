@@ -1,6 +1,7 @@
 package kafka
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -106,7 +107,7 @@ func runConsumerWith(t *testing.T, group *fakeGroup, starter *fakeStarter, lette
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	group.cancel = cancel
-	consumer := NewConsumer(zap.NewNop(), testConfig("unused:9092"), starter, letters)
+	consumer := NewConsumer(zap.NewNop(), new(testConfig("unused:9092")), starter, letters)
 	consumer.client = group
 	consumer.retryDelay = func(int) time.Duration { return 0 }
 	if err := consumer.Run(ctx); err != nil {
@@ -191,7 +192,7 @@ func TestConsumerSendsInvalidEnvelopesToDeadLetters(t *testing.T) {
 	}
 	for i, letter := range letters.letters {
 		if letter.Stage != ingest.StageEnvelope || letter.Reason != domain.InvalidSchema ||
-			string(letter.Record) != string(values[i]) || letter.Error == "" {
+			!bytes.Equal(letter.Record, values[i]) || letter.Error == "" {
 			t.Fatalf("letter %d = %+v", i, letter)
 		}
 	}
@@ -258,7 +259,7 @@ func TestConsumerReleasesRebalanceOnExit(t *testing.T) {
 func TestConsumerStopHonorsDeadline(t *testing.T) {
 	group := &fakeGroup{closeBlocks: make(chan struct{})}
 	defer close(group.closeBlocks)
-	consumer := NewConsumer(zap.NewNop(), testConfig("unused:9092"), &fakeStarter{}, &fakeDeadLetters{})
+	consumer := NewConsumer(zap.NewNop(), new(testConfig("unused:9092")), &fakeStarter{}, &fakeDeadLetters{})
 	consumer.client = group
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)

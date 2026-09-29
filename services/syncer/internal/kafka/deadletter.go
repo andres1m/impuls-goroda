@@ -37,7 +37,7 @@ type DeadLetters struct {
 }
 
 // NewDeadLetters does not reach the broker: the topic is created with the first letter.
-func NewDeadLetters(cfg Config) (*DeadLetters, error) {
+func NewDeadLetters(cfg *Config) (*DeadLetters, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -50,7 +50,7 @@ func NewDeadLetters(cfg Config) (*DeadLetters, error) {
 		return nil, fmt.Errorf("kafka dead letters: %w", err)
 	}
 	return &DeadLetters{
-		cfg:     cfg,
+		cfg:     *cfg,
 		client:  client,
 		close:   client.Close,
 		timeout: publishTimeout,

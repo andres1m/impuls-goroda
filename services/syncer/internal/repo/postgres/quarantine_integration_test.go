@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -139,7 +140,11 @@ func (f *materializeFixture) assertQuarantined(t *testing.T, goodID, brokenID, f
 	if f.state(t, goodID) != "applied" || f.state(t, brokenID) != "quarantined" || f.state(t, farID) != "quarantined" {
 		t.Fatalf("states %s %s %s", f.state(t, goodID), f.state(t, brokenID), f.state(t, farID))
 	}
-	if got := f.quarantine(t, brokenID); len(got) != 1 || got[0] != (quarantineRow{reason: "InvalidSchema", state: "open"}) {
+	if got := f.quarantine(
+		t,
+		brokenID,
+	); len(got) != 1 ||
+		got[0] != (quarantineRow{reason: "InvalidSchema", state: "open"}) {
 		t.Fatalf("broken quarantine %+v", got)
 	}
 	if got := f.quarantine(t, farID); len(got) != 1 || got[0].reason != "GEO_DISCREPANCY_QUARANTINE" {
@@ -151,11 +156,17 @@ func (f *materializeFixture) assertQuarantined(t *testing.T, goodID, brokenID, f
 		t.Fatalf("details check %q, %v", check, err)
 	}
 	letters := f.deadLetters(t, brokenID)
-	want := ingest.DeadLetter{Version: ingest.DeadLetterVersion, Stage: ingest.StagePayload, Reason: domain.InvalidSchema,
-		RawIngestID: brokenID, Source: f.source, City: domain.Perm, ExternalID: "node/2", Error: "bad_payload"}
-	if len(letters) != 1 || letters[0].Version != want.Version || letters[0].Stage != want.Stage ||
-		letters[0].RawIngestID != want.RawIngestID || letters[0].Source != want.Source || letters[0].City != want.City ||
-		letters[0].ExternalID != want.ExternalID || letters[0].Error != want.Error || letters[0].Reason != want.Reason {
+	want := ingest.DeadLetter{
+		Version:     ingest.DeadLetterVersion,
+		Stage:       ingest.StagePayload,
+		Reason:      domain.InvalidSchema,
+		RawIngestID: brokenID,
+		Source:      f.source,
+		City:        domain.Perm,
+		ExternalID:  "node/2",
+		Error:       "bad_payload",
+	}
+	if len(letters) != 1 || !reflect.DeepEqual(letters[0], want) {
 		t.Fatalf("dead letters %+v", letters)
 	}
 	if len(f.deadLetters(t, farID)) != 0 {
@@ -171,9 +182,14 @@ func (f *materializeFixture) assertQuarantineOnlyBatch(t *testing.T, base time.T
 	also := f.save(t, "node/4", `also not json`, base.Add(3*time.Second))
 	raws := f.pending(t, also.ID)
 	before := f.revision(t)
-	_, published, err := f.store.Publish(f.ctx, domain.Perm, &materialize.Outcome{Quarantined: []materialize.Quarantined{
-		{Raw: raws[0], Reason: domain.InvalidSchema, Details: materialize.QuarantineDetails{Code: "bad_payload"}},
-	}}, base)
+	_, published, err := f.store.Publish(
+		f.ctx,
+		domain.Perm,
+		&materialize.Outcome{Quarantined: []materialize.Quarantined{
+			{Raw: raws[0], Reason: domain.InvalidSchema, Details: materialize.QuarantineDetails{Code: "bad_payload"}},
+		}},
+		base,
+	)
 	if err != nil || published || f.revision(t) != before || f.state(t, also.ID) != "quarantined" {
 		t.Fatalf("quarantine-only batch published %v, revision %d → %d, err %v", published, before, f.revision(t), err)
 	}

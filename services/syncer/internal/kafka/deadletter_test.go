@@ -50,7 +50,10 @@ func TestDeadLettersWriteCreatesTheTopicOnce(t *testing.T) {
 		string(producer.records[0].Key) != "key" {
 		t.Fatalf("ensured %d, records %+v", ensured, producer.records)
 	}
-	if got, err := ingest.DecodeDeadLetter(producer.records[0].Value); err != nil || got.RawIngestID != letter.RawIngestID {
+	if got, err := ingest.DecodeDeadLetter(
+		producer.records[0].Value,
+	); err != nil ||
+		got.RawIngestID != letter.RawIngestID {
 		t.Fatalf("value %+v, %v", got, err)
 	}
 }
@@ -62,7 +65,11 @@ func TestDeadLettersSendDeliversAnOutboxLetter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	item := &delivery.Item{Destination: ingest.DeadLetterDestination, EventType: ingest.DeadLetterEventType, Payload: payload}
+	item := &delivery.Item{
+		Destination: ingest.DeadLetterDestination,
+		EventType:   ingest.DeadLetterEventType,
+		Payload:     payload,
+	}
 	if err := testDeadLetters(producer, &ensured).Send(context.Background(), item); err != nil {
 		t.Fatal(err)
 	}
@@ -73,8 +80,16 @@ func TestDeadLettersSendDeliversAnOutboxLetter(t *testing.T) {
 
 func TestDeadLettersSendRefusesOtherEvents(t *testing.T) {
 	producer, ensured := &fakeProducer{}, 0
-	item := &delivery.Item{Destination: ingest.DeadLetterDestination, EventType: "events.lifecycle.urgent", Payload: []byte(`{}`)}
-	if err := testDeadLetters(producer, &ensured).Send(context.Background(), item); err == nil || len(producer.records) != 0 {
+	item := &delivery.Item{
+		Destination: ingest.DeadLetterDestination,
+		EventType:   "events.lifecycle.urgent",
+		Payload:     []byte(`{}`),
+	}
+	if err := testDeadLetters(
+		producer,
+		&ensured,
+	).Send(context.Background(), item); err == nil ||
+		len(producer.records) != 0 {
 		t.Fatalf("err %v, records %d", err, len(producer.records))
 	}
 }

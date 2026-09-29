@@ -17,6 +17,8 @@ import (
 const (
 	DefaultBaseURL  = "https://overpass-api.de"
 	interpreterPath = "/api/interpreter"
+	codeDecode      = "decode"
+	codeRemark      = "overpass_remark"
 )
 
 var cityAreas = map[domain.City]string{
@@ -72,7 +74,7 @@ func (a *Adapter) post(ctx context.Context, q string, out any) error {
 		return &ingest.FetchError{Code: fmt.Sprintf("http_status_%d", resp.StatusCode), Err: errors.New(resp.Status)}
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		return &ingest.FetchError{Code: "decode", Err: err}
+		return &ingest.FetchError{Code: codeDecode, Err: err}
 	}
 	return nil
 }
@@ -111,7 +113,7 @@ func (a *Adapter) Fetch(ctx context.Context, city domain.City, _ json.RawMessage
 
 	// A remark means the query failed on the server and the element list may be partial.
 	if body.Remark != "" {
-		return ingest.Batch{}, &ingest.FetchError{Code: "overpass_remark", Err: errors.New(body.Remark)}
+		return ingest.Batch{}, &ingest.FetchError{Code: codeRemark, Err: errors.New(body.Remark)}
 	}
 
 	cursor, err := json.Marshal(map[string]string{
@@ -125,7 +127,7 @@ func (a *Adapter) Fetch(ctx context.Context, city domain.City, _ json.RawMessage
 	for _, raw := range body.Elements {
 		var el element
 		if err := json.Unmarshal(raw, &el); err != nil {
-			return ingest.Batch{}, &ingest.FetchError{Code: "decode", Err: err}
+			return ingest.Batch{}, &ingest.FetchError{Code: codeDecode, Err: err}
 		}
 		if el.Type == "" || el.ID == 0 {
 			batch.Skipped++

@@ -18,7 +18,7 @@ func (s *MaterializeStore) OutsideBoundary(
 	ctx context.Context,
 	city domain.City,
 	points []materialize.Point,
-) ([]bool, bool, error) {
+) (outside []bool, known bool, err error) {
 	pool, err := s.connected()
 	if err != nil {
 		return nil, false, err
@@ -42,7 +42,7 @@ func (s *MaterializeStore) OutsideBoundary(
 	if len(answers) != len(points) {
 		return nil, false, fmt.Errorf("check boundary of %s: %d answers for %d points", city, len(answers), len(points))
 	}
-	outside := make([]bool, len(points))
+	outside = make([]bool, len(points))
 	for i, a := range answers {
 		if a == nil {
 			return nil, false, nil

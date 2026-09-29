@@ -134,7 +134,10 @@ var quarantineReasons = map[string]domain.QuarantineReason{
 
 func reject(o *Outcome, r *Raw, code string) {
 	if reason, malformed := quarantineReasons[code]; malformed {
-		o.Quarantined = append(o.Quarantined, Quarantined{Raw: *r, Reason: reason, Details: QuarantineDetails{Code: code}})
+		o.Quarantined = append(
+			o.Quarantined,
+			Quarantined{Raw: *r, Reason: reason, Details: QuarantineDetails{Code: code}},
+		)
 		return
 	}
 	o.Failed = append(o.Failed, Rejected{*r, code})
@@ -174,8 +177,8 @@ func Apply(ctx context.Context, s Store, city domain.City, ids []string, now fun
 	}
 	at := now().UTC()
 	o, deferred := Prepare(city, raws, at)
-	if err := isolateOutsiders(ctx, s, city, &o); err != nil {
-		return Result{}, err
+	if boundaryErr := isolateOutsiders(ctx, s, city, &o); boundaryErr != nil {
+		return Result{}, boundaryErr
 	}
 	res := Result{Deferred: len(deferred)}
 	count(&o, deferred)
@@ -199,7 +202,10 @@ func Apply(ctx context.Context, s Store, city domain.City, ids []string, now fun
 	}
 	for i := range o.Quarantined {
 		q := &o.Quarantined[i]
-		res.Failures = append(res.Failures, Failure{RawIngestID: q.Raw.ID, Source: q.Raw.Source, Code: string(q.Reason)})
+		res.Failures = append(
+			res.Failures,
+			Failure{RawIngestID: q.Raw.ID, Source: q.Raw.Source, Code: string(q.Reason)},
+		)
 	}
 	return res, nil
 }

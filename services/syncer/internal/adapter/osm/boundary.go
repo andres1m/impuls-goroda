@@ -62,7 +62,7 @@ func retryable(err error) bool {
 		return false
 	}
 	switch fetchErr.Code {
-	case "transport", "decode", "overpass_remark", "http_status_429":
+	case "transport", codeDecode, codeRemark, "http_status_429":
 		return true
 	}
 	return strings.HasPrefix(fetchErr.Code, "http_status_5")
@@ -71,14 +71,17 @@ func retryable(err error) bool {
 func (a *Adapter) fetchBoundary(ctx context.Context, city domain.City) (CityBoundary, error) {
 	selector, ok := boundaryRelations[city]
 	if !ok {
-		return CityBoundary{}, &ingest.FetchError{Code: "unknown_city", Err: fmt.Errorf("no boundary relation for %s", city)}
+		return CityBoundary{}, &ingest.FetchError{
+			Code: "unknown_city",
+			Err:  fmt.Errorf("no boundary relation for %s", city),
+		}
 	}
 	var body boundaryResponse
 	if err := a.post(ctx, "[out:json][timeout:180];"+selector+";out geom;", &body); err != nil {
 		return CityBoundary{}, err
 	}
 	if body.Remark != "" {
-		return CityBoundary{}, &ingest.FetchError{Code: "overpass_remark", Err: errors.New(body.Remark)}
+		return CityBoundary{}, &ingest.FetchError{Code: codeRemark, Err: errors.New(body.Remark)}
 	}
 	if len(body.Elements) != 1 {
 		return CityBoundary{}, &ingest.FetchError{Code: "boundary_relations",

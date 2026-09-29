@@ -22,24 +22,24 @@ const permRelation = `{"osm3s":{"timestamp_osm_base":"2026-09-29T12:58:50Z"},"el
 {"type":"relation","ref":4,"role":"subarea"}]}]}`
 
 // overpass answers each request with the next reply; the last reply repeats.
-func overpass(t *testing.T, replies ...func(w http.ResponseWriter)) (*Adapter, *int, *string) {
+func overpass(t *testing.T, replies ...func(w http.ResponseWriter)) (a *Adapter, requests *int, query *string) {
 	t.Helper()
-	requests, query := 0, ""
+	requests, query = new(int), new(string)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		query = r.FormValue("data")
-		replies[min(requests, len(replies)-1)](w)
-		requests++
+		*query = r.FormValue("data")
+		replies[min(*requests, len(replies)-1)](w)
+		*requests++
 	}))
 	t.Cleanup(server.Close)
-	a := newAdapter(server.URL)
+	a = newAdapter(server.URL)
 	a.retryDelays = []time.Duration{0, 0}
-	return a, &requests, &query
+	return a, requests, query
 }
 
 func reply(status int, body string) func(w http.ResponseWriter) {
 	return func(w http.ResponseWriter) {
 		w.WriteHeader(status)
-		w.Write([]byte(body)) //nolint:errcheck // test server
+		w.Write([]byte(body))
 	}
 }
 
