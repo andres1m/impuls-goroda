@@ -117,25 +117,28 @@ func (s *MaterializeStore) Publish(
 	touched := make(map[string]bool)
 	var lifecycleChanges []lifecycleTransition
 	placeIDs := make([]string, len(o.Apply))
-	// Events sharing a place may each describe it a little differently; writing the place once, from the
-	// batch's last description, keeps a repeated batch from counting it as changed.
-	last := make(map[string]int, len(o.Apply))
+	own := make(map[string]int, len(o.Apply))
+	distinct := make(map[string]bool, len(o.Apply))
 	for i := range o.Apply {
 		n := &o.Apply[i]
 		placeIDs[i] = placeID(n)
-		last[placeIDs[i]] = i
-	}
-	for i := range o.Apply {
-		n := &o.Apply[i]
-		if last[placeIDs[i]] != i {
-			continue
+		distinct[placeIDs[i]] = true
+		if n.Resolution.Kind != resolve.Merge {
+			own[placeIDs[i]] = i
 		}
-		updated, err := upsertPlace(ctx, tx, city, n, placeIDs[i], ref.TagBits, at)
+	}
+	for _, id := range slices.Sorted(maps.Keys(own)) {
+		created, err := createPlace(ctx, tx, city, &o.Apply[own[id]], id, ref.TagBits, at)
 		if err != nil {
 			return 0, false, err
 		}
-		if updated {
-			touched[placeIDs[i]] = true
+		if created {
+			touched[id] = true
+		}
+	}
+	for i := range o.Apply {
+		if err := recordPlace(ctx, tx, city, &o.Apply[i], placeIDs[i], s.trust, at); err != nil {
+			return 0, false, err
 		}
 	}
 	for i := range o.Apply {
@@ -149,6 +152,15 @@ func (s *MaterializeStore) Publish(
 		}
 		lifecycleChanges = append(lifecycleChanges, changes...)
 		for _, id := range places {
+			touched[id] = true
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(distinct)) {
+		changed, err := applyFacts(ctx, tx, city, id, s.trust, ref.TagBits, at)
+		if err != nil {
+			return 0, false, err
+		}
+		if changed {
 			touched[id] = true
 		}
 	}
@@ -268,49 +280,6 @@ func placeID(n *materialize.Normalized) string {
 
 func ownPlaceID(n *materialize.Normalized) uuid.UUID {
 	return normalize.EntityID(string(n.Raw.Source) + ":" + n.Place.ExternalID)
-}
-
-// upsertPlace writes the place and reports whether its row changed.
-func upsertPlace(
-	ctx context.Context,
-	tx pgx.Tx,
-	city domain.City,
-	n *materialize.Normalized,
-	id string,
-	bits map[string]int,
-	at time.Time,
-) (updated bool, err error) {
-	p := n.Place
-	mask, err := interestMask(p.Tags, bits, "place "+p.ExternalID)
-	if err != nil {
-		return false, err
-	}
-	rows, err := tx.Query(ctx, `
-		INSERT INTO catalog.place AS t (id, city, title, normalized_title, category, tag_mask, coordinates,
-			address_text, opening_rules, data_mode, card_source_record_id, is_active, review_required, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6::bigint::bit(64) | COALESCE((SELECT en.llm_tag_mask FROM catalog.entity_enrichment en
-				WHERE en.place_id = $1 AND en.city = $2), 0::bit(64)), ST_SetSRID(ST_MakePoint($7, $8), 4326),
-			$9, $10::jsonb, $11, $12, true, false, $13, $13)
-		ON CONFLICT (id, city) DO UPDATE SET
-			title = EXCLUDED.title, normalized_title = EXCLUDED.normalized_title, category = EXCLUDED.category,
-			tag_mask = EXCLUDED.tag_mask, coordinates = EXCLUDED.coordinates, address_text = EXCLUDED.address_text,
-			opening_rules = EXCLUDED.opening_rules, data_mode = EXCLUDED.data_mode,
-			card_source_record_id = EXCLUDED.card_source_record_id, is_active = true, updated_at = EXCLUDED.updated_at
-		WHERE (t.title, t.category, t.tag_mask, t.coordinates, t.address_text, t.opening_rules, t.data_mode,
-				t.card_source_record_id, t.is_active)
-			IS DISTINCT FROM (EXCLUDED.title, EXCLUDED.category, EXCLUDED.tag_mask, EXCLUDED.coordinates,
-				EXCLUDED.address_text, EXCLUDED.opening_rules, EXCLUDED.data_mode, EXCLUDED.card_source_record_id, true)
-		RETURNING id::text`,
-		id, city, p.Title, p.NormalizedTitle, nullIfEmpty(p.Category), mask, p.Lon, p.Lat,
-		p.Address, string(p.OpeningRules), n.Raw.DataMode, n.Raw.SourceRecordID, at)
-	if err != nil {
-		return false, fmt.Errorf("upsert place %s: %w", p.ExternalID, err)
-	}
-	returned, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		return false, fmt.Errorf("upsert place %s: %w", p.ExternalID, err)
-	}
-	return len(returned) > 0, nil
 }
 
 // settle records what the batch did to its raw and source records and advances the watermark of

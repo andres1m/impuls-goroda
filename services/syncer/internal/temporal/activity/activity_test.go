@@ -59,6 +59,8 @@ func (f *fakeStore) OutsideBoundary(
 	return nil, false, nil
 }
 
+func (f *fakeStore) Resolve(context.Context, domain.City, *materialize.Outcome) error { return nil }
+
 func TestApplyBatchMaterializesTheIDs(t *testing.T) {
 	s := &fakeStore{}
 	a := &Activities{Store: s, Now: time.Now}
