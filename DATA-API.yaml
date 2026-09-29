@@ -3,7 +3,10 @@ team_id: "Осуществительное"
 service_name: "impuls-goroda-gateway"
 base_url: "https://impulsgoroda.duckdns.org"
 
-# Обязательные проверки API для платформы автоматической оценки хакатона
+# TEST_USER_TOKEN is obtained from a valid MAX initData exchange. TEST_ROUTE_ID and
+# TEST_ROUTE_REVISION come from a successful optimize response; TEST_SAVED_REVISION
+# comes from save. NEW_SHARE_TOKEN is a fresh 32-byte base64url token; the returned
+# share_token becomes TEST_SHARE_TOKEN. The route must be a draft for save.
 checks:
   - id: "health_readiness_probe"
     summary: "Проверка эксплуатационной готовности сервиса и его зависимостей"
@@ -62,17 +65,20 @@ checks:
         properties:
           init_data:
             type: "string"
-            example: "query_id=test_query&user=%7B%22id%22%3A100001%2C%22first_name%22%3A%22Jury%22%7D&auth_date=1727630000&hash=mock_hash"
+            example: "${TEST_MAX_INIT_DATA}"
     response:
       status: 200
       content_type: "application/json"
       body:
         type: "object"
-        required: ["token", "user_id", "expires_at"]
+        required: ["access_token", "token_type", "expires_at", "request_id"]
         properties:
-          token:
+          access_token:
             type: "string"
-          user_id:
+          token_type:
+            type: "string"
+            enum: ["Bearer"]
+          request_id:
             type: "string"
           expires_at:
             type: "string"
@@ -90,7 +96,7 @@ checks:
         Content-Type: "application/json"
         Accept: "application/json"
         Authorization: "Bearer ${TEST_USER_TOKEN}"
-        Idempotency-Key: "check-optimize-001"
+        Idempotency-Key: "11111111-1111-4111-8111-111111111101"
       body:
         type: "object"
         required: ["city", "timezone", "start_at", "end_at", "origin", "constraints"]
@@ -105,37 +111,46 @@ checks:
           start_at:
             type: "string"
             format: "date-time"
-            example: "2026-09-30T10:00:00+03:00"
           end_at:
             type: "string"
             format: "date-time"
-            example: "2026-09-30T21:00:00+03:00"
           origin:
             type: "object"
-            required: ["lat", "lon"]
+            required: ["latitude", "longitude"]
             properties:
-              lat:
+              latitude:
                 type: "number"
                 example: 55.7558
-              lon:
+              longitude:
                 type: "number"
                 example: 37.6173
           constraints:
             type: "object"
-            required: ["user_tag_mask", "movement_mode", "pace", "budget", "pushkin_card_only"]
+            required: ["interest_mask", "excluded_categories", "movement_modes", "load_profile", "budget", "benefit_programs", "audience_claims", "obligations", "soft_preferences", "accepted_unknowns"]
             properties:
-              user_tag_mask:
+              interest_mask:
                 type: "string"
                 pattern: "^0x[0-9a-fA-F]{16}$"
                 example: "0x0000000000000021"
-              movement_mode:
-                type: "string"
-                enum: ["walk", "transit", "car"]
-                example: "walk"
-              pace:
+              excluded_categories:
+                type: "array"
+              movement_modes:
+                type: "array"
+                items:
+                  type: "string"
+              load_profile:
                 type: "string"
                 enum: ["relaxed", "moderate", "intense"]
-                example: "moderate"
+              benefit_programs:
+                type: "array"
+              audience_claims:
+                type: "array"
+              obligations:
+                type: "array"
+              soft_preferences:
+                type: "array"
+              accepted_unknowns:
+                type: "array"
               pushkin_card_only:
                 type: "boolean"
                 example: false
@@ -169,15 +184,21 @@ checks:
             type: "array"
             items:
               type: "object"
-              required: ["route_id", "revision", "city", "status", "visits", "steps", "legs"]
+              required: ["route_id", "revision", "lifecycle", "city", "plan"]
               properties:
                 route_id:
                   type: "string"
                   format: "uuid"
                 revision:
-                  type: "integer"
-                status:
                   type: "string"
+                lifecycle:
+                  type: "string"
+                  enum: ["draft"]
+                city:
+                  type: "string"
+                plan:
+                  type: "object"
+                  required: ["steps", "legs", "result"]
 
   - id: "get_owner_route"
     summary: "Получение полного расписания, точек посещения и переходов сохранённого маршрута владельца"
@@ -197,27 +218,27 @@ checks:
       content_type: "application/json"
       body:
         type: "object"
-        required: ["route", "server_time"]
+        required: ["request_id", "route"]
         properties:
-          server_time:
+          request_id:
             type: "string"
-            format: "date-time"
           route:
             type: "object"
-            required: ["route_id", "revision", "status", "city", "timezone", "summary", "visits", "steps", "legs"]
+            required: ["route_id", "revision", "lifecycle", "city", "plan"]
             properties:
               route_id:
                 type: "string"
                 format: "uuid"
               revision:
-                type: "integer"
+                type: "string"
               city:
                 type: "string"
-              status:
+              lifecycle:
                 type: "string"
-              summary:
+                enum: ["draft", "saved"]
+              plan:
                 type: "object"
-                required: ["total_duration_minutes", "total_transit_minutes", "estimated_cost"]
+                required: ["timezone", "steps", "legs", "result"]
 
   - id: "save_owner_route"
     summary: "Фиксация черновика маршрута в постоянном статусе сохранённого плана"
@@ -230,7 +251,8 @@ checks:
       headers:
         Accept: "application/json"
         Authorization: "Bearer ${TEST_USER_TOKEN}"
-        Idempotency-Key: "check-save-001"
+        Idempotency-Key: "11111111-1111-4111-8111-111111111102"
+        If-Match: '"${TEST_ROUTE_REVISION}"'
       path_parameters:
         route_id: "${TEST_ROUTE_ID}"
     response:
@@ -238,19 +260,20 @@ checks:
       content_type: "application/json"
       body:
         type: "object"
-        required: ["route_id", "revision", "saved_at", "status"]
+        required: ["route_id", "revision", "request_id", "status", "conflicts"]
         properties:
           route_id:
             type: "string"
             format: "uuid"
           revision:
-            type: "integer"
+            type: "string"
           status:
             type: "string"
-            enum: ["SAVED"]
-          saved_at:
+            enum: ["READY", "PARTIAL", "UNCHANGED"]
+          request_id:
             type: "string"
-            format: "date-time"
+          conflicts:
+            type: "array"
 
   - id: "create_route_share"
     summary: "Создание защищённой ссылки для анонимного просмотра маршрута другими пользователями"
@@ -264,28 +287,43 @@ checks:
         Content-Type: "application/json"
         Accept: "application/json"
         Authorization: "Bearer ${TEST_USER_TOKEN}"
-        Idempotency-Key: "check-share-001"
+        Idempotency-Key: "11111111-1111-4111-8111-111111111103"
+        If-Match: '"${TEST_SAVED_REVISION}"'
       path_parameters:
         route_id: "${TEST_ROUTE_ID}"
+      body:
+        type: "object"
+        required: ["share_token"]
+        properties:
+          share_token:
+            type: "string"
+            example: "${NEW_SHARE_TOKEN}"
     response:
       status: 200
       content_type: "application/json"
       body:
         type: "object"
-        required: ["share_token", "created_at", "max_deep_link"]
+        required: ["share_token", "created_at", "deep_link", "revision", "status", "request_id"]
         properties:
           share_token:
             type: "string"
           created_at:
             type: "string"
             format: "date-time"
-          max_deep_link:
+          deep_link:
+            type: "string"
+          revision:
+            type: "string"
+          status:
+            type: "string"
+            enum: ["READY", "UNCHANGED"]
+          request_id:
             type: "string"
 
   - id: "read_shared_route"
     summary: "Анонимный просмотр расшаренного маршрута без персональных данных автора"
     method: "GET"
-    path: "/api/v1/routes/shared/${TEST_SHARE_TOKEN}"
+    path: "/api/v1/shared-routes/${TEST_SHARE_TOKEN}"
     auth:
       role: "anonymous"
     request:
@@ -298,22 +336,13 @@ checks:
       content_type: "application/json"
       body:
         type: "object"
-        required: ["share_token", "city", "timezone", "archetype", "status", "data_mode", "summary", "visits", "steps", "legs"]
+        required: ["request_id", "route"]
         properties:
-          share_token:
+          request_id:
             type: "string"
-          city:
-            type: "string"
-          archetype:
-            type: "string"
-          status:
-            type: "string"
-          data_mode:
-            type: "string"
-            enum: ["live", "prepared", "synthetic"]
-          summary:
+          route:
             type: "object"
-            required: ["total_duration_minutes", "total_transit_minutes", "estimated_cost"]
+            required: ["revision", "city", "timezone", "result", "steps", "legs"]
 
   - id: "search_nearby_lunch"
     summary: "Поиск кафе и заведений питания поблизости от текущей геопозиции пользователя через геосервис"
@@ -331,16 +360,16 @@ checks:
         route_id: "${TEST_ROUTE_ID}"
       body:
         type: "object"
-        required: ["location", "radius_meters"]
+        required: ["position", "radius_meters"]
         properties:
-          location:
+          position:
             type: "object"
-            required: ["lat", "lon"]
+            required: ["latitude", "longitude"]
             properties:
-              lat:
+              latitude:
                 type: "number"
                 example: 55.7558
-              lon:
+              longitude:
                 type: "number"
                 example: 37.6173
           radius_meters:
@@ -352,33 +381,30 @@ checks:
       content_type: "application/json"
       body:
         type: "object"
-        required: ["venues", "search_center", "radius_meters"]
+        required: ["request_id", "searched_at", "candidates", "radius_meters"]
         properties:
+          request_id:
+            type: "string"
+          searched_at:
+            type: "string"
+            format: "date-time"
           radius_meters:
             type: "integer"
-          search_center:
-            type: "object"
-            required: ["lat", "lon"]
-            properties:
-              lat:
-                type: "number"
-              lon:
-                type: "number"
-          venues:
+          candidates:
             type: "array"
             items:
               type: "object"
-              required: ["external_id", "name", "location"]
+              required: ["provider", "external_id", "title", "position", "distance_meters"]
               properties:
                 external_id:
                   type: "string"
-                name:
+                title:
                   type: "string"
-                location:
+                position:
                   type: "object"
-                  required: ["lat", "lon"]
+                  required: ["latitude", "longitude"]
                   properties:
-                    lat:
+                    latitude:
                       type: "number"
-                    lon:
+                    longitude:
                       type: "number"
