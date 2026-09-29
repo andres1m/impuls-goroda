@@ -71,6 +71,8 @@ func (d placeData) Existing(ctx context.Context, city domain.City, ids []uuid.UU
 }
 
 // Nearby narrows by the bounding box first, which the GiST index serves, then measures on the spheroid.
+// A place is offered only when it has links, so that its values can be recomputed from facts without
+// losing any, and only to sources that do not describe it yet, so that a source never merges with itself.
 func (d placeData) Nearby(
 	ctx context.Context,
 	city domain.City,
@@ -84,8 +86,14 @@ func (d placeData) Nearby(
 		FROM probe, catalog.place p
 		JOIN integration.source_record r ON r.id = p.card_source_record_id
 		JOIN integration.source s ON s.id = r.source_id
-		WHERE p.city = $1 AND p.is_active AND s.source_key <> $4 AND s.source_key <> 'synthetic'
+		WHERE p.city = $1 AND p.is_active AND s.source_key <> 'synthetic'
 			AND p.coordinates && ST_Expand(probe.pt, 0.001)
+			AND EXISTS (SELECT 1 FROM integration.entity_link l WHERE l.place_id = p.id AND l.city = p.city)
+			AND NOT EXISTS (
+				SELECT 1 FROM integration.entity_link l
+				JOIN integration.source_record lr ON lr.id = l.source_record_id
+				JOIN integration.source ls ON ls.id = lr.source_id
+				WHERE l.place_id = p.id AND l.city = p.city AND ls.source_key = $4)
 			AND ST_DWithin(p.coordinates::geography, probe.pt::geography, $5)
 		ORDER BY 5, p.id`, city, lat, lon, string(source), resolve.Radius)
 	if err != nil {

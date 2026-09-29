@@ -332,3 +332,69 @@ func TestKnownAndExistingIntegration(t *testing.T) {
 		t.Fatalf("existing %v %v", existing, err)
 	}
 }
+
+func TestPlacesWithoutFactsAreNotMergeTargetsIntegration(t *testing.T) {
+	a := newMaterializeFixture(t)
+	b := newMaterializeFixture(t)
+	placed := a.arrive(t, 0, draftAt("n1", "gastro", "Кофейня Центральная", testLat, testLon))
+	data := placeData{pool: a.pool}
+	if got, err := data.Nearby(a.ctx, domain.Perm, b.source, testLat, testLon); err != nil || len(got) != 1 {
+		t.Fatalf("a place with facts must be offered: %+v %v", got, err)
+	}
+	// A place materialized before entity resolution has no links or facts, and merging into it would
+	// replace every value it has with the newcomer's.
+	for _, q := range []string{
+		`DELETE FROM integration.attribute_fact WHERE target_id = $1`,
+		`DELETE FROM integration.entity_link WHERE place_id = $1`,
+	} {
+		if _, err := a.pool.Exec(a.ctx, q, ownPlaceID(&placed)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, err := data.Nearby(a.ctx, domain.Perm, b.source, testLat, testLon); err != nil || len(got) != 0 {
+		t.Fatalf("a place without facts is offered as a merge target: %+v %v", got, err)
+	}
+}
+
+func TestPlaceThatAlreadyHasASourceIsNotOfferedToIt(t *testing.T) {
+	first, second := pair(t, &stubEmbedder{vectors: identical})
+	first.arrive(t, 0, draftAt("n1", "gastro", "Кофейня Центральная", testLat, testLon))
+	second.arrive(t, time.Second, draftAt("k1", "gastro", "Кофейня Центральная", testLat, testLon+metersEast(2)))
+
+	// The name of the shared place comes from the first source, so only the card says "first"; the second
+	// source has a link to it all the same, and its next record must not be merged into it.
+	data := placeData{pool: first.pool}
+	for _, source := range []domain.SourceKey{first.source, second.source} {
+		if got, err := data.Nearby(first.ctx, domain.Perm, source, testLat, testLon+metersEast(1)); err != nil || len(got) != 0 {
+			t.Fatalf("the place is offered to %s, which already describes it: %+v %v", source, got, err)
+		}
+	}
+}
+
+func TestReprocessingTheSameRecordReplacesItsFactsIntegration(t *testing.T) {
+	f := newMaterializeFixture(t)
+	f.store.embedder = &stubEmbedder{vectors: identical}
+	d := draftAt("n1", "gastro", "Кофейня Центральная", testLat, testLon)
+	a := f.arrive(t, 0, d)
+
+	// The same raw record is opened again and normalized differently, so the new value has the same
+	// fetch time as the old one.
+	ids, err := f.store.Reopen(f.ctx, f.source, domain.Perm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Title, d.NormalizedTitle = "Кофейня на Ленина", "кофейня на ленина"
+	o := &materialize.Outcome{Apply: []materialize.Normalized{{Raw: f.pending(t, ids...)[0], Place: d}}}
+	if err := f.store.Resolve(f.ctx, domain.Perm, o); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := f.store.Publish(f.ctx, domain.Perm, o, stamp.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.row(t, ownPlaceID(&a)).Title; got != "Кофейня на Ленина" {
+		t.Fatalf("title %q", got)
+	}
+	if n := f.count(t, `SELECT count(*) FROM integration.attribute_fact WHERE target_id = $1 AND attribute_name = 'title'`, ownPlaceID(&a)); n != 1 {
+		t.Fatalf("%d title facts for one raw record", n)
+	}
+}
