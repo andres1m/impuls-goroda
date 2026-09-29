@@ -29,11 +29,45 @@ func NewScenarioRouter(runtime ScenarioRuntime) *ScenarioRouter {
 
 func (r *ScenarioRouter) Routes() []router.Route {
 	return []router.Route{
+		router.NewRoute(http.MethodPost, "/scenarios", func() echo.HandlerFunc { return r.create }, shareNoStore, Authenticate(r.runtime), AuthenticatedRateLimit(r.runtime)),
 		router.NewRoute(http.MethodPost, "/scenarios/:scenario_id/draft", func() echo.HandlerFunc { return r.saveDraft }, shareNoStore, Authenticate(r.runtime), AuthenticatedRateLimit(r.runtime)),
 		router.NewRoute(http.MethodGet, "/me/scenario", func() echo.HandlerFunc { return r.read(true) }, Authenticate(r.runtime), AuthenticatedRateLimit(r.runtime)),
 		router.NewRoute(http.MethodGet, "/scenarios/:scenario_id", func() echo.HandlerFunc { return r.read(false) }, Authenticate(r.runtime), AuthenticatedRateLimit(r.runtime)),
 		router.NewRoute(http.MethodPost, "/scenarios/:scenario_id/complete", func() echo.HandlerFunc { return r.complete }, Authenticate(r.runtime), AuthenticatedRateLimit(r.runtime)),
 	}
+}
+
+func (r *ScenarioRouter) create(c *echo.Context) error {
+	principal, ok := PrincipalFrom(c)
+	if !ok {
+		return authRequired()
+	}
+	key, err := ParseIdempotencyKey(c.Request())
+	if err != nil {
+		return err
+	}
+	if c.Request().Body == nil {
+		return malformedCommandHeader()
+	}
+	raw, err := io.ReadAll(http.MaxBytesReader(c.Response(), c.Request().Body, 32<<10))
+	if err != nil {
+		return malformedCommandHeader()
+	}
+	input, err := routewire.DecodeCreateScenarioInput(raw)
+	if err != nil {
+		return &Error{Status: http.StatusBadRequest, Code: "INVALID_INPUT", Message: "Choose one scenario preset or provide scenario text"}
+	}
+	creator, ok := r.runtime.(interface {
+		CreateScenario(context.Context, d.UserID, [16]byte, routewire.CreateScenarioInput) (command.Result, error)
+	})
+	if !ok {
+		return &Error{Status: http.StatusServiceUnavailable, Code: "SCENARIO_UNAVAILABLE", Message: "Scenario creation is unavailable"}
+	}
+	result, err := creator.CreateScenario(c.Request().Context(), principal.UserID, key, input)
+	if err != nil {
+		return MapCommandError(err)
+	}
+	return sendVisitResult(c, &result)
 }
 
 func (r *ScenarioRouter) complete(c *echo.Context) error {

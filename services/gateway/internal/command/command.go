@@ -15,6 +15,7 @@ import (
 type Operation string
 
 const (
+	CreateScenario           Operation = "createScenario"
 	OptimizeRoutes           Operation = "optimizeRoutes"
 	SelectScenarioRoute      Operation = "selectScenarioRoute"
 	CompleteBotScenario      Operation = "completeBotScenario"
@@ -63,7 +64,7 @@ func (e *Envelope) Validate() error {
 
 func (o Operation) Valid() bool {
 	switch o {
-	case SelectScenarioRoute, OptimizeRoutes, CompleteBotScenario, SaveBotScenarioDraft, SaveRoute, ProposePanicReroute, ApplyRouteProposal,
+	case CreateScenario, SelectScenarioRoute, OptimizeRoutes, CompleteBotScenario, SaveBotScenarioDraft, SaveRoute, ProposePanicReroute, ApplyRouteProposal,
 		RejectRouteProposal, SetVisitPin, ProposeVisitRemoval, UpdateVisitParticipation,
 		UpdateVisitExecution, CreateRouteShare, RevokeRouteShare, CopySharedRoute, DeleteRoute, SetRouteNotifications:
 		return true

@@ -70,7 +70,8 @@ func (c *Client) ExtractedScenarioReply(scenarioID string, extracted bool) (json
 
 func (c *Client) ScenarioMenuReply() (json.RawMessage, error) {
 	body := welcome()
-	body.Text = "Выберите тему дня или напишите свой сценарий. Старт и условия уточним в Mini App."
+	body.Text = "Создайте маршрут в Mini App: выберите тему, старт и время. Здесь тоже можно выбрать тему или написать пожелания."
+	body.addKeyboard([][]button{{{Type: "open_app", Text: "Создать маршрут", WebApp: c.username}}})
 	body.addKeyboard([][]button{{{Type: "message", Text: "Продолжить сценарий"}, {Type: "message", Text: "Результат"}}})
 	return json.Marshal(body)
 }
