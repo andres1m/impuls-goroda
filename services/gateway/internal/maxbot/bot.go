@@ -87,7 +87,13 @@ func NewClient(token, username string) (*Client, error) {
 	return &Client{token: token, username: username, baseURL: apiBaseURL, http: &http.Client{Timeout: 8 * time.Second, Transport: transport}, seen: make(map[string]time.Time)}, nil
 }
 
-func (c *Client) Handle(ctx context.Context, update Update) error {
+type PreparedReply struct {
+	UserID  int64
+	EventID string
+	Body    json.RawMessage
+}
+
+func (c *Client) PrepareReply(update Update) (PreparedReply, bool, error) {
 	var userID int64
 	var key string
 	var reply message
@@ -105,16 +111,39 @@ func (c *Client) Handle(ctx context.Context, update Update) error {
 		key = "callback:" + update.Callback.ID
 		reply = c.respond(update.Callback.Payload)
 	default:
-		return nil
+		return PreparedReply{}, false, nil
 	}
 	if userID <= 0 || key == "message:" || key == "callback:" || key == "start:0:0" {
-		return errors.New("invalid MAX update")
+		return PreparedReply{}, false, errors.New("invalid MAX update")
 	}
-	if !c.claim(key) {
+	if (update.Type == "bot_started" && update.Timestamp <= 0) || len(key) > 512 {
+		return PreparedReply{}, false, errors.New("invalid MAX event identifier")
+	}
+	encoded, err := json.Marshal(reply)
+	if err != nil {
+		return PreparedReply{}, false, err
+	}
+	return PreparedReply{UserID: userID, EventID: key, Body: encoded}, true, nil
+}
+
+func (c *Client) SendReply(ctx context.Context, userID int64, raw json.RawMessage) error {
+	var body message
+	if userID <= 0 || json.Unmarshal(raw, &body) != nil || body.Text == "" {
+		return errors.New("invalid MAX reply")
+	}
+	return c.send(ctx, userID, body)
+}
+
+func (c *Client) Handle(ctx context.Context, update Update) error {
+	reply, handled, err := c.PrepareReply(update)
+	if err != nil {
+		return err
+	}
+	if !handled || !c.claim(reply.EventID) {
 		return nil
 	}
-	if err := c.send(ctx, userID, reply); err != nil {
-		c.release(key)
+	if err := c.SendReply(ctx, reply.UserID, reply.Body); err != nil {
+		c.release(reply.EventID)
 		return err
 	}
 	return nil

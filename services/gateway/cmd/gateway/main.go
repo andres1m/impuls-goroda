@@ -38,9 +38,10 @@ type appConfig struct {
 }
 
 type gatewayConfig struct {
-	Auth      gatewayAuthConfig `yaml:"auth"`
-	CORS      gatewayCORSConfig `yaml:"cors"`
-	RateLimit rateLimitConfig   `yaml:"rate-limit"`
+	Computation optimizerclient.Policy `yaml:"computation"`
+	Auth        gatewayAuthConfig      `yaml:"auth"`
+	CORS        gatewayCORSConfig      `yaml:"cors"`
+	RateLimit   rateLimitConfig        `yaml:"rate-limit"`
 }
 
 type gatewayAuthConfig struct {
@@ -119,6 +120,13 @@ func run(ctx context.Context) error {
 	routers := []router.Router{
 		httpapi.NewAuthRouter(authRuntime),
 		httpapi.NewVisitRouter(authRuntime),
+		httpapi.NewRouteRouter(authRuntime),
+		httpapi.NewRecoveryRouter(authRuntime),
+		httpapi.NewScenarioRouter(authRuntime),
+		httpapi.NewPinRouter(authRuntime),
+		httpapi.NewProposalRouter(authRuntime),
+		httpapi.NewPanicRouter(authRuntime),
+		httpapi.NewShareRouter(authRuntime, os.Getenv("MAX_BOT_USERNAME")),
 		httpapi.NewDirectionsRouter(os.Getenv("TWO_GIS_API_KEY"), authRuntime),
 	}
 	if username := os.Getenv("MAX_BOT_USERNAME"); username != "" {
@@ -126,7 +134,7 @@ func run(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("create MAX bot: %w", err)
 		}
-		routers = append(routers, httpapi.NewBotRouter(authRuntime, bot))
+		routers = append(routers, httpapi.NewBotRouter(authRuntime, app.NewBotHandler(authRuntime, bot)))
 	}
 	apiServer := server.New("api-server", infra.cfg.APIServer,
 		server.WithIPExtractor(echo.ExtractIPFromXFFHeader(echo.TrustLinkLocal(false))),
@@ -160,6 +168,7 @@ func run(ctx context.Context) error {
 func newAuthRuntime(infra *infrastructureComponents) (*app.Runtime, error) {
 	cfg := infra.cfg.Gateway
 	return app.NewRuntime(infra.pool, infra.log.Log, app.Config{
+		Optimizer:         infra.optimizer,
 		BotToken:          cfg.Auth.BotToken,
 		WebhookSecret:     cfg.Auth.WebhookSecret,
 		InitDataMaxAge:    cfg.Auth.InitDataMaxAge,
@@ -239,11 +248,15 @@ func initInfrastructure() (*infrastructureComponents, error) {
 		return nil, fmt.Errorf("create db error: %w", err)
 	}
 
+	optimizer, err := optimizerclient.NewWithPolicy(zapLog.Log, cfg.Optimizer, cfg.Gateway.Computation)
+	if err != nil {
+		return nil, fmt.Errorf("create optimizer client error: %w", err)
+	}
 	return &infrastructureComponents{
 		cfg:       &cfg,
 		log:       zapLog,
 		pool:      pool,
-		optimizer: optimizerclient.New(zapLog.Log, cfg.Optimizer),
+		optimizer: optimizer,
 	}, nil
 }
 

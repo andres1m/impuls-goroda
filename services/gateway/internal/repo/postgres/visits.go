@@ -148,6 +148,14 @@ WHERE route_id = $1 AND visit_id = $2`,
 }
 
 func (q *Queries) CloneVisitRevision(ctx context.Context, routeID domain.RouteID, previous domain.RouteRevisionNumber, visitID domain.VisitID, mutation domain.RouteMutationKind, participation *domain.ParticipationSnapshot, now time.Time) (domain.RouteRevisionNumber, error) {
+	return q.cloneRevision(ctx, routeID, previous, visitID, mutation, participation, now)
+}
+
+func (q *Queries) cloneRevision(ctx context.Context, routeID domain.RouteID, previous domain.RouteRevisionNumber, visitID domain.VisitID, mutation domain.RouteMutationKind, participation *domain.ParticipationSnapshot, now time.Time) (domain.RouteRevisionNumber, error) {
+	return q.cloneRevisionWithLifecycle(ctx, routeID, previous, visitID, mutation, participation, now, "")
+}
+
+func (q *Queries) cloneRevisionWithLifecycle(ctx context.Context, routeID domain.RouteID, previous domain.RouteRevisionNumber, visitID domain.VisitID, mutation domain.RouteMutationKind, participation *domain.ParticipationSnapshot, now time.Time, lifecycle domain.RouteLifecycle) (domain.RouteRevisionNumber, error) {
 	next := previous + 1
 	var snapshot []byte
 	if participation != nil {
@@ -158,18 +166,21 @@ func (q *Queries) CloneVisitRevision(ctx context.Context, routeID domain.RouteID
 		}
 	}
 	id := encodeUUID([16]byte(routeID))
-	_, err := q.db.Exec(ctx, `INSERT INTO planning.route_revision (
+	inserted, err := q.db.Exec(ctx, `INSERT INTO planning.route_revision (
     route_id, revision, parent_revision, lifecycle_state, archetype_id, timezone,
     start_at, end_at, origin, destination, input_schema_version, constraints,
     catalog_revision, result_status, warnings, cost_summary, geometry_geojson,
     mutation_kind, created_at
-) SELECT route_id, $2, revision, lifecycle_state, archetype_id, timezone,
+) SELECT route_id, $2, revision, COALESCE(NULLIF($6::text,''),lifecycle_state), archetype_id, timezone,
     start_at, end_at, origin, destination, input_schema_version, constraints,
     catalog_revision, result_status, warnings, cost_summary, geometry_geojson,
     $3, $4 FROM planning.route_revision WHERE route_id = $1 AND revision = $5`,
-		id, int64(next), string(mutation), now, int64(previous))
+		id, int64(next), string(mutation), now, int64(previous), string(lifecycle))
 	if err != nil {
 		return 0, fmt.Errorf("copy route revision: %w", err)
+	}
+	if inserted.RowsAffected() != 1 {
+		return 0, ErrNotFound
 	}
 	_, err = q.db.Exec(ctx, `INSERT INTO planning.route_step (
     route_id, revision, position, visit_id, arrival_at, visit_start_at,

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type BudgetMode string
@@ -41,25 +42,6 @@ func (b Budget) Validate() error {
 type EvidenceKind string
 
 const EvidenceUserReported EvidenceKind = "user_reported"
-
-type ProgramBalance struct {
-	Program  string
-	Balance  Money
-	Evidence EvidenceKind
-}
-
-func (b ProgramBalance) Validate() error {
-	if strings.TrimSpace(b.Program) == "" {
-		return errors.New("benefit program is required")
-	}
-	if err := b.Balance.Validate(); err != nil {
-		return err
-	}
-	if b.Evidence != EvidenceUserReported {
-		return errors.New("invalid program balance evidence")
-	}
-	return nil
-}
 
 type AudienceClaim struct {
 	Audience string
@@ -133,12 +115,13 @@ type RouteConstraints struct {
 	LoadProfile        string
 	Budget             Budget
 	BenefitPrograms    []string
-	ProgramBalance     *ProgramBalance
+	PushkinCardOnly    bool
 	AudienceClaims     []AudienceClaim
 	Obligations        []RouteObligation
 	SoftPreferences    []string
 	LunchWindow        *LunchWindow
 	AcceptedUnknowns   []UnknownConditionCode
+	SemanticQuery      string
 }
 
 func (c RouteConstraints) Validate() error {
@@ -156,10 +139,11 @@ func (c RouteConstraints) Validate() error {
 	if err := c.Budget.Validate(); err != nil {
 		return err
 	}
-	if c.ProgramBalance != nil {
-		if err := c.ProgramBalance.Validate(); err != nil {
-			return err
-		}
+	if c.SemanticQuery != "" && strings.TrimSpace(c.SemanticQuery) == "" {
+		return errors.New("semantic query must not be blank")
+	}
+	if utf8.RuneCountInString(c.SemanticQuery) > 1000 {
+		return errors.New("semantic query exceeds 1000 characters")
 	}
 	for _, program := range c.BenefitPrograms {
 		if strings.TrimSpace(program) == "" {

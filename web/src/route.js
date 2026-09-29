@@ -37,12 +37,17 @@ export async function loadSelectedRoute(apiBaseUrl, accessToken, fetcher = fetch
     throw new RouteRequestError(200, 'INVALID_RESPONSE', false);
   }
   if (!context.selected_route_id) return null;
-  const id = context.selected_route_id;
+  return loadOwnerRoute(apiBaseUrl, accessToken, context.selected_route_id, fetcher, signal);
+}
+
+export async function loadOwnerRoute(apiBaseUrl, accessToken, id, fetcher = fetch, signal) {
   if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(id)) {
     throw new RouteRequestError(200, 'INVALID_RESPONSE', false);
   }
   const body = await get(apiBaseUrl, `/api/v1/routes/${id}`, accessToken, fetcher, signal);
-  if (!body?.route?.plan || body.route.route_id !== id || !Array.isArray(body.route.plan.steps)) {
+  if (!body?.route?.plan || typeof body.route.route_id !== 'string' || body.route.route_id.toLowerCase() !== id.toLowerCase() || !Array.isArray(body.route.plan.steps) ||
+      typeof body.route.revision !== 'string' || !/^[1-9][0-9]{0,18}$/.test(body.route.revision) || BigInt(body.route.revision) > 9223372036854775807n ||
+      !['draft', 'saved'].includes(body.route.lifecycle)) {
     throw new RouteRequestError(200, 'INVALID_RESPONSE', false);
   }
   return body.route;

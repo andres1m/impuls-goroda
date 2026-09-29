@@ -14,10 +14,25 @@ import (
 type Client struct {
 	transport *rpc.Client
 	optimizer optimizerv1.OptimizerServiceClient
+	policy    Policy
+	inflight  chan struct{}
 }
 
 func New(log *zap.Logger, cfg config.GRPCClient) *Client {
-	return &Client{transport: rpc.NewClient("optimizer", log, &cfg)}
+	client, _ := NewWithPolicy(log, cfg, Policy{})
+	return client
+}
+
+func NewWithPolicy(log *zap.Logger, cfg config.GRPCClient, policy Policy) (*Client, error) {
+	policy, err := policy.normalized()
+	if err != nil {
+		return nil, err
+	}
+	return &Client{
+		transport: rpc.NewClient("optimizer", log, &cfg),
+		policy:    policy,
+		inflight:  make(chan struct{}, policy.MaxConcurrent),
+	}, nil
 }
 
 func (c *Client) Name() string { return c.transport.Name() }

@@ -16,6 +16,7 @@ type Error struct {
 	Retryable       bool
 	RetryAfter      int
 	CurrentRevision domain.RouteRevisionNumber
+	CurrentVersion  int64
 	Cause           error
 }
 
@@ -34,6 +35,7 @@ type errorResponse struct {
 	RequestID       string `json:"request_id"`
 	Retryable       bool   `json:"retryable"`
 	CurrentRevision string `json:"current_revision,omitempty"`
+	CurrentVersion  string `json:"current_version,omitempty"`
 }
 
 func ErrorHandler(c *echo.Context, err error) {
@@ -51,6 +53,9 @@ func ErrorHandler(c *echo.Context, err error) {
 	if apiError.CurrentRevision > 0 {
 		response.CurrentRevision = strconv.FormatInt(int64(apiError.CurrentRevision), 10)
 		c.Response().Header().Set("ETag", `"`+response.CurrentRevision+`"`)
+	}
+	if apiError.CurrentVersion > 0 {
+		response.CurrentVersion = strconv.FormatInt(apiError.CurrentVersion, 10)
 	}
 	_ = c.JSON(apiError.Status, response)
 }
