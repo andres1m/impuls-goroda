@@ -164,7 +164,7 @@ func (s *MaterializeStore) Publish(
 			return 0, false, err
 		}
 	}
-	if err := settle(ctx, tx, city, o); err != nil {
+	if err := settle(ctx, tx, city, o, at); err != nil {
 		return 0, false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -189,6 +189,9 @@ func stillPending(ctx context.Context, tx pgx.Tx, o *materialize.Outcome) (mater
 	for i := range o.Failed {
 		f := &o.Failed[i]
 		ids = append(ids, f.Raw.ID)
+	}
+	for i := range o.Quarantined {
+		ids = append(ids, o.Quarantined[i].Raw.ID)
 	}
 	rows, err := tx.Query(ctx, `
 		SELECT id::text FROM integration.raw_ingest
@@ -228,6 +231,12 @@ func stillPending(ctx context.Context, tx pgx.Tx, o *materialize.Outcome) (mater
 		f := &o.Failed[i]
 		if keep[f.Raw.ID] {
 			out.Failed = append(out.Failed, *f)
+		}
+	}
+	for i := range o.Quarantined {
+		q := &o.Quarantined[i]
+		if keep[q.Raw.ID] {
+			out.Quarantined = append(out.Quarantined, *q)
 		}
 	}
 	return out, nil
@@ -280,40 +289,61 @@ func upsertPlace(
 }
 
 // settle records what the batch did to its raw and source records and advances the watermark of
-// every source in it no further than the earliest record still pending or failed.
-func settle(ctx context.Context, tx pgx.Tx, city domain.City, o *materialize.Outcome) error {
-	var accepted, applied, failed []string
-	for i := range o.Apply {
-		n := &o.Apply[i]
-		accepted = append(accepted, n.Raw.ID)
-	}
-	for i := range o.Unchanged {
-		r := &o.Unchanged[i]
-		accepted = append(accepted, r.ID)
-	}
-	applied = append(applied, accepted...)
-	for i := range o.Superseded {
-		r := &o.Superseded[i]
-		applied = append(applied, r.ID)
-	}
-	for i := range o.Failed {
-		f := &o.Failed[i]
-		failed = append(failed, f.Raw.ID)
-	}
-	if len(applied)+len(failed) == 0 {
+// every source in it no further than the earliest record still pending, failed or quarantined.
+func settle(ctx context.Context, tx pgx.Tx, city domain.City, o *materialize.Outcome, at time.Time) error {
+	ids := settledIDs(o)
+	if len(ids.applied)+len(ids.failed)+len(ids.quarantined) == 0 {
 		return nil
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE integration.source_record sr SET accepted_hash = ri.content_hash
 		FROM integration.raw_ingest ri
-		WHERE ri.id = ANY ($1::uuid[]) AND sr.id = ri.source_record_id`, accepted); err != nil {
+		WHERE ri.id = ANY ($1::uuid[]) AND sr.id = ri.source_record_id`, ids.accepted); err != nil {
 		return fmt.Errorf("accept content hashes: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		UPDATE integration.raw_ingest SET processing_state = CASE WHEN id = ANY ($2::uuid[]) THEN 'failed' ELSE 'applied' END
-		WHERE id = ANY ($1::uuid[]) OR id = ANY ($2::uuid[])`, applied, failed); err != nil {
+		UPDATE integration.raw_ingest SET processing_state = CASE
+			WHEN id = ANY ($2::uuid[]) THEN 'failed' WHEN id = ANY ($3::uuid[]) THEN 'quarantined' ELSE 'applied' END
+		WHERE id = ANY ($1::uuid[]) OR id = ANY ($2::uuid[]) OR id = ANY ($3::uuid[])`,
+		ids.applied, ids.failed, ids.quarantined); err != nil {
 		return fmt.Errorf("mark raw ingest: %w", err)
 	}
+	if err := quarantine(ctx, tx, city, o.Quarantined, at); err != nil {
+		return err
+	}
+	if err := resolveQuarantine(ctx, tx, ids.accepted, at); err != nil {
+		return err
+	}
+	return advanceWatermark(ctx, tx, city, slices.Concat(ids.applied, ids.failed, ids.quarantined))
+}
+
+type settled struct {
+	// accepted is the part of applied whose content the catalog now holds.
+	accepted, applied, failed, quarantined []string
+}
+
+func settledIDs(o *materialize.Outcome) settled {
+	var s settled
+	for i := range o.Apply {
+		s.accepted = append(s.accepted, o.Apply[i].Raw.ID)
+	}
+	for i := range o.Unchanged {
+		s.accepted = append(s.accepted, o.Unchanged[i].ID)
+	}
+	s.applied = append(s.applied, s.accepted...)
+	for i := range o.Superseded {
+		s.applied = append(s.applied, o.Superseded[i].ID)
+	}
+	for i := range o.Failed {
+		s.failed = append(s.failed, o.Failed[i].Raw.ID)
+	}
+	for i := range o.Quarantined {
+		s.quarantined = append(s.quarantined, o.Quarantined[i].Raw.ID)
+	}
+	return s
+}
+
+func advanceWatermark(ctx context.Context, tx pgx.Tx, city domain.City, settledIDs []string) error {
 	_, err := tx.Exec(ctx, `
 		WITH sources AS (
 			SELECT DISTINCT sr.source_id FROM integration.raw_ingest ri
@@ -327,7 +357,8 @@ func settle(ctx context.Context, tx pgx.Tx, city domain.City, o *materialize.Out
 					AND ri.fetched_at < COALESCE((
 						SELECT min(b.fetched_at) FROM integration.raw_ingest b
 						JOIN integration.source_record bs ON bs.id = b.source_record_id
-						WHERE bs.source_id = s.source_id AND bs.city = $1 AND b.processing_state IN ('pending', 'failed')
+						WHERE bs.source_id = s.source_id AND bs.city = $1
+							AND b.processing_state IN ('pending', 'failed', 'quarantined')
 					), 'infinity')
 			) AS fetched_at
 			FROM sources s
@@ -337,7 +368,7 @@ func settle(ctx context.Context, tx pgx.Tx, city domain.City, o *materialize.Out
 		ON CONFLICT (source_id, city) DO UPDATE SET materialized_watermark = EXCLUDED.materialized_watermark
 		WHERE c.materialized_watermark IS NULL
 			OR (c.materialized_watermark->>'fetched_at')::timestamptz < (EXCLUDED.materialized_watermark->>'fetched_at')::timestamptz`,
-		city, slices.Concat(applied, failed))
+		city, settledIDs)
 	if err != nil {
 		return fmt.Errorf("advance materialized watermark: %w", err)
 	}

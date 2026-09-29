@@ -165,6 +165,10 @@ func saveExpect(
 func deleteSource(t *testing.T, pool *pgxpool.Pool, sourceID ingest.SourceID) {
 	ctx := context.Background()
 	for _, query := range []string{
+		`DELETE FROM integration.quarantine WHERE raw_ingest_id IN (SELECT ri.id FROM integration.raw_ingest ri
+			JOIN integration.source_record sr ON sr.id = ri.source_record_id WHERE sr.source_id = $1)`,
+		`DELETE FROM integration.change_delivery WHERE source_record_id IN
+			(SELECT id FROM integration.source_record WHERE source_id = $1)`,
 		`DELETE FROM integration.raw_ingest WHERE source_record_id IN (SELECT id FROM integration.source_record WHERE source_id = $1)`,
 		`DELETE FROM integration.source_record WHERE source_id = $1`,
 		`DELETE FROM integration.sync_cursor WHERE source_id = $1`,
