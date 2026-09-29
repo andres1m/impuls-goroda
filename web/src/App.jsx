@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Button } from '@maxhub/max-ui';
 import { exchangeMaxInitData } from './auth.js';
 import { loadRuntimeConfig } from './config.js';
-import { loadSelectedRoute, RouteRequestError } from './route.js';
+import { loadOwnerRoute, loadSelectedRoute, RouteRequestError } from './route.js';
 import OwnerRouteScreen from './OwnerRouteScreen.jsx';
 import PrototypeRouteScreen from './PrototypeRouteScreen.jsx';
 import Brand from './Brand.jsx';
@@ -12,6 +12,7 @@ import { GatewayError } from './optimize.js';
 import ScenarioEntry from './ScenarioEntry.jsx';
 import SharedRouteScreen from './SharedRouteScreen.jsx';
 import ServiceAvailability from './ServiceAvailability.jsx';
+import RouteLibrary from './RouteLibrary.jsx';
 
 export default function App() {
   const [config, setConfig] = useState({ state: 'loading' });
@@ -21,6 +22,8 @@ export default function App() {
   const [configAttempt, setConfigAttempt] = useState(0);
   const [authAttempt, setAuthAttempt] = useState(0);
   const [routeAttempt, setRouteAttempt] = useState(0);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const requireAuth = useCallback(() => { setLibraryOpen(false); setSession({ state: 'error' }); }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -72,6 +75,10 @@ export default function App() {
     const controller = new AbortController();
     setRoute({ state: 'loading' });
     async function openEntry() {
+      if (launch.value.kind === 'owner') {
+        const value = await loadOwnerRoute(config.value.apiBaseUrl, session.value.accessToken, launch.value.routeID, fetch, controller.signal);
+        return { state: 'ready', value };
+      }
       if (launch.value.kind === 'scenario') {
         const value = await loadScenario(config.value.apiBaseUrl, session.value.accessToken, launch.value.scenarioID, fetch, controller.signal);
         return { state: 'scenario', value };
@@ -97,8 +104,9 @@ export default function App() {
   if (config.state === 'ready' && config.value.prototypeMode) return <PrototypeRouteScreen mapApiKey={config.value.twoGisApiKey} />;
   const availability = config.state === 'ready' ? <ServiceAvailability apiBaseUrl={config.value.apiBaseUrl} /> : null;
   if (config.state === 'ready' && launch.state === 'ready' && launch.value.kind === 'shared') return <>{availability}<SharedRouteScreen key={launch.value.shareToken} token={launch.value.shareToken} apiBaseUrl={config.value.apiBaseUrl} mapApiKey={config.value.twoGisApiKey} /></>;
-  if (config.state === 'ready' && session.state === 'ready' && route.state === 'ready') return <>{availability}<OwnerRouteScreen key={route.value.route_id} route={route.value} apiBaseUrl={config.value.apiBaseUrl} accessToken={session.value.accessToken} mapApiKey={config.value.twoGisApiKey} /></>;
-  if (config.state === 'ready' && session.state === 'ready' && route.state === 'scenario') return <>{availability}<ScenarioEntry key={route.value.scenario_id} scenario={route.value} apiBaseUrl={config.value.apiBaseUrl} accessToken={session.value.accessToken} mapApiKey={config.value.twoGisApiKey} onReload={() => setRouteAttempt((attempt) => attempt + 1)} /></>;
+  if (config.state === 'ready' && session.state === 'ready' && libraryOpen) return <>{availability}<RouteLibrary apiBaseUrl={config.value.apiBaseUrl} accessToken={session.value.accessToken} mapApiKey={config.value.twoGisApiKey} onAuthRequired={requireAuth} onBack={() => { setLibraryOpen(false); setRouteAttempt((attempt) => attempt + 1); }} /></>;
+  if (config.state === 'ready' && session.state === 'ready' && route.state === 'ready') return <>{availability}<OwnerRouteScreen key={route.value.route_id} route={route.value} apiBaseUrl={config.value.apiBaseUrl} accessToken={session.value.accessToken} mapApiKey={config.value.twoGisApiKey} backLabel="Мои маршруты" onBack={() => setLibraryOpen(true)} /></>;
+  if (config.state === 'ready' && session.state === 'ready' && route.state === 'scenario') return <>{availability}<ScenarioEntry key={route.value.scenario_id} scenario={route.value} apiBaseUrl={config.value.apiBaseUrl} accessToken={session.value.accessToken} mapApiKey={config.value.twoGisApiKey} onLibrary={() => setLibraryOpen(true)} onReload={() => setRouteAttempt((attempt) => attempt + 1)} /></>;
 
   let title = 'Открываем маршрут';
   let message = 'Подключаемся к MAX и загружаем ваш маршрут.';
@@ -143,6 +151,7 @@ export default function App() {
         <h1>{title}</h1>
         <p>{message}</p>
         {retry && <Button onClick={retry}>Повторить</Button>}
+        {session.state === 'ready' && ['empty', 'error'].includes(route.state) && <button className="scenario-option" onClick={() => setLibraryOpen(true)}>Мои маршруты</button>}
       </section>
     </main></>
   );

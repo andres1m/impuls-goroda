@@ -215,6 +215,17 @@ button { cursor: pointer; }
 .workspace-visit-main small { color: var(--route-accent); font-size: 10px; font-weight: 750; letter-spacing: .07em; }
 .workspace-visit-main strong { font-size: 16px; line-height: 1.2; letter-spacing: -.025em; font-weight: 730; overflow-wrap: anywhere; }
 .workspace-visit-main em { color: #758176; font-size: 11px; font-style: normal; }
+.server-route-workspace .workspace-visit.is-cancelled { background: #fff2ee; }
+.server-route-workspace .workspace-visit.is-cancelled .server-cancellation-label { color: #9d3e2b; font-weight: 650; }
+.server-cancellation-notice { padding: 18px; margin: 20px 0; border: 1px solid #f0d8cc; border-radius: 22px; background: #fff5ef; color: #783b26; overflow-wrap: anywhere; }
+.server-cancellation-notice h2 { margin: 0 0 8px; font-size: 19px; line-height: 1.3; }
+.server-cancellation-notice p { margin: 0; font-size: 14px; line-height: 1.5; }
+.server-cancellation-notice ul { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 12px; }
+.server-cancellation-notice li { padding: 10px 12px; border-radius: 16px; background: #fff; }
+.server-cancellation-notice li p { margin-top: 6px; }
+.server-cancellation-notice button { display: grid; grid-template-columns: 24px minmax(0, 1fr) 12px; align-items: center; gap: 10px; width: 100%; min-height: 48px; border: 0; padding: 0; text-align: left; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.server-cancellation-notice button strong { font-weight: 600; }
+.server-cancellation-notice button:focus-visible { outline: 2px solid #783b26; outline-offset: 4px; border-radius: 8px; }
 .workspace-visit-chevron { color: #9baa9e; font-size: 21px; }
 .workspace-leg { padding: 0 0 9px 91px; color: #79877b; font-size: 10px; line-height: 1.3; }
 .workspace-leg > span:first-child { color: var(--route-accent); margin-right: 4px; }
@@ -686,3 +697,25 @@ button { cursor: pointer; }
 .server-navigation li > span, .server-navigation small { color: #617082; }
 .server-navigation a { display: flex; align-items: center; justify-content: center; min-height: 48px; padding: 8px 12px; box-sizing: border-box; border-radius: 12px; background: #eaf3ff; color: #086fcf; text-decoration: none; }
 .server-navigation a:focus-visible, .server-navigation summary:focus-visible { outline: 2px solid #087af5; outline-offset: 3px; }
+
+.notification-switch { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 64px; cursor: pointer; }
+.notification-switch > span { min-width: 0; display: grid; gap: 6px; }
+.notification-switch small, .notification-hint { color: #617082; font-size: 14px; line-height: 1.5; }
+.notification-switch input { appearance: none; flex: 0 0 50px; width: 50px; height: 30px; margin: 0; padding: 3px; border: 0; border-radius: 20px; background: #d7dde4; cursor: pointer; }
+.notification-switch input::before { content: ''; display: block; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px #0002; }
+.notification-switch input:checked { background: #087af5; }
+.notification-switch input:checked::before { transform: translateX(20px); }
+.notification-switch input:disabled { opacity: .55; }
+.notification-switch input:disabled { cursor: default; }
+.notification-switch input:focus-visible { outline: 2px solid #087af5; outline-offset: 3px; }
+.notification-controls .scenario-option { min-height: 48px; }
+.route-library { padding-bottom: max(32px, env(safe-area-inset-bottom)); }
+.route-library-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.route-library-filters [aria-pressed="true"] { background: #eaf3ff; border-color: #a6cdfb; }
+.route-library-list { list-style: none; padding: 0; margin: 24px 0; display: grid; gap: 16px; }
+.route-library-card { display: grid; gap: 12px; width: 100%; padding: 22px; text-align: left; border: 1px solid #e8e9ed; border-radius: 24px; background: #fff; color: #18202c; font: inherit; cursor: pointer; overflow-wrap: anywhere; }
+.route-library-card strong { font-size: 20px; }
+.route-library-card span { color: #617082; line-height: 1.5; }
+.route-library-card span:last-child { color: #086fcf; }
+.route-library-card:disabled { opacity: .6; cursor: wait; }
+.route-library-card:focus-visible { outline: 2px solid #087af5; outline-offset: 3px; }

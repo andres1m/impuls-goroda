@@ -31,6 +31,30 @@ async function get(apiBaseUrl, path, accessToken, fetcher, signal) {
   return body;
 }
 
+export async function loadRoutePage(apiBaseUrl, accessToken, lifecycle, cursor, signal) {
+  if (!['saved', 'draft'].includes(lifecycle) || cursor !== null && (typeof cursor !== 'string' || !cursor.length || cursor.length > 512)) {
+    throw new RouteRequestError(400, 'INVALID_REQUEST', false);
+  }
+  const query = new URLSearchParams({ lifecycle, limit: '20' });
+  if (cursor) query.set('cursor', cursor);
+  const body = await get(apiBaseUrl, `/api/v1/routes?${query}`, accessToken, fetch, signal);
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!Array.isArray(body?.routes) || body.routes.length > 20 ||
+      body.next_cursor !== undefined && (typeof body.next_cursor !== 'string' || !body.next_cursor.length || body.next_cursor.length > 512 || body.next_cursor === cursor) ||
+      body.routes.some((item) => !item || !uuid.test(item.route_id) || item.lifecycle !== lifecycle ||
+        typeof item.revision !== 'string' || !/^[1-9][0-9]{0,18}$/.test(item.revision) || BigInt(item.revision) > 9223372036854775807n ||
+        !['READY', 'PARTIAL'].includes(item.result) || ['city', 'timezone', 'archetype_id'].some((field) => typeof item[field] !== 'string' || !item[field].trim() || item[field].length > 64) ||
+        !Number.isFinite(Date.parse(item.start_at)) || !Number.isFinite(Date.parse(item.end_at)) || Date.parse(item.end_at) <= Date.parse(item.start_at) ||
+        !Number.isFinite(Date.parse(item.updated_at))) || new Set(body.routes.map((item) => item.route_id)).size !== body.routes.length) {
+    throw new RouteRequestError(200, 'INVALID_RESPONSE', false);
+  }
+  for (const item of body.routes) {
+    try { new Intl.DateTimeFormat('ru-RU', { timeZone: item.timezone }).format(new Date(item.start_at)); }
+    catch { throw new RouteRequestError(200, 'INVALID_RESPONSE', false); }
+  }
+  return { routes: body.routes, nextCursor: body.next_cursor ?? null };
+}
+
 export async function loadSelectedRoute(apiBaseUrl, accessToken, fetcher = fetch, signal) {
   const context = await get(apiBaseUrl, '/api/v1/me/context', accessToken, fetcher, signal);
   if (!context || typeof context !== 'object' || !('confirmed_input' in context)) {
@@ -54,7 +78,7 @@ export async function loadOwnerRoute(apiBaseUrl, accessToken, id, fetcher = fetc
   if (proposal !== undefined) {
     const revision = (value) => typeof value === 'string' && /^[1-9][0-9]{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n;
     const validID = (value) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
-    if (!proposal || !validID(proposal.proposal_id) || proposal.state !== 'pending' || !['delay', 'delete'].includes(proposal.reason) ||
+    if (!proposal || !validID(proposal.proposal_id) || proposal.state !== 'pending' || !['delay', 'delete', 'cancel'].includes(proposal.reason) ||
         proposal.base_revision !== body.route.revision || !revision(proposal.base_catalog_revision) || !Number.isFinite(Date.parse(proposal.created_at)) ||
         !['READY', 'PARTIAL'].includes(proposal.candidate?.result) || !Array.isArray(proposal.candidate?.steps) || !Array.isArray(proposal.candidate?.legs) ||
         proposal.candidate.catalog_revision !== proposal.base_catalog_revision || proposal.candidate.timezone !== body.route.plan.timezone ||

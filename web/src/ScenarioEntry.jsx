@@ -30,11 +30,10 @@ function RetainedConditions({ input }) {
     <div><dt>Категории участника</dt><dd>{c.audience_claims?.map((item) => item.audience).join(', ') || 'Не указаны'}</dd></div>
     <div><dt>Предпочтения</dt><dd>{c.soft_preferences?.join(', ') || 'Нет'}</dd></div>
     <div><dt>Допустимые неопределённости</dt><dd>{c.accepted_unknowns?.join(', ') || 'Не разрешены'}</dd></div>
-    {c.lunch_window && <div><dt>Обед</dt><dd>{instant(c.lunch_window.start_at, input.timezone)} — {instant(c.lunch_window.end_at, input.timezone)}, минимум {Math.ceil(c.lunch_window.min_duration_seconds / 60)} мин.</dd></div>}
   </dl>{c.obligations?.map((item, index) => <p key={index}>Обязательное посещение {index + 1}: {item.session_id || item.visit_id}, {instant(item.starts_at, input.timezone)}; запас {Math.ceil(item.arrival_buffer_seconds / 60)} мин.; участие: {item.participation}.</p>)}</details>;
 }
 
-export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapApiKey }) {
+export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapApiKey, onLibrary }) {
   const [current, setCurrent] = useState(scenario);
   const [form, setForm] = useState(() => scenarioForm(scenario.input));
   const [city, setCity] = useState(scenario.input.city || '');
@@ -104,6 +103,16 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
     }
   }
   function change(field, value) { setForm((old) => ({ ...old, [field]: value })); setReview(null); setError(''); }
+  function toggleLunch(enabled) {
+    setForm((old) => {
+      const day = /^\d{4}-\d{2}-\d{2}T/.test(old.start) ? old.start.slice(0, 10) : '';
+      return { ...old, lunchEnabled: enabled,
+        lunchStart: old.lunchStart || (enabled && day ? `${day}T13:00` : ''),
+        lunchEnd: old.lunchEnd || (enabled && day ? `${day}T14:30` : ''),
+      };
+    });
+    setReview(null); setError('');
+  }
   function toggle(field, value) { change(field, form[field].includes(value) ? form[field].filter((item) => item !== value) : [...form[field], value]); }
   function applyExtraction(proposal) {
     if (locked) return;
@@ -202,6 +211,7 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
   const outcome = current.outcome;
   return <main className="scenario-page">
     <header><Brand /><h1>{current.source === 'preset' ? presetNames[current.preset_id] : 'Ваш сценарий'}</h1></header>
+    {current.status === 'completed' && onLibrary && <button className="scenario-option" onClick={onLibrary}>Мои маршруты</button>}
     {current.source_text && <p className="scenario-description">{current.source_text}</p>}
     {current.status === 'draft' && current.pending_extraction && <ExtractionReview input={current.pending_extraction} choice={extractionChoice} disabled={locked} onApply={applyExtraction} onManual={() => { setExtractionChoice('manual'); setReview(null); }} />}
     {current.status === 'draft' && <form onSubmit={prepare}>
@@ -215,11 +225,12 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
         {pickMode && <TwoGisRouteMap apiKey={mapApiKey} city={city || 'perm'} stops={[]} pickMode={pickMode} onCancelPick={() => setPickMode(null)} onPick={pickPoint} />}
       </section>
       <section className="scenario-card scenario-form"><h2>Условия прогулки</h2>
+        {current.source === 'preset' && <p className="scenario-timezone">Интересы и темп можно изменить под себя.</p>}
         <fieldset disabled={locked}>
           <legend className="scenario-timezone">{cities[city] ? `Время местное · ${cities[city].name}` : 'Сначала выберите старт, чтобы определить часовой пояс'}</legend>
           <div className="scenario-endpoints">
-            <label>Начало<input type="datetime-local" value={form.start} onChange={(e) => change('start', e.target.value)} required /></label>
-            <label>Завершение<input type="datetime-local" value={form.end} onChange={(e) => change('end', e.target.value)} required /></label>
+            <label>Дата и время начала<input type="datetime-local" value={form.start} onChange={(e) => change('start', e.target.value)} required /></label>
+            <label>Дата и время завершения<input type="datetime-local" value={form.end} onChange={(e) => change('end', e.target.value)} required /></label>
           </div>
           <fieldset><legend>Передвижение</legend><div className="scenario-choices">{[...movementModes, ...form.modes.filter((code) => !movementModes.some(([value]) => value === code)).map((code) => [code, code])].map(([code, label]) => <label key={code}><input type="checkbox" checked={form.modes.includes(code)} onChange={() => toggle('modes', code)} />{label}</label>)}</div></fieldset>
           <label>Темп<select value={form.profile} onChange={(e) => change('profile', e.target.value)} required><option value="">Выберите темп</option>{profiles.map(([code, label]) => <option key={code} value={code}>{label}</option>)}{form.profile && !profiles.some(([code]) => code === form.profile) && <option value={form.profile}>{form.profile}</option>}</select></label>
@@ -228,6 +239,20 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
           <label>Бюджет<select value={form.budgetMode} onChange={(e) => change('budgetMode', e.target.value)} required><option value="">Выберите условие</option>{budgetModes.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label>
           {form.budgetMode && form.budgetMode !== 'none' && <label>Сумма, ₽<input inputMode="decimal" value={form.budget} onChange={(e) => change('budget', e.target.value)} required /></label>}
           <label className="scenario-check"><input type="checkbox" checked={form.pushkin} onChange={(e) => change('pushkin', e.target.checked)} />Только события по Пушкинской карте</label>
+          <fieldset><legend>Обед</legend>
+            <label className="scenario-check"><input type="checkbox" checked={form.lunchEnabled} onChange={(e) => toggleLunch(e.target.checked)} />Запланировать обед</label>
+            {form.lunchEnabled && <>
+              <div className="scenario-endpoints">
+                <label>Можно начать с<input type="datetime-local" value={form.lunchStart} onChange={(e) => change('lunchStart', e.target.value)} required /></label>
+                <label>Закончить до<input type="datetime-local" value={form.lunchEnd} onChange={(e) => change('lunchEnd', e.target.value)} required /></label>
+              </div>
+              <label>Длительность<select value={form.lunchDuration} onChange={(e) => change('lunchDuration', e.target.value)}>
+                <option value="2700">45 минут</option><option value="3600">60 минут</option>
+                {!['2700', '3600'].includes(form.lunchDuration) && <option value={form.lunchDuration}>Из сохранённых условий</option>}
+              </select></label>
+              <p className="scenario-timezone">Если подходящего кафе нет, возможна свободная пауза. Если обед не поместится, расчёт покажет предупреждение.</p>
+            </>}
+          </fieldset>
           <label>Пожелания<textarea value={form.wishes} onChange={(e) => change('wishes', e.target.value)} rows={3} /></label>
         </fieldset>
         <RetainedConditions input={{ ...current.input, constraints: { ...current.input.constraints, excluded_categories: form.excluded } }} />
@@ -241,6 +266,7 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
       <p>{review.constraints.movement_modes.map((code) => nameOf(movementModes, code)).join(', ')} · {nameOf(profiles, review.constraints.load_profile)}</p>
       <p>{form.interests.map((code) => nameOf(interests, code)).join(', ') || 'Без дополнительных предпочтений по интересам'}</p>
       <p>Бюджет: {nameOf(budgetModes, review.constraints.budget.mode)}{review.constraints.budget.limit ? ` · ${form.budget} ₽` : ''}</p>
+      {review.constraints.lunch_window ? <p>Обед: {instant(review.constraints.lunch_window.start_at, review.timezone)} — {instant(review.constraints.lunch_window.end_at, review.timezone)}. Запрошенная длительность: {Math.ceil(review.constraints.lunch_window.min_duration_seconds / 60)} мин.</p> : <p>Без запланированного обеда</p>}
       <p>Старт выбран на карте · {destination ? 'финиш выбран' : 'без заданного финиша'}</p>
       {review.constraints.pushkin_card_only && <p>Только события по Пушкинской карте</p>}
       {review.constraints.excluded_categories.length > 0 && <p>Исключены: {review.constraints.excluded_categories.map((code) => nameOf(categories, code)).join(', ')}</p>}
