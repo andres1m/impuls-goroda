@@ -23,11 +23,11 @@ export default function RemovalProposalReview({ route, proposal, disabled, onApp
   const before = new Map(route.plan.steps.map((step) => [step.visit_id, step.catalog?.title || 'Свободное время']));
   const after = new Map(proposal.candidate.steps.map((step) => [step.visit_id, step.catalog?.title || 'Свободное время']));
   return <section className="removal-proposal-review" aria-labelledby="removal-proposal-heading">
-    <h2 id="removal-proposal-heading" tabIndex={-1} ref={heading}>Предложение маршрута</h2>
+    <h2 id="removal-proposal-heading" tabIndex={-1} ref={heading}>{proposal.reason === 'cancel' ? 'Маршрут после отмены' : 'Предложение маршрута'}</h2>
     <p>Изменения ещё не применены.</p>
     <div className="proposal-plan-columns"><PlanSummary title="Сейчас" plan={route.plan} /><PlanSummary title="После изменения" plan={proposal.candidate} /></div>
     <ul className="proposal-change-list">{proposal.changes.map((change, index) => <li key={index}>
-      {change.kind === 'removed' ? `Убрать: ${before.get(change.before_visit_id) || 'посещение'}` : change.kind === 'replaced' ? `${before.get(change.before_visit_id) || 'Посещение'} → ${after.get(change.after_visit_id) || 'новая точка'}` : change.kind === 'participation_action' ? 'Билет или регистрация сохраняются. Проверьте условия у организатора.' : change.kind === 'cost_changed' ? 'Расходы изменятся — сравните суммы выше.' : change.kind === 'time_shifted' ? 'Время посещения изменится.' : 'Расписание или условия посещения обновятся.'}
+      {change.kind === 'removed' ? `Убрать: ${before.get(change.before_visit_id) || 'посещение'}` : change.kind === 'replaced' ? `${before.get(change.before_visit_id) || 'Посещение'} → ${after.get(change.after_visit_id) || 'новая точка'}` : change.kind === 'participation_action' ? proposal.reason === 'cancel' ? 'Уточните возврат или перенос у организатора. Применение маршрута не возвращает деньги и не отменяет регистрацию.' : 'Билет или регистрация сохраняются. Проверьте условия у организатора.' : change.kind === 'cost_changed' ? 'Расходы изменятся — сравните суммы выше.' : change.kind === 'time_shifted' ? 'Время посещения изменится.' : 'Расписание или условия посещения обновятся.'}
     </li>)}</ul>
     {proposal.candidate.result === 'PARTIAL' && <p className="scenario-error">Вариант с оговорками — проверьте условия.</p>}
     {proposal.candidate.warnings?.map((warning, index) => <p key={index}>{warning.message}</p>)}

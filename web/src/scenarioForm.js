@@ -21,6 +21,10 @@ export function scenarioForm(input) {
     budgetMode: constraints.budget?.mode || '',
     budget: minor && constraints.budget.limit.currency === 'RUB' ? `${BigInt(minor) / 100n}.${String(BigInt(minor) % 100n).padStart(2, '0')}` : '',
     pushkin: constraints.pushkin_card_only === true, wishes: constraints.semantic_query || '',
+    lunchEnabled: Boolean(constraints.lunch_window),
+    lunchStart: localDateTime(constraints.lunch_window?.start_at, input.timezone),
+    lunchEnd: localDateTime(constraints.lunch_window?.end_at, input.timezone),
+    lunchDuration: String(constraints.lunch_window?.min_duration_seconds ?? 2700),
   };
 }
 
@@ -55,6 +59,8 @@ export function confirmedScenarioInput(base, form, city, origin, destination) {
     if ([...form.wishes].length > 1000) throw new Error('Пожелания должны быть не длиннее 1000 символов.');
     constraints.semantic_query = form.wishes;
   } else delete constraints.semantic_query;
+  const lunch = scenarioLunchWindow(base, form, timezone);
+  if (lunch) constraints.lunch_window = lunch; else delete constraints.lunch_window;
   const input = { ...base, city, timezone, origin, constraints,
     start_at: base.timezone === timezone && form.start === localDateTime(base.start_at, timezone) ? base.start_at : start.value,
     end_at: base.timezone === timezone && form.end === localDateTime(base.end_at, timezone) ? base.end_at : end.value,
@@ -100,7 +106,25 @@ export function draftScenarioInput(base, form, city, origin, destination) {
     if ([...form.wishes].length > 1000) throw new Error('Пожелания должны быть не длиннее 1000 символов.');
     constraints.semantic_query = form.wishes;
   } else delete constraints.semantic_query;
+  const lunch = scenarioLunchWindow(base, form, input.timezone);
+  if (lunch) constraints.lunch_window = lunch; else delete constraints.lunch_window;
   return input;
+}
+
+function scenarioLunchWindow(base, form, timezone) {
+  if (!form.lunchEnabled) return null;
+  if (!timezone) throw new Error('Выберите старт перед сохранением времени обеда.');
+  if (!form.lunchStart || !form.lunchEnd) throw new Error('Укажите начало и конец обеденного окна.');
+  if (!/^[1-9][0-9]*$/.test(form.lunchDuration)) throw new Error('Выберите длительность обеда.');
+  const duration = Number(form.lunchDuration);
+  if (!Number.isSafeInteger(duration) || duration > 2147483647) throw new Error('Проверьте длительность обеда.');
+  const original = base.constraints?.lunch_window;
+  const instant = (field, value) => base.timezone === timezone && value === localDateTime(original?.[field], timezone)
+    ? original[field] : zonedDateTime(value, timezone).value;
+  const start = instant('start_at', form.lunchStart), end = instant('end_at', form.lunchEnd);
+  if (Date.parse(end) <= Date.parse(start)) throw new Error('Конец обеденного окна должен быть позже начала.');
+  if (Date.parse(end) - Date.parse(start) < duration * 1000) throw new Error('Обеденное окно короче выбранной длительности.');
+  return { start_at: start, end_at: end, min_duration_seconds: duration };
 }
 
 export async function resolveStartCity(point, apiKey, signal) {

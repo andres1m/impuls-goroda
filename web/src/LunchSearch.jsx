@@ -30,6 +30,8 @@ export default function LunchSearch({ routeID, apiBaseUrl, accessToken, disabled
   const [phase, setPhase] = useState('idle');
   const [message, setMessage] = useState('');
   const [results, setResults] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const detailRequest = useRef(null);
   const current = useRef(null);
   const heading = useRef(null);
   const opener = useRef(null);
@@ -38,7 +40,7 @@ export default function LunchSearch({ routeID, apiBaseUrl, accessToken, disabled
     heading.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     heading.current?.focus({ preventScroll: true });
   });
-  useEffect(() => () => current.current?.abort(), []);
+  useEffect(() => () => { current.current?.abort(); detailRequest.current?.abort(); }, []);
   useEffect(() => { if (openRequest > 0) openFromTimeline(); }, [openRequest]);
   useEffect(() => {
     if (open) {
@@ -48,6 +50,7 @@ export default function LunchSearch({ routeID, apiBaseUrl, accessToken, disabled
   }, [open]);
 
   function close() {
+    detailRequest.current?.abort(); detailRequest.current = null; setDetail(null);
     current.current?.abort(); current.current = null;
     setOpen(false); setResults(null); setMessage(''); setPhase('idle');
     if (opener.current?.isConnected) opener.current.focus({ preventScroll: true });
@@ -56,6 +59,7 @@ export default function LunchSearch({ routeID, apiBaseUrl, accessToken, disabled
 
   async function search(nextRadius) {
     if (disabled) return;
+    detailRequest.current?.abort(); detailRequest.current = null; setDetail(null);
     if (!open) opener.current = document.activeElement;
     current.current?.abort();
     const controller = new AbortController();
@@ -93,6 +97,38 @@ export default function LunchSearch({ routeID, apiBaseUrl, accessToken, disabled
     }
   }
 
+  async function loadDetails(item) {
+    if (disabled) return;
+    detailRequest.current?.abort();
+    const controller = new AbortController(); detailRequest.current = controller;
+    setDetail({ id: item.external_id, phase: 'loading' });
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 10000);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/v1/routes/${encodeURIComponent(routeID)}/lunch/organizations/${encodeURIComponent(item.external_id)}`, {
+        headers: { Authorization: `Bearer ${accessToken}` }, credentials: 'omit', cache: 'no-store', signal: controller.signal,
+      });
+      const body = await response.json();
+      if (controller.signal.aborted) throw new Error('Details cancelled');
+      if (!response.ok) throw { status: response.status, code: body?.code };
+      const value = body?.organization;
+      if (typeof body?.request_id !== 'string' || value?.provider !== '2gis' || value.external_id !== item.external_id
+        || typeof value.title !== 'string' || !value.title.trim() || [...value.title].length > 500 || !coordinate(value.position)
+        || !Number.isFinite(Date.parse(value.observed_at)) || value.price_status !== 'unknown'
+        || value.hours_status !== 'unknown' || value.availability_status !== 'unknown'
+        || value.address !== undefined && (typeof value.address !== 'string' || [...value.address].length > 1000)) throw new Error('Invalid organization response');
+      if (detailRequest.current !== controller) return;
+      setDetail({ id: item.external_id, phase: 'ready', value });
+    } catch (error) {
+      if (detailRequest.current !== controller || controller.signal.aborted && !timedOut) return;
+      const message = error.status === 401 ? 'Сессия закончилась. Откройте Mini App заново в MAX.'
+        : error.code === 'LUNCH_ORGANIZATION_NOT_FOUND' ? 'Организация больше не найдена в 2ГИС. Обновите поиск.'
+        : error.status === 429 || ['LUNCH_DETAILS_BUSY', 'LUNCH_DETAILS_RATE_LIMITED'].includes(error.code) ? 'Источник занят. Попробуйте немного позже.'
+        : 'Не удалось обновить сведения. Ниже остаются данные поиска.';
+      setDetail({ id: item.external_id, phase: 'error', message });
+    } finally { clearTimeout(timer); }
+  }
+
   const busy = phase === 'locating' || phase === 'searching';
   return <section className="owner-route-actions lunch-search" aria-label="Кафе рядом">
     {!open ? <button className="scenario-option lunch-search-open" disabled={disabled} onClick={() => search(radius)}>Обед · кафе рядом</button> : <div className="lunch-search-panel">
@@ -104,8 +140,17 @@ export default function LunchSearch({ routeID, apiBaseUrl, accessToken, disabled
       {phase === 'ready' && results.candidates.length > 0 && <>
         <p className="lunch-search-note">Расстояние по прямой. Часы работы и цены уточните в кафе. Переход в 2ГИС не меняет расписание.</p>
         <ul className="lunch-search-list">{results.candidates.map((item) => {
-          const link = externalLegLink({ mode: 'walk', verification: 'unknown' }, [[results.position.latitude, results.position.longitude], [item.position.latitude, item.position.longitude]]);
-          return <li key={item.external_id}><div className="lunch-search-place"><h3>{item.title}</h3><span>{item.distance_meters} м</span></div>{item.address && <div className="lunch-search-address">{item.address}</div>}<a className="scenario-option" href={link} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" onClick={openExternalNavigation}>Как дойти · 2ГИС</a></li>;
+          const selected = detail?.id === item.external_id ? detail : null;
+          const value = selected?.phase === 'ready' ? selected.value : item;
+          const link = externalLegLink({ mode: 'walk', verification: 'unknown' }, [[results.position.latitude, results.position.longitude], [value.position.latitude, value.position.longitude]]);
+          return <li key={item.external_id}>
+            <div className="lunch-search-place"><h3>{value.title}</h3>{!selected?.value && <span>{item.distance_meters} м</span>}</div>
+            {value.address && <div className="lunch-search-address">{value.address}</div>}
+            <button type="button" className="scenario-option" disabled={disabled || selected?.phase === 'loading'} onClick={() => loadDetails(item)}>{selected?.phase === 'loading' ? 'Получаем сведения…' : selected?.phase === 'error' ? 'Повторить сведения' : 'Сведения о заведении'}</button>
+            {selected?.phase === 'ready' && <p className="lunch-search-note" role="status">Сведения обновлены из 2ГИС. Часы работы и цены не подтверждены.</p>}
+            {selected?.phase === 'error' && <p className="scenario-error" role="alert">{selected.message}</p>}
+            <a className="scenario-option" href={link} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" onClick={openExternalNavigation}>Как дойти · 2ГИС</a>
+          </li>;
         })}</ul>
       </>}
       <button type="button" className="scenario-option" disabled={disabled || busy} onClick={() => search(radius)}>Обновить рядом со мной</button>

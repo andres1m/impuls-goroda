@@ -55,7 +55,23 @@ export default function RouteScreen({ route, mapApiKey, shared = false, actionsD
   const unknownCost = (plan.cost?.unknown_components?.length || 0) > 0;
   const mappedLegs = new Set();
   const pinUnavailable = pinHistoryIncomplete(route);
-  function chooseVisit(id) { setSelectedID(id); cards.current.get(id)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+  const cancellations = new Map();
+  for (const issue of route.issues || []) {
+    if (issue.type !== 'cancelled' || issue.state === 'resolved') continue;
+    const visit = projection.visits.find((item) => item.id === issue.visit_id);
+    const status = projection.execution.get(issue.visit_id)?.status;
+    if (!visit || ['completed', 'skipped'].includes(status)) continue;
+    const entry = cancellations.get(visit.id) || { visit, messages: new Set() };
+    if (issue.message) entry.messages.add(issue.message);
+    cancellations.set(visit.id, entry);
+  }
+  const cancelledVisits = new Set(cancellations.keys());
+  function chooseVisit(id, focus = false) {
+    setSelectedID(id);
+    const card = cards.current.get(id);
+    if (focus) card?.querySelector('button')?.focus({ preventScroll: true });
+    card?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
   return <main className="workspace server-route-workspace" style={{ '--route-accent': '#087af5' }}>
     <header className="workspace-topbar"><Brand className="workspace-wordmark" /><span className="server-lifecycle">{shared ? 'Общий маршрут' : route.lifecycle === 'saved' ? 'Сохранён' : 'Черновик'}</span></header>
     <div className="workspace-wrap">
@@ -66,7 +82,15 @@ export default function RouteScreen({ route, mapApiKey, shared = false, actionsD
       <div className="server-summary"><span>{personalCost ? `${unknownCost ? 'Известные расходы: ' : ''}${personalCost}` : 'Стоимость неизвестна'}</span>{unknownCost && <span>Есть неучтённые расходы</span>}{plan.constraints?.pushkin_card_only && <span>По Пушкинской карте</span>}</div>
       {plan.result === 'PARTIAL' && <p className="workspace-route-alert is-warning">Вариант построен с оговорками. Проверьте условия посещений.</p>}
       {plan.warnings?.map((warning, index) => <p className="workspace-route-alert is-warning" key={`${warning.code}-${index}`}>{warning.message}</p>)}
-      {route.issues?.filter((issue) => issue.state !== 'resolved').map((issue) => <p className="workspace-route-alert is-warning" key={issue.issue_id}>{issue.message}</p>)}
+      {cancellations.size > 0 && <section className="server-cancellation-notice" aria-label="Отмены в маршруте">
+        <h2>Есть отменённые посещения</h2>
+        <p>{shared ? 'В расписании остались отменённые точки.' : 'Расписание пока сохранено. Изменения применяются только после вашего подтверждения.'}</p>
+        <ul>{[...cancellations.values()].map(({ visit, messages }) => <li key={visit.id}>
+          <button type="button" onClick={() => chooseVisit(visit.id, true)}><span>{visit.number}</span><strong>{visit.title}</strong><span aria-hidden="true">›</span></button>
+          {[...messages].map((message) => <p key={message}>{message}</p>)}
+        </li>)}</ul>
+      </section>}
+      {route.issues?.filter((issue) => issue.state !== 'resolved' && !(issue.type === 'cancelled' && cancelledVisits.has(issue.visit_id))).map((issue) => <p className="workspace-route-alert is-warning" key={issue.issue_id}>{issue.message}</p>)}
       <div className="workspace-columns">
         <ServerRouteMap apiKey={mapApiKey} projection={projection} onSelect={chooseVisit} />
         <section className="workspace-itinerary" aria-labelledby="server-itinerary-title">
@@ -80,6 +104,7 @@ export default function RouteScreen({ route, mapApiKey, shared = false, actionsD
               const opensLunch = !shared && !isVisit && isLunch && Boolean(onLunch);
               const visit = projection.visits.find((item) => item.id === step.visit_id);
               const executed = projection.execution.get(step.visit_id);
+              const cancelled = isVisit && cancelledVisits.has(step.visit_id) && !visit?.completed && executed?.status !== 'skipped';
               const participation = route.participation?.find((item) => item.visit_id === step.visit_id) || step.participation;
               const incoming = projection.legs.filter((leg) => leg.to_visit_id === step.visit_id);
               incoming.forEach((leg) => mappedLegs.add(leg.position));
@@ -87,11 +112,12 @@ export default function RouteScreen({ route, mapApiKey, shared = false, actionsD
               return <React.Fragment key={step.visit_id}>
                 {incoming.map((leg) => <Leg key={leg.position} leg={leg} timezone={timezone} />)}
                 <li ref={(node) => { if (node) cards.current.set(step.visit_id, node); else cards.current.delete(step.visit_id); }}>
-                  <button className={isVisit ? `workspace-visit${selected ? ' is-active' : ''}${visit?.completed ? ' is-completed' : ''}` : `workspace-lunch-card server-free-time${isLunch ? '' : ' server-pause'}`} aria-expanded={opensLunch ? undefined : selected} disabled={opensLunch && lunchSearchDisabled} onClick={() => opensLunch ? onLunch() : setSelectedID(selected ? null : step.visit_id)}>
+                  <button className={isVisit ? `workspace-visit${selected ? ' is-active' : ''}${visit?.completed ? ' is-completed' : ''}${cancelled ? ' is-cancelled' : ''}` : `workspace-lunch-card server-free-time${isLunch ? '' : ' server-pause'}`} aria-expanded={opensLunch ? undefined : selected} disabled={opensLunch && lunchSearchDisabled} onClick={() => opensLunch ? onLunch() : setSelectedID(selected ? null : step.visit_id)}>
                     <span className="workspace-visit-time">{localTime(step.visit_start_at, timezone)}</span>
                     <span className="workspace-visit-main"><small>{isVisit && <span className="workspace-visit-marker" aria-hidden="true">{visit.completed ? '✓' : visit.number}</span>}{isLunch ? 'Обед' : isVisit ? categoryTitles[step.catalog?.category] || 'Посещение' : 'Пауза'} · до {localTime(step.visit_end_at, timezone)}</small>
                       <strong>{isVisit ? visit.title : isLunch ? 'Время на обед' : 'Свободное время'}</strong>
                       {opensLunch && <em>Найти кафе рядом со мной</em>}
+                      {cancelled && <em className="server-cancellation-label">Отменено</em>}
                       {visit?.completed ? <em>Пройдено{executed.confirmation_kind === 'user_reported' ? ' · по вашей отметке' : ' · подтверждено источником'}</em> : executed?.status === 'skipped' ? <em>Пропущено</em> : step.obligation ? <em>Обязательное посещение</em> : step.pinned ? <em>Закреплено</em> : null}
                     </span><span className="workspace-visit-chevron" aria-hidden="true">{opensLunch ? '›' : selected ? '−' : '+'}</span>
                   </button>
@@ -99,7 +125,7 @@ export default function RouteScreen({ route, mapApiKey, shared = false, actionsD
                     <p>Прибытие {localTime(step.arrival_at, timezone)} · выход {localTime(step.departure_at, timezone)}</p>
                     {!shared && isVisit && isLunch && onLunch && <button className="scenario-option" disabled={lunchSearchDisabled} onClick={onLunch}>Другие кафе рядом со мной</button>}
                     {isVisit && <>
-                      <p>{availabilityNames[step.catalog?.availability] || 'Доступность неизвестна'}</p>
+                      <p>{cancelled ? 'Посещение отменено. Расписание ещё не изменено.' : availabilityNames[step.catalog?.availability] || 'Доступность неизвестна'}</p>
                       <p>{dataNames[step.catalog?.data_mode] || 'Режим данных не указан'}</p>
                       <p>{step.cost?.unknown_components?.length ? 'Есть расходы, которые нужно уточнить' : money(step.cost?.personal_amount) || 'Личная стоимость неизвестна'}</p>
                       {step.catalog?.registration_details && <p>{step.catalog.registration_details}</p>}

@@ -3,15 +3,19 @@ import RouteScreen from './RouteScreen.jsx';
 import RemovalProposalReview from './RemovalProposalReview.jsx';
 import PanicControls from './PanicControls.jsx';
 import ShareControls from './ShareControls.jsx';
+import NotificationControls from './NotificationControls.jsx';
 import LunchSearch from './LunchSearch.jsx';
 import { createShareAttempt, createRevokeShareAttempt, sendShareCommand } from './sharing.js';
 import { createPanicAttempt, createRemovalAttempt, createProposalResolutionAttempt, sendProposalCommand } from './proposalCommands.js';
 import { loadOwnerRoute } from './route.js';
 import { createDeleteAttempt, createExecutionAttempt, createParticipationAttempt, createPinAttempt, createRouteAttempt, sendRouteCommand, terminalRouteError } from './routeCommands.js';
 
-export default function OwnerRouteScreen({ route: initialRoute, apiBaseUrl, accessToken, mapApiKey, onBack }) {
+export default function OwnerRouteScreen({ route: initialRoute, apiBaseUrl, accessToken, mapApiKey, onBack, backLabel = 'К вариантам' }) {
   const [route, setRoute] = useState(initialRoute);
-  const [busy, setBusy] = useState(false);
+  const [commandBusy, setBusy] = useState(false);
+  const [notificationBlocked, setNotificationBlocked] = useState(false);
+  const busy = commandBusy || notificationBlocked;
+  const [refreshing, setRefreshing] = useState(false);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState('');
   const [proposal, setProposal] = useState(initialRoute.pending_proposal || null);
@@ -23,6 +27,27 @@ export default function OwnerRouteScreen({ route: initialRoute, apiBaseUrl, acce
   const command = useRef(null);
   const request = useRef(null);
   useEffect(() => () => request.current?.abort(), []);
+
+  async function refreshRoute() {
+    if (command.current || deleteReview || request.current && !request.current.signal.aborted) return;
+    const controller = new AbortController();
+    request.current = controller;
+    setBusy(true); setRefreshing(true); setMessage('');
+    try {
+      const updated = await loadOwnerRoute(apiBaseUrl, accessToken, route.route_id, fetch, controller.signal);
+      if (controller.signal.aborted) return;
+      if (BigInt(updated.revision) < BigInt(route.revision)) throw new Error('Stale route snapshot');
+      setRoute(updated);
+      setProposal(updated.pending_proposal || null);
+      setMessage('Маршрут обновлён.');
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setMessage(error.status === 401 ? 'Сессия закончилась. Откройте Mini App заново в MAX.'
+        : error.status === 404 ? 'Маршрут больше недоступен.' : 'Не удалось обновить маршрут. Прежний план сохранён на экране. Попробуйте ещё раз.');
+    } finally {
+      if (!controller.signal.aborted) { request.current = null; setBusy(false); setRefreshing(false); }
+    }
+  }
 
   async function runCommand(operation = 'save', visitID, status, acknowledge = false) {
     if (request.current && !request.current.signal.aborted) return;
@@ -96,10 +121,13 @@ export default function OwnerRouteScreen({ route: initialRoute, apiBaseUrl, acce
     }
   }
 
-  if (deleted) return <main className="entry-page"><section className="entry-state" role="status"><h1>Маршрут удалён</h1><p>Билеты и регистрации не отменены. Независимые копии маршрута сохранятся.</p>{onBack && <button className="scenario-option" onClick={onBack}>К вариантам</button>}</section></main>;
+  if (deleted) return <main className="entry-page"><section className="entry-state" role="status"><h1>Маршрут удалён</h1><p>Билеты и регистрации не отменены. Независимые копии маршрута сохранятся.</p>{onBack && <button className="scenario-option" onClick={onBack}>{backLabel}</button>}</section></main>;
 
   return <>
-    {onBack && <button className="scenario-return" disabled={busy || pending || Boolean(proposal)} onClick={onBack}>К вариантам</button>}
+    {onBack && <button className="scenario-return" disabled={busy || pending || Boolean(proposal)} onClick={onBack}>{backLabel}</button>}
+    <section className="owner-route-actions" aria-label="Обновление маршрута">
+      <button className="scenario-option" disabled={busy || pending || deleteReview} onClick={refreshRoute}>{refreshing ? 'Обновляем…' : 'Обновить'}</button>
+    </section>
     {proposal && <RemovalProposalReview route={route} proposal={proposal} disabled={busy || pending} onApply={() => runCommand('apply')} onReject={() => runCommand('reject')} />}
     <PanicControls route={route} mapApiKey={mapApiKey} disabled={busy || pending || Boolean(proposal)} onPanic={(input) => runCommand('panic', input)} />
     <RouteScreen route={route} mapApiKey={mapApiKey} actionsDisabled={busy || pending || Boolean(proposal)} lunchSearchDisabled={busy || pending} onLunch={() => setLunchRequest((value) => value + 1)} onExecution={(visitID, status, times) => runCommand('execution', visitID, status, times)} onParticipation={(visitID, action) => runCommand('participation', visitID, action)} onPin={(visitID, kind) => runCommand('pin', visitID, kind)} onRemoval={(visitID, mode, acknowledge) => runCommand('removal', visitID, mode, acknowledge)} />
@@ -111,6 +139,9 @@ export default function OwnerRouteScreen({ route: initialRoute, apiBaseUrl, acce
       {message && <p role="status">{message}</p>}
     </section>
     <ShareControls key={shareLink || 'no-share-link'} link={shareLink} disabled={busy || pending || Boolean(proposal)} onCreate={() => runCommand('share-create')} onRevoke={() => runCommand('share-revoke')} />
+    {route.lifecycle === 'saved' && <NotificationControls key={route.route_id} route={route} apiBaseUrl={apiBaseUrl} accessToken={accessToken}
+      disabled={commandBusy || pending || Boolean(proposal) || deleteReview} onBlockingChange={setNotificationBlocked}
+      onRouteUpdated={(updated) => { setRoute(updated); setProposal(updated.pending_proposal || null); }} />}
     <section className="owner-route-actions" aria-label="Удаление маршрута">
       {!deleteReview ? <button className="scenario-option" disabled={busy || pending || Boolean(proposal)} onClick={() => setDeleteReview(true)}>Удалить маршрут</button> : <>
         <h2>Удалить весь маршрут?</h2>
