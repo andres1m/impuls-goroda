@@ -2257,6 +2257,9 @@ components:
           maxLength: 64
         plan:
           $ref: '#/components/schemas/RoutePlan'
+        pending_proposal:
+          $ref: '#/components/schemas/RouteProposal'
+          description: Current pending owner proposal based on this revision. Omitted when absent.
         participation:
           type: array
           items:
