@@ -655,3 +655,11 @@ button { cursor: pointer; }
 .service-availability button:disabled { cursor: default; opacity: .6; }
 .service-availability button:focus-visible { outline: 2px solid #087af5; outline-offset: 3px; }
 @media (max-width: 640px) { .service-availability { margin: 12px; align-items: stretch; flex-direction: column; gap: 14px; } }
+.server-navigation { padding: 0 18px 18px; min-width: 0; font-size: 14px; line-height: 1.5; }
+.server-navigation summary { min-height: 48px; align-content: center; color: #086fcf; cursor: pointer; font-weight: 650; }
+.server-navigation p { color: #617082; margin: 8px 0 16px; }
+.server-navigation ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; }
+.server-navigation li { display: grid; gap: 8px; padding: 16px; border: 1px solid #e5eaf0; border-radius: 16px; overflow-wrap: anywhere; }
+.server-navigation li > span, .server-navigation small { color: #617082; }
+.server-navigation a { display: flex; align-items: center; justify-content: center; min-height: 48px; padding: 8px 12px; box-sizing: border-box; border-radius: 12px; background: #eaf3ff; color: #086fcf; text-decoration: none; }
+.server-navigation a:focus-visible, .server-navigation summary:focus-visible { outline: 2px solid #087af5; outline-offset: 3px; }

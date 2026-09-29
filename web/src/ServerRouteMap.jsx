@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { fitPoints, loadMapGL } from './TwoGisRouteMap.jsx';
+import RouteNavigation from './RouteNavigation.jsx';
 
 export default function ServerRouteMap({ apiKey, projection, onSelect }) {
   const container = useRef(null);
@@ -49,5 +50,6 @@ export default function ServerRouteMap({ apiKey, projection, onSelect }) {
       {state !== 'ready' && <div className="workspace-map-state server-map-state" role="status"><p>{state === 'loading' ? 'Загружаем карту…' : state === 'no-key' ? 'Карта не настроена. Расписание доступно ниже.' : state === 'empty' ? 'В маршруте нет координат для карты.' : 'Не удалось загрузить карту. Расписание доступно ниже.'}</p>{state === 'error' && <button className="scenario-option" onClick={() => setAttempt((value) => value + 1)}>Повторить</button>}</div>}
     </div>
     <div className="workspace-map-caption"><span>Синий — подтверждённый путь; серый — непроверенный.{missing ? ` Без координат: ${missing} посещений.` : ''}{projection.segments.length < projection.legs.length ? ' Часть переходов без геометрии.' : ''}</span></div>
+    <RouteNavigation projection={projection} />
   </section>;
 }
