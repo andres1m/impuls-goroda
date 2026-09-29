@@ -69,24 +69,37 @@ func newMaterializeFixture(t *testing.T) *materializeFixture {
 }
 
 func (f *materializeFixture) cleanup(t *testing.T) {
+	wipeCatalog(t, f.pool, f.sourceID)
+	deleteSource(t, f.pool, f.sourceID)
+}
+
+// wipeCatalog removes everything the sources' records produced, in dependency order; a place of one
+// source may take its card from a record of another, so tests that merge places wipe both at once.
+func wipeCatalog(t *testing.T, pool *pgxpool.Pool, sources ...ingest.SourceID) {
+	t.Helper()
+	ids := make([]string, len(sources))
+	for i, s := range sources {
+		ids[i] = uuid.UUID(s).String()
+	}
 	for _, q := range []string{
-		`DELETE FROM integration.change_delivery d USING integration.source_record r WHERE d.source_record_id = r.id AND r.source_id = $1`,
+		`DELETE FROM integration.attribute_fact f USING integration.source_record r WHERE f.source_record_id = r.id AND r.source_id = ANY($1::uuid[])`,
+		`DELETE FROM integration.entity_link l USING integration.source_record r WHERE l.source_record_id = r.id AND r.source_id = ANY($1::uuid[])`,
+		`DELETE FROM integration.change_delivery d USING integration.source_record r WHERE d.source_record_id = r.id AND r.source_id = ANY($1::uuid[])`,
 		`DELETE FROM catalog.entity_enrichment en USING catalog.event e, integration.source_record r
-			WHERE en.event_id = e.id AND en.city = e.city AND e.card_source_record_id = r.id AND r.source_id = $1`,
+			WHERE en.event_id = e.id AND en.city = e.city AND e.card_source_record_id = r.id AND r.source_id = ANY($1::uuid[])`,
 		`DELETE FROM catalog.entity_enrichment en USING catalog.place c, integration.source_record r
-			WHERE en.place_id = c.id AND en.city = c.city AND c.card_source_record_id = r.id AND r.source_id = $1`,
-		`DELETE FROM catalog.price_offer o USING integration.source_record r WHERE o.source_record_id = r.id AND r.source_id = $1`,
-		`DELETE FROM catalog.session s USING integration.source_record r WHERE s.card_source_record_id = r.id AND r.source_id = $1`,
-		`DELETE FROM catalog.event e USING integration.source_record r WHERE e.card_source_record_id = r.id AND r.source_id = $1`,
+			WHERE en.place_id = c.id AND en.city = c.city AND c.card_source_record_id = r.id AND r.source_id = ANY($1::uuid[])`,
+		`DELETE FROM catalog.price_offer o USING integration.source_record r WHERE o.source_record_id = r.id AND r.source_id = ANY($1::uuid[])`,
+		`DELETE FROM catalog.session s USING integration.source_record r WHERE s.card_source_record_id = r.id AND r.source_id = ANY($1::uuid[])`,
+		`DELETE FROM catalog.event e USING integration.source_record r WHERE e.card_source_record_id = r.id AND r.source_id = ANY($1::uuid[])`,
 		`DELETE FROM catalog.leisure_poi p USING catalog.place c, integration.source_record r
-			WHERE p.id = c.id AND p.city = c.city AND c.card_source_record_id = r.id AND r.source_id = $1`,
-		`DELETE FROM catalog.place c USING integration.source_record r WHERE c.card_source_record_id = r.id AND r.source_id = $1`,
+			WHERE p.id = c.id AND p.city = c.city AND c.card_source_record_id = r.id AND r.source_id = ANY($1::uuid[])`,
+		`DELETE FROM catalog.place c USING integration.source_record r WHERE c.card_source_record_id = r.id AND r.source_id = ANY($1::uuid[])`,
 	} {
-		if _, err := f.pool.Exec(context.Background(), q, uuidParam(f.sourceID)); err != nil {
+		if _, err := pool.Exec(context.Background(), q, ids); err != nil {
 			t.Errorf("cleanup: %v", err)
 		}
 	}
-	deleteSource(t, f.pool, f.sourceID)
 }
 
 // save lands a record and returns its raw ingest id.
