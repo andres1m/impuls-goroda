@@ -645,3 +645,13 @@ button { cursor: pointer; }
 .variant-card > .scenario-option { margin-top: auto; min-height: 48px; width: 100%; }
 .variant-difference { margin: 0; padding: 14px; border-radius: 14px; background: #edf5fd; color: #254c74; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
 @media (max-width: 640px) { .scenario-variants { grid-template-columns: 1fr; } }
+.service-availability { box-sizing: border-box; max-width: 920px; margin: 16px auto; padding: 18px max(20px, env(safe-area-inset-right)) 18px max(20px, env(safe-area-inset-left)); display: flex; align-items: center; gap: 24px; background: #fff6dd; color: #654f19; border: 1px solid #f2e7bf; border-radius: 20px; font-size: 14px; line-height: 1.5; }
+.service-availability > div { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.service-availability p { margin: 8px 0 0; }
+.service-availability details { margin-top: 8px; }
+.service-availability summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; text-decoration: underline; }
+.service-availability summary:focus-visible { outline: 2px solid #087af5; outline-offset: 3px; }
+.service-availability button { flex: 0 0 auto; min-height: 48px; padding: 10px 16px; border: 1px solid #e6d8a8; border-radius: 14px; background: #fff; color: inherit; font: inherit; cursor: pointer; }
+.service-availability button:disabled { cursor: default; opacity: .6; }
+.service-availability button:focus-visible { outline: 2px solid #087af5; outline-offset: 3px; }
+@media (max-width: 640px) { .service-availability { margin: 12px; align-items: stretch; flex-direction: column; gap: 14px; } }

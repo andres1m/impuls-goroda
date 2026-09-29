@@ -11,6 +11,7 @@ import { loadScenario } from './scenario.js';
 import { GatewayError } from './optimize.js';
 import ScenarioEntry from './ScenarioEntry.jsx';
 import SharedRouteScreen from './SharedRouteScreen.jsx';
+import ServiceAvailability from './ServiceAvailability.jsx';
 
 export default function App() {
   const [config, setConfig] = useState({ state: 'loading' });
@@ -94,9 +95,10 @@ export default function App() {
   }, [config, launch, session, routeAttempt]);
 
   if (config.state === 'ready' && config.value.prototypeMode) return <PrototypeRouteScreen mapApiKey={config.value.twoGisApiKey} />;
-  if (config.state === 'ready' && launch.state === 'ready' && launch.value.kind === 'shared') return <SharedRouteScreen key={launch.value.shareToken} token={launch.value.shareToken} apiBaseUrl={config.value.apiBaseUrl} mapApiKey={config.value.twoGisApiKey} />;
-  if (config.state === 'ready' && session.state === 'ready' && route.state === 'ready') return <OwnerRouteScreen key={route.value.route_id} route={route.value} apiBaseUrl={config.value.apiBaseUrl} accessToken={session.value.accessToken} mapApiKey={config.value.twoGisApiKey} />;
-  if (config.state === 'ready' && session.state === 'ready' && route.state === 'scenario') return <ScenarioEntry key={route.value.scenario_id} scenario={route.value} apiBaseUrl={config.value.apiBaseUrl} accessToken={session.value.accessToken} mapApiKey={config.value.twoGisApiKey} onReload={() => setRouteAttempt((attempt) => attempt + 1)} />;
+  const availability = config.state === 'ready' ? <ServiceAvailability apiBaseUrl={config.value.apiBaseUrl} /> : null;
+  if (config.state === 'ready' && launch.state === 'ready' && launch.value.kind === 'shared') return <>{availability}<SharedRouteScreen key={launch.value.shareToken} token={launch.value.shareToken} apiBaseUrl={config.value.apiBaseUrl} mapApiKey={config.value.twoGisApiKey} /></>;
+  if (config.state === 'ready' && session.state === 'ready' && route.state === 'ready') return <>{availability}<OwnerRouteScreen key={route.value.route_id} route={route.value} apiBaseUrl={config.value.apiBaseUrl} accessToken={session.value.accessToken} mapApiKey={config.value.twoGisApiKey} /></>;
+  if (config.state === 'ready' && session.state === 'ready' && route.state === 'scenario') return <>{availability}<ScenarioEntry key={route.value.scenario_id} scenario={route.value} apiBaseUrl={config.value.apiBaseUrl} accessToken={session.value.accessToken} mapApiKey={config.value.twoGisApiKey} onReload={() => setRouteAttempt((attempt) => attempt + 1)} /></>;
 
   let title = 'Открываем маршрут';
   let message = 'Подключаемся к MAX и загружаем ваш маршрут.';
@@ -133,6 +135,7 @@ export default function App() {
   }
 
   return (
+    <>{availability}
     <main className="entry-page">
       <header><Brand className="entry-brand" /></header>
       <section className="entry-state" aria-live="polite">
@@ -141,6 +144,6 @@ export default function App() {
         <p>{message}</p>
         {retry && <Button onClick={retry}>Повторить</Button>}
       </section>
-    </main>
+    </main></>
   );
 }
