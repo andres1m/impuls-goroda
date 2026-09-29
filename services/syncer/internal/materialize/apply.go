@@ -15,6 +15,7 @@ import (
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/ingest"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/normalize"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/resolve"
 )
 
 var (
@@ -52,9 +53,10 @@ type Raw struct {
 }
 
 type Normalized struct {
-	Raw   Raw
-	Place normalize.PlaceDraft
-	Event *normalize.EventDraft
+	Raw        Raw
+	Place      normalize.PlaceDraft
+	Event      *normalize.EventDraft
+	Resolution resolve.Resolution
 }
 
 type Rejected struct {
@@ -98,6 +100,8 @@ type Store interface {
 	// OutsideBoundary tells for each point whether it lies outside the city; known is false while the
 	// city has no boundary.
 	OutsideBoundary(ctx context.Context, city domain.City, points []Point) (outside []bool, known bool, err error)
+	// Resolve settles, for each place of the batch, whether it is one the catalog already has.
+	Resolve(ctx context.Context, city domain.City, o *Outcome) error
 }
 
 type Result struct {
@@ -179,6 +183,9 @@ func Apply(ctx context.Context, s Store, city domain.City, ids []string, now fun
 	o, deferred := Prepare(city, raws, at)
 	if boundaryErr := isolateOutsiders(ctx, s, city, &o); boundaryErr != nil {
 		return Result{}, boundaryErr
+	}
+	if resolveErr := s.Resolve(ctx, city, &o); resolveErr != nil {
+		return Result{}, fmt.Errorf("resolve places: %w", resolveErr)
 	}
 	res := Result{Deferred: len(deferred)}
 	count(&o, deferred)

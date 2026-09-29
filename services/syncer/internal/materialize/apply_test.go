@@ -72,13 +72,20 @@ func TestPrepareSortsTheBatch(t *testing.T) {
 }
 
 type fakeStore struct {
-	pending   []Raw
-	published []Outcome
-	revision  int64
-	err       error
-	outside   []bool
-	known     bool
-	points    []Point
+	pending    []Raw
+	published  []Outcome
+	revision   int64
+	err        error
+	outside    []bool
+	known      bool
+	points     []Point
+	resolved   []Normalized
+	resolveErr error
+}
+
+func (f *fakeStore) Resolve(_ context.Context, _ domain.City, o *Outcome) error {
+	f.resolved = append(f.resolved, o.Apply...)
+	return f.resolveErr
 }
 
 func (f *fakeStore) OutsideBoundary(
@@ -112,6 +119,27 @@ func TestApplyPublishesThePreparedBatch(t *testing.T) {
 	}
 	if len(s.published) != 1 || res.Applied != 1 || res.CatalogRevision != 12 {
 		t.Fatalf("result %+v, published %d", res, len(s.published))
+	}
+}
+
+func TestApplyResolvesPlacesBetweenGeoCheckAndPublish(t *testing.T) {
+	s := &fakeStore{pending: []Raw{raw("r1", "node/1", cafe)}}
+	if _, err := Apply(context.Background(), s, domain.Perm, []string{"r1"}, time.Now); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.resolved) != 1 || s.resolved[0].Raw.ID != "r1" || len(s.published) != 1 {
+		t.Fatalf("resolved %+v, published %d", s.resolved, len(s.published))
+	}
+}
+
+func TestApplyStopsWhenResolutionFails(t *testing.T) {
+	boom := errors.New("resolve down")
+	s := &fakeStore{pending: []Raw{raw("r1", "node/1", cafe)}, resolveErr: boom}
+	if _, err := Apply(context.Background(), s, domain.Perm, []string{"r1"}, time.Now); !errors.Is(err, boom) {
+		t.Fatalf("err %v", err)
+	}
+	if len(s.published) != 0 {
+		t.Fatal("published after a failed resolution")
 	}
 }
 
