@@ -1,6 +1,7 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import Brand from './Brand.jsx';
 import ExtractionReview from './ExtractionReview.jsx';
+import ScenarioVariants from './ScenarioVariants.jsx';
 import OwnerRouteScreen from './OwnerRouteScreen.jsx';
 import { loadOwnerRoute, loadSelectedRoute, RouteRequestError } from './route.js';
 import { createRouteAttempt, sendRouteCommand, terminalRouteError } from './routeCommands.js';
@@ -254,7 +255,7 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
     {outcome && <section className="scenario-card" aria-live="polite"><h2>{current.status === 'completed' ? 'Варианты маршрута' : 'Условия нужно уточнить'}</h2>
       <p>{modeNames[outcome.data_mode]}</p>
       {[...outcome.conflicts, ...outcome.warnings].map((item, index) => <p key={`${item.code}-${index}`}>{item.message}</p>)}
-      {outcome.route_ids.map((id, index) => <button className="scenario-option" key={id} disabled={loadingID !== null || locked || retrySelectionID !== null && retrySelectionID !== id} onClick={() => openRoute(id)}>{loadingID === id ? 'Открываем…' : retrySelectionID === id ? 'Повторить выбор варианта' : `Выбрать вариант ${index + 1}`}</button>)}
+      {outcome.route_ids.length > 0 && <ScenarioVariants key={`${current.scenario_id}:${current.version}`} routeIDs={outcome.route_ids} apiBaseUrl={apiBaseUrl} accessToken={accessToken} disabled={locked} loadingID={loadingID} retrySelectionID={retrySelectionID} onSelect={openRoute} />}
     </section>}
     {error && <p className="scenario-error" role="alert">{error}</p>}
   </main>;
