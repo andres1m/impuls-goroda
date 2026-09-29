@@ -8,23 +8,28 @@ import (
 	"slices"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/andres1m/impuls-goroda/pkg/ai"
 	"github.com/andres1m/impuls-goroda/pkg/catalogevent"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/materialize"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/normalize"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/resolve"
 )
 
 // MaterializeStore reaches the pool through a function: the pool exists only once the database
 // component has started.
 type MaterializeStore struct {
-	pool func() *pgxpool.Pool
+	pool     func() *pgxpool.Pool
+	trust    resolve.Trust
+	embedder ai.Embedder
 }
 
 func NewMaterializeStore(pool func() *pgxpool.Pool) *MaterializeStore {
-	return &MaterializeStore{pool: pool}
+	return &MaterializeStore{pool: pool, trust: resolve.DefaultTrust}
 }
 
 var errNotConnected = errors.New("database is not connected")
@@ -255,7 +260,14 @@ func stillPending(ctx context.Context, tx pgx.Tx, o *materialize.Outcome) (mater
 }
 
 func placeID(n *materialize.Normalized) string {
-	return normalize.EntityID(string(n.Raw.Source) + ":" + n.Place.ExternalID).String()
+	if n.Resolution.Kind == resolve.Merge {
+		return n.Resolution.PlaceID.String()
+	}
+	return ownPlaceID(n).String()
+}
+
+func ownPlaceID(n *materialize.Normalized) uuid.UUID {
+	return normalize.EntityID(string(n.Raw.Source) + ":" + n.Place.ExternalID)
 }
 
 // upsertPlace writes the place and reports whether its row changed.

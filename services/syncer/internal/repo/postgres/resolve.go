@@ -8,7 +8,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/andres1m/impuls-goroda/pkg/ai"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/materialize"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/resolve"
 )
 
@@ -97,4 +99,37 @@ func (d placeData) Nearby(
 		return nil, fmt.Errorf("find nearby places: %w", err)
 	}
 	return out, nil
+}
+
+// WithEmbedder lets resolution compare meaning as well as names; without it, pairs that need a vector
+// stay separate for review.
+func (s *MaterializeStore) WithEmbedder(e ai.Embedder) *MaterializeStore {
+	s.embedder = e
+	return s
+}
+
+func (s *MaterializeStore) Resolve(ctx context.Context, city domain.City, o *materialize.Outcome) error {
+	if len(o.Apply) == 0 {
+		return nil
+	}
+	pool, err := s.connected()
+	if err != nil {
+		return err
+	}
+	places := make([]resolve.Place, len(o.Apply))
+	for i := range o.Apply {
+		n := &o.Apply[i]
+		places[i] = resolve.Place{Source: n.Raw.Source, Key: n.Place.ExternalID, OwnID: ownPlaceID(n),
+			Title: n.Place.Title, NormalizedTitle: n.Place.NormalizedTitle, Category: n.Place.Category,
+			Lat: n.Place.Lat, Lon: n.Place.Lon}
+	}
+	resolver := &resolve.Resolver{Data: placeData{pool: pool}, Embedder: s.embedder}
+	resolutions, err := resolver.Resolve(ctx, city, places)
+	if err != nil {
+		return err
+	}
+	for i := range o.Apply {
+		o.Apply[i].Resolution = resolutions[i]
+	}
+	return nil
 }
