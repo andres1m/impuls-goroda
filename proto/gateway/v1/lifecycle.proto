@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package gateway.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/andres1m/impuls-goroda/proto/gateway/v1;gatewayv1";
+
+service LifecycleService {
+  rpc DeliverCatalogLifecycle(DeliverCatalogLifecycleRequest) returns (DeliverCatalogLifecycleResponse);
+}
+
+message DeliverCatalogLifecycleRequest {
+  uint32 schema_version = 1;
+  bytes delivery_id = 2;
+  bytes change_id = 3;
+  string city = 4;
+  int64 catalog_revision = 5;
+  bytes event_id = 6;
+  bytes session_id = 7;
+  string old_availability_status = 8;
+  string new_availability_status = 9;
+  string source_record_id = 10;
+  string data_mode = 11;
+  google.protobuf.Timestamp observed_at = 12;
+  string reason = 13;
+}
+
+message DeliverCatalogLifecycleResponse {
+  bytes delivery_id = 1;
+}
