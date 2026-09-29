@@ -17,6 +17,7 @@ import (
 
 type Optimizer interface {
 	Optimize(context.Context, *pb.OptimizeRequest, string) (*pb.OptimizeResponse, error)
+	CopyRoute(context.Context, *pb.CopyRouteRequest, string) (*pb.CopyRouteResponse, error)
 }
 
 func (r *Runtime) OptimizeRoutes(ctx context.Context, actor d.UserID, key [16]byte, input routewire.ConfirmedRouteInput, requestID string) (command.Result, error) {

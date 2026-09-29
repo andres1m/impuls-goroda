@@ -122,6 +122,25 @@ func (c *Client) Recompute(ctx context.Context, request *pb.RecomputeRequest, re
 	return result, nil
 }
 
+func (c *Client) CopyRoute(ctx context.Context, request *pb.CopyRouteRequest, requestID string) (*pb.CopyRouteResponse, error) {
+	if request == nil {
+		return nil, ErrInvalidInput
+	}
+	ctx, finish, err := c.begin(ctx, request, requestID)
+	if err != nil {
+		return nil, err
+	}
+	defer finish()
+	result, err := c.optimizer.CopyRoute(ctx, request, c.callOptions()...)
+	if err != nil {
+		return nil, calculationError(err)
+	}
+	if result == nil {
+		return nil, ErrInvalidResponse
+	}
+	return result, nil
+}
+
 func calculationError(err error) error {
 	if errors.Is(err, context.Canceled) {
 		return ErrCanceled

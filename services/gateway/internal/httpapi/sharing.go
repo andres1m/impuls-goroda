@@ -17,7 +17,9 @@ import (
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/app"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/command"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/domain"
+	"github.com/andres1m/impuls-goroda/services/gateway/internal/optimizerclient"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/repo/postgres"
+	"github.com/andres1m/impuls-goroda/services/gateway/internal/routewire"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/sharewire"
 	"github.com/labstack/echo/v5"
 )
@@ -28,6 +30,8 @@ type ShareRuntime interface {
 	ReadSharedRoute(context.Context, sharewire.Token) (sharewire.SharedRoute, error)
 	CreateShare(context.Context, app.ShareCommand, sharewire.CreateInput) (command.Result, error)
 	RevokeShare(context.Context, app.ShareCommand) (command.Result, error)
+	CopySharedRoute(context.Context, domain.UserID, [16]byte, sharewire.Token, domain.RouteRevisionNumber,
+		sharewire.CopyInput, string) (command.Result, error)
 }
 
 type ShareRouter struct {
@@ -43,11 +47,82 @@ func (r *ShareRouter) Routes() []router.Route {
 	return []router.Route{
 		router.NewRoute(http.MethodGet, "/shared-routes/:share_token", r.read,
 			shareNoStore, AnonymousRateLimit(r.runtime)),
+		router.NewRoute(http.MethodPost, "/shared-routes/:share_token/copy", r.copy,
+			shareNoStore, Authenticate(r.runtime), AuthenticatedRateLimit(r.runtime)),
 		router.NewRoute(http.MethodPost, "/routes/:route_id/share", r.create,
 			shareNoStore, Authenticate(r.runtime), AuthenticatedRateLimit(r.runtime)),
 		router.NewRoute(http.MethodDelete, "/routes/:route_id/share", r.revoke,
 			shareNoStore, Authenticate(r.runtime), AuthenticatedRateLimit(r.runtime)),
 	}
+}
+
+func (r *ShareRouter) copy() echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		principal, ok := PrincipalFrom(c)
+		if !ok {
+			return authRequired()
+		}
+		token, err := sharewire.ParseToken(c.Param("share_token"))
+		if err != nil {
+			return shareNotFound()
+		}
+		key, err := ParseIdempotencyKey(c.Request())
+		if err != nil {
+			return err
+		}
+		revision, err := ParseIfMatch(c.Request())
+		if err != nil {
+			return err
+		}
+		raw, err := io.ReadAll(http.MaxBytesReader(c.Response(), c.Request().Body, 16*1024))
+		if err != nil {
+			return malformedCommandHeader()
+		}
+		input, err := sharewire.DecodeCopyInput(raw)
+		if err != nil {
+			return invalidShareRequest()
+		}
+		result, err := r.runtime.CopySharedRoute(c.Request().Context(), principal.UserID, key,
+			token, revision, input, RequestID(c))
+		if refused, ok := errors.AsType[*app.CopyRefusal](err); ok {
+			return c.JSON(http.StatusUnprocessableEntity, struct {
+				Status    string               `json:"status"`
+				RequestID string               `json:"request_id"`
+				Conflicts []routewire.Conflict `json:"conflicts"`
+			}{refused.Status, RequestID(c), refused.Conflicts})
+		}
+		if err != nil {
+			return mapCopyError(err)
+		}
+		if result.HTTPStatus != http.StatusOK || result.RouteID == nil || result.ResultingRevision == nil {
+			return errors.New("invalid copy result")
+		}
+		var saved struct {
+			Status string               `json:"status"`
+			Route  routewire.OwnerRoute `json:"route"`
+		}
+		if err := json.Unmarshal(result.ResponseBody, &saved); err != nil ||
+			saved.Route.RouteID == "" || saved.Route.Revision == "" ||
+			(saved.Status != "READY" && saved.Status != "PARTIAL") {
+			return errors.New("invalid copy response template")
+		}
+		c.Response().Header().Set("ETag", `"`+saved.Route.Revision+`"`)
+		return c.JSON(http.StatusOK, struct {
+			Status    string               `json:"status"`
+			RequestID string               `json:"request_id"`
+			Route     routewire.OwnerRoute `json:"route"`
+		}{saved.Status, RequestID(c), saved.Route})
+	}
+}
+
+func mapCopyError(err error) error {
+	if errors.Is(err, postgres.ErrNotFound) {
+		return shareNotFound()
+	}
+	if errors.Is(err, optimizerclient.ErrInvalidInput) {
+		return invalidShareRequest()
+	}
+	return mapRouteError(err)
 }
 
 func (r *ShareRouter) read() echo.HandlerFunc {
