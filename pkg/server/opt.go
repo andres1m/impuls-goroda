@@ -69,13 +69,16 @@ func WithLogger(log *zap.Logger) Option {
 				LogRequestID: true,
 
 				LogValuesFunc: func(c *echo.Context, v middleware.RequestLoggerValues) error {
+					_, sensitive := requestLogURI(c.Request().RequestURI)
 					fields := []zap.Field{
 						zap.String("method", v.Method),
 						zap.String("route", v.RoutePath),
 						zap.Int("status", v.Status),
 						zap.Duration("latency", v.Latency),
 						zap.String("remote_ip", v.RemoteIP),
-						zap.String("request_id", v.RequestID),
+					}
+					if !sensitive {
+						fields = append(fields, zap.String("request_id", v.RequestID))
 					}
 					fields = append(fields, telemetry.TraceFields(c.Request().Context())...)
 
@@ -86,7 +89,9 @@ func WithLogger(log *zap.Logger) Option {
 					}
 
 					var httpErr *echo.HTTPError
-					if errors.As(v.Error, &httpErr) {
+					if sensitive {
+						fields = append(fields, zap.String("error_message", "shared route request failed"))
+					} else if errors.As(v.Error, &httpErr) {
 						fields = append(fields, zap.String("error_message", httpErr.Message))
 					} else {
 						fields = append(fields, zap.Error(v.Error))
