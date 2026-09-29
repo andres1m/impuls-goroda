@@ -145,6 +145,35 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/me/context/selection:
+    post:
+      tags: [Context]
+      operationId: selectScenarioRoute
+      summary: Remember an owner route without changing its revision
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScenarioSelectionRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/RouteCommandSucceeded'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CommandConflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/routes:
     get:
       tags: [Routes]
@@ -1090,12 +1119,30 @@ components:
     ScenarioContextResponse:
       type: object
       additionalProperties: false
-      required: [request_id, confirmed_input, updated_at]
+      required: [request_id, confirmed_input]
+      dependentRequired:
+        selected_route_id: [selected_revision]
+        selected_revision: [selected_route_id]
+      allOf:
+        - if:
+            properties:
+              confirmed_input:
+                type: 'null'
+          then:
+            not:
+              anyOf:
+                - required: [updated_at]
+                - required: [selected_route_id]
+                - required: [selected_revision]
+          else:
+            required: [updated_at]
       properties:
         request_id:
           $ref: '#/components/schemas/RequestID'
         confirmed_input:
-          $ref: '#/components/schemas/ConfirmedRouteInput'
+          oneOf:
+            - $ref: '#/components/schemas/ConfirmedRouteInput'
+            - type: 'null'
         selected_route_id:
           $ref: '#/components/schemas/UUID'
         selected_revision:
@@ -1103,6 +1150,13 @@ components:
         updated_at:
           type: string
           format: date-time
+    ScenarioSelectionRequest:
+      type: object
+      additionalProperties: false
+      required: [route_id]
+      properties:
+        route_id:
+          $ref: '#/components/schemas/UUID'
     ConfirmedRouteInput:
       type: object
       additionalProperties: false
