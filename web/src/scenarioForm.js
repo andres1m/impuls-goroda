@@ -17,6 +17,7 @@ export function scenarioForm(input) {
     start: localDateTime(input.start_at, input.timezone), end: localDateTime(input.end_at, input.timezone),
     interests: interests.filter((_, index) => (mask & (1n << BigInt(index))) !== 0n).map(([code]) => code),
     modes: constraints.movement_modes || [], profile: constraints.load_profile || '',
+    excluded: constraints.excluded_categories || [],
     budgetMode: constraints.budget?.mode || '',
     budget: minor && constraints.budget.limit.currency === 'RUB' ? `${BigInt(minor) / 100n}.${String(BigInt(minor) % 100n).padStart(2, '0')}` : '',
     pushkin: constraints.pushkin_card_only === true, wishes: constraints.semantic_query || '',
@@ -46,7 +47,7 @@ export function confirmedScenarioInput(base, form, city, origin, destination) {
   const mask = unknownBits | BigInt(interestMask(form.interests));
   const constraints = {
     ...old, interest_mask: `0x${mask.toString(16).padStart(16, '0')}`,
-    excluded_categories: old.excluded_categories || [], movement_modes: [...form.modes], load_profile: form.profile, budget,
+    excluded_categories: [...form.excluded], movement_modes: [...form.modes], load_profile: form.profile, budget,
     benefit_programs: old.benefit_programs || [], audience_claims: old.audience_claims || [], obligations: old.obligations || [],
     soft_preferences: old.soft_preferences || [], accepted_unknowns: old.accepted_unknowns || [], pushkin_card_only: form.pushkin,
   };
@@ -80,6 +81,7 @@ export function draftScenarioInput(base, form, city, origin, destination) {
   if (destination) input.destination = { ...destination }; else delete input.destination;
   const unknownBits = BigInt(base.constraints?.interest_mask || '0x0') & ~((1n << BigInt(interests.length)) - 1n);
   constraints.interest_mask = `0x${(unknownBits | BigInt(interestMask(form.interests))).toString(16).padStart(16, '0')}`;
+  constraints.excluded_categories = [...form.excluded];
   if (form.modes.length) constraints.movement_modes = [...form.modes]; else delete constraints.movement_modes;
   if (form.profile) constraints.load_profile = form.profile; else delete constraints.load_profile;
   if (form.budgetMode) {

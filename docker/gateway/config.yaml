@@ -2,6 +2,23 @@ logger:
   stdout: true
   level: info
 
+ai:
+  openrouter:
+    base-url: https://openrouter.ai/api/v1
+    api-key: ${OPENROUTER_API_KEY}
+    timeout: 5s
+  polza:
+    base-url: https://polza.ai/api/v1
+    api-key: ${POLZA_API_KEY}
+    timeout: 5s
+  embedding:
+    provider: polza
+    model: openai/text-embedding-3-small
+    dimensions: 384
+  text:
+    provider: polza
+    model: openai/gpt-4o-mini
+
 telemetry:
   otlp-endpoint: jaeger:4317
   sample-ratio: 1

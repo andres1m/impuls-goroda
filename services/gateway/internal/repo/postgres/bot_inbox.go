@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+
+	"github.com/jackc/pgx/v5"
 )
 
 var ErrBotEventConflict = errors.New("bot event payload does not match")
@@ -12,6 +14,30 @@ var ErrBotEventConflict = errors.New("bot event payload does not match")
 type BotDelivery struct {
 	Reply     json.RawMessage `json:"reply"`
 	Delivered bool            `json:"delivered"`
+}
+
+func (q *Queries) ReadBotDelivery(ctx context.Context, eventID string, hash [32]byte) (*BotDelivery, error) {
+	var storedHash, raw []byte
+	var state string
+	err := q.db.QueryRow(ctx, `SELECT payload_hash,state,result_ref FROM gateway_ops.inbox
+WHERE producer='max_bot' AND event_id=$1`, eventID).Scan(&storedHash, &state, &raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, mapQueryError("read bot delivery", err)
+	}
+	if !bytes.Equal(hash[:], storedHash) {
+		return nil, ErrBotEventConflict
+	}
+	if state != "processed" {
+		return nil, nil
+	}
+	var delivery BotDelivery
+	if json.Unmarshal(raw, &delivery) != nil || len(delivery.Reply) == 0 || !json.Valid(delivery.Reply) {
+		return nil, errors.New("stored bot delivery is invalid")
+	}
+	return &delivery, nil
 }
 
 func (q *Queries) PrepareBotReply(ctx context.Context, eventID string, hash [32]byte, reply json.RawMessage) (BotDelivery, error) {

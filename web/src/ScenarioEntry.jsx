@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import Brand from './Brand.jsx';
+import ExtractionReview from './ExtractionReview.jsx';
 import OwnerRouteScreen from './OwnerRouteScreen.jsx';
 import { loadOwnerRoute, loadSelectedRoute, RouteRequestError } from './route.js';
 import { createRouteAttempt, sendRouteCommand, terminalRouteError } from './routeCommands.js';
@@ -48,6 +49,7 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [savePending, setSavePending] = useState(false);
+  const [extractionChoice, setExtractionChoice] = useState(null);
   const draftRequest = useRef(null);
   const savingRef = useRef(false);
   const signature = JSON.stringify({ form, city, origin, destination });
@@ -106,6 +108,11 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
   }
   function change(field, value) { setForm((old) => ({ ...old, [field]: value })); setReview(null); setError(''); }
   function toggle(field, value) { change(field, form[field].includes(value) ? form[field].filter((item) => item !== value) : [...form[field], value]); }
+  function applyExtraction(proposal) {
+    if (locked) return;
+    setForm((old) => ({ ...old, ...proposal.formPatch }));
+    setExtractionChoice('used'); setReview(null); setError('');
+  }
   async function pickPoint([latitude, longitude]) {
     const point = { latitude, longitude };
     const target = pickMode;
@@ -190,6 +197,7 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
   function prepare(event) {
     event.preventDefault();
     if (locked || locating) return;
+    if (current.pending_extraction && !extractionChoice) { setError('Перенесите предложенные условия или выберите «Заполнить самостоятельно».'); return; }
     try { setReview(confirmedScenarioInput(current.input, form, city, origin, destination)); setError(''); }
     catch (failure) { setError(failure.message); }
   }
@@ -198,6 +206,7 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
   return <main className="scenario-page">
     <header><Brand /><h1>{current.source === 'preset' ? presetNames[current.preset_id] : 'Ваш сценарий'}</h1></header>
     {current.source_text && <p className="scenario-description">{current.source_text}</p>}
+    {current.status === 'draft' && current.pending_extraction && <ExtractionReview input={current.pending_extraction} choice={extractionChoice} disabled={locked} onApply={applyExtraction} onManual={() => { setExtractionChoice('manual'); setReview(null); }} />}
     {current.status === 'draft' && <form onSubmit={prepare}>
       <section className="scenario-card"><h2>Начало и конец маршрута</h2>
         <div className="scenario-endpoints">
@@ -218,12 +227,13 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
           <fieldset><legend>Передвижение</legend><div className="scenario-choices">{[...movementModes, ...form.modes.filter((code) => !movementModes.some(([value]) => value === code)).map((code) => [code, code])].map(([code, label]) => <label key={code}><input type="checkbox" checked={form.modes.includes(code)} onChange={() => toggle('modes', code)} />{label}</label>)}</div></fieldset>
           <label>Темп<select value={form.profile} onChange={(e) => change('profile', e.target.value)} required><option value="">Выберите темп</option>{profiles.map(([code, label]) => <option key={code} value={code}>{label}</option>)}{form.profile && !profiles.some(([code]) => code === form.profile) && <option value={form.profile}>{form.profile}</option>}</select></label>
           <fieldset><legend>Интересы</legend><div className="scenario-choices">{interests.map(([code, label]) => <label key={code}><input type="checkbox" checked={form.interests.includes(code)} onChange={() => toggle('interests', code)} />{label}</label>)}</div></fieldset>
+          <fieldset><legend>Не включать</legend><div className="scenario-choices">{categories.map(([code, label]) => <label key={code}><input type="checkbox" checked={form.excluded.includes(code)} onChange={() => toggle('excluded', code)} />{label}</label>)}</div></fieldset>
           <label>Бюджет<select value={form.budgetMode} onChange={(e) => change('budgetMode', e.target.value)} required><option value="">Выберите условие</option>{budgetModes.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label>
           {form.budgetMode && form.budgetMode !== 'none' && <label>Сумма, ₽<input inputMode="decimal" value={form.budget} onChange={(e) => change('budget', e.target.value)} required /></label>}
           <label className="scenario-check"><input type="checkbox" checked={form.pushkin} onChange={(e) => change('pushkin', e.target.checked)} />Только события по Пушкинской карте</label>
           <label>Пожелания<textarea value={form.wishes} onChange={(e) => change('wishes', e.target.value)} rows={3} /></label>
         </fieldset>
-        <RetainedConditions input={current.input} />
+        <RetainedConditions input={{ ...current.input, constraints: { ...current.input.constraints, excluded_categories: form.excluded } }} />
         <button type="button" className="scenario-option" disabled={saving || busy || Boolean(attempt) || locating || !dirty && !savePending} onClick={saveConditions}>{saving ? 'Сохраняем…' : draftRequest.current?.conflicted ? 'Обновить сценарий' : savePending ? 'Повторить сохранение' : 'Сохранить условия'}</button>
         {dirty && <p className="scenario-timezone" role="status">Есть несохранённые изменения. Сохраните условия, чтобы продолжить после закрытия.</p>}
         {!review && !attempt && <button className="scenario-option" disabled={locked || locating || !city || !origin}>Проверить условия</button>}
@@ -236,6 +246,7 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
       <p>Бюджет: {nameOf(budgetModes, review.constraints.budget.mode)}{review.constraints.budget.limit ? ` · ${form.budget} ₽` : ''}</p>
       <p>Старт выбран на карте · {destination ? 'финиш выбран' : 'без заданного финиша'}</p>
       {review.constraints.pushkin_card_only && <p>Только события по Пушкинской карте</p>}
+      {review.constraints.excluded_categories.length > 0 && <p>Исключены: {review.constraints.excluded_categories.map((code) => nameOf(categories, code)).join(', ')}</p>}
       {review.constraints.semantic_query && <p className="scenario-description">{review.constraints.semantic_query}</p>}
       {!attempt && <button className="scenario-option" onClick={() => setReview(null)}>Изменить условия</button>}
       <button className="scenario-option scenario-primary" disabled={busy} onClick={calculate}>{busy ? 'Рассчитываем…' : attempt ? 'Повторить запрос' : 'Подтвердить и рассчитать'}</button>
@@ -246,6 +257,5 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
       {outcome.route_ids.map((id, index) => <button className="scenario-option" key={id} disabled={loadingID !== null || locked || retrySelectionID !== null && retrySelectionID !== id} onClick={() => openRoute(id)}>{loadingID === id ? 'Открываем…' : retrySelectionID === id ? 'Повторить выбор варианта' : `Выбрать вариант ${index + 1}`}</button>)}
     </section>}
     {error && <p className="scenario-error" role="alert">{error}</p>}
-    {current.pending_extraction && <p className="scenario-description">Предложенные ботом условия ещё требуют отдельного подтверждения и не включены в расчёт.</p>}
   </main>;
 }

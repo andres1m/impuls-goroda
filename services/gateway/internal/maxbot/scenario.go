@@ -47,6 +47,14 @@ func (c *Client) ScenarioReply(scenarioID string) (json.RawMessage, error) {
 	return c.scenarioReply(scenarioID, "Сценарий сохранён. Выберите старт и проверьте условия в Mini App — затем рассчитаем маршрут.")
 }
 
+func (c *Client) ExtractedScenarioReply(scenarioID string, extracted bool) (json.RawMessage, error) {
+	text := "Текст сохранён. Не удалось предложить условия автоматически — укажите их в Mini App или выберите другую тему."
+	if extracted {
+		text = "Текст сохранён. Предложенные условия ждут вашей проверки в Mini App. Старт, дату и время укажите там — маршрут пока не рассчитан."
+	}
+	return c.scenarioReply(scenarioID, text)
+}
+
 func (c *Client) ScenarioMenuReply() (json.RawMessage, error) {
 	body := welcome()
 	body.Text = "Выберите тему дня или напишите свой сценарий. Старт и условия уточним в Mini App."

@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/andres1m/impuls-goroda/pkg/ai"
 	"github.com/andres1m/impuls-goroda/pkg/config"
 	"github.com/andres1m/impuls-goroda/pkg/db"
 	"github.com/andres1m/impuls-goroda/pkg/logger"
@@ -28,6 +29,7 @@ import (
 const configPath = "config.yaml"
 
 type appConfig struct {
+	AI        *ai.Config        `yaml:"ai"`
 	Logger    config.Logger     `yaml:"logger"`
 	Telemetry config.Telemetry  `yaml:"telemetry"`
 	Database  config.Database   `yaml:"database"`
@@ -136,7 +138,15 @@ func run(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("create MAX bot: %w", err)
 		}
-		routers = append(routers, httpapi.NewBotRouter(authRuntime, app.NewBotHandler(authRuntime, bot)))
+		var extractor *app.ScenarioExtractor
+		if infra.cfg.AI != nil {
+			models, err := ai.New(*infra.cfg.AI)
+			if err != nil {
+				return errors.New("invalid bot model configuration")
+			}
+			extractor = app.NewScenarioExtractor(models.Text())
+		}
+		routers = append(routers, httpapi.NewBotRouter(authRuntime, app.NewBotHandlerWithExtractor(authRuntime, bot, extractor)))
 	}
 	apiServer := server.New("api-server", infra.cfg.APIServer,
 		server.WithIPExtractor(echo.ExtractIPFromXFFHeader(echo.TrustLinkLocal(false))),
