@@ -2601,7 +2601,7 @@ components:
     PanicRequest:
       type: object
       additionalProperties: false
-      required: [route_id, delay_mode, position]
+      required: [route_id, delay_mode, position, position_source]
       properties:
         route_id:
           $ref: '#/components/schemas/UUID'
