@@ -14,6 +14,7 @@ option go_package = "github.com/andres1m/impuls-goroda/proto/optimizer/v1;optimi
 service OptimizerService {
   rpc Optimize(OptimizeRequest) returns (OptimizeResponse);
   rpc Recompute(RecomputeRequest) returns (RecomputeResponse);
+  rpc CopyRoute(CopyRouteRequest) returns (CopyRouteResponse);
 }
 
 message OptimizeRequest {
@@ -31,6 +32,27 @@ message OptimizeResponse {
   ResultStatus status = 1;
   // Up to one route per archetype; identical plans are not repeated under different archetypes.
   repeated RoutePlan routes = 2;
+  repeated Warning warnings = 3;
+  repeated Conflict conflicts = 4;
+  DataFreshness data = 5;
+  uint32 computation_time_ms = 6;
+}
+
+// Rechecks the exact ordered visits of a shared plan from the recipient's origin.
+// The result has fresh visit IDs and contains no author participation or execution state.
+message CopyRouteRequest {
+  string city = 1;
+  string timezone = 2;
+  RoutePlan base_plan = 3;
+  Coordinate origin = 4;
+  Coordinate destination = 5;
+  RouteConstraints constraints = 6;
+}
+
+message CopyRouteResponse {
+  ResultStatus status = 1;
+  // Present only for READY or PARTIAL. No draft is returned for a refusal.
+  RoutePlan route = 2;
   repeated Warning warnings = 3;
   repeated Conflict conflicts = 4;
   DataFreshness data = 5;

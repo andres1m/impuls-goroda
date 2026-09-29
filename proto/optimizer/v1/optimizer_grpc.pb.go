@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	OptimizerService_Optimize_FullMethodName  = "/optimizer.v1.OptimizerService/Optimize"
 	OptimizerService_Recompute_FullMethodName = "/optimizer.v1.OptimizerService/Recompute"
+	OptimizerService_CopyRoute_FullMethodName = "/optimizer.v1.OptimizerService/CopyRoute"
 )
 
 // OptimizerServiceClient is the client API for OptimizerService service.
@@ -32,6 +33,7 @@ const (
 type OptimizerServiceClient interface {
 	Optimize(ctx context.Context, in *OptimizeRequest, opts ...grpc.CallOption) (*OptimizeResponse, error)
 	Recompute(ctx context.Context, in *RecomputeRequest, opts ...grpc.CallOption) (*RecomputeResponse, error)
+	CopyRoute(ctx context.Context, in *CopyRouteRequest, opts ...grpc.CallOption) (*CopyRouteResponse, error)
 }
 
 type optimizerServiceClient struct {
@@ -62,6 +64,16 @@ func (c *optimizerServiceClient) Recompute(ctx context.Context, in *RecomputeReq
 	return out, nil
 }
 
+func (c *optimizerServiceClient) CopyRoute(ctx context.Context, in *CopyRouteRequest, opts ...grpc.CallOption) (*CopyRouteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CopyRouteResponse)
+	err := c.cc.Invoke(ctx, OptimizerService_CopyRoute_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // OptimizerServiceServer is the server API for OptimizerService service.
 // All implementations must embed UnimplementedOptimizerServiceServer
 // for forward compatibility.
@@ -71,6 +83,7 @@ func (c *optimizerServiceClient) Recompute(ctx context.Context, in *RecomputeReq
 type OptimizerServiceServer interface {
 	Optimize(context.Context, *OptimizeRequest) (*OptimizeResponse, error)
 	Recompute(context.Context, *RecomputeRequest) (*RecomputeResponse, error)
+	CopyRoute(context.Context, *CopyRouteRequest) (*CopyRouteResponse, error)
 	mustEmbedUnimplementedOptimizerServiceServer()
 }
 
@@ -86,6 +99,9 @@ func (UnimplementedOptimizerServiceServer) Optimize(context.Context, *OptimizeRe
 }
 func (UnimplementedOptimizerServiceServer) Recompute(context.Context, *RecomputeRequest) (*RecomputeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Recompute not implemented")
+}
+func (UnimplementedOptimizerServiceServer) CopyRoute(context.Context, *CopyRouteRequest) (*CopyRouteResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CopyRoute not implemented")
 }
 func (UnimplementedOptimizerServiceServer) mustEmbedUnimplementedOptimizerServiceServer() {}
 func (UnimplementedOptimizerServiceServer) testEmbeddedByValue()                          {}
@@ -144,6 +160,24 @@ func _OptimizerService_Recompute_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OptimizerService_CopyRoute_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CopyRouteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OptimizerServiceServer).CopyRoute(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OptimizerService_CopyRoute_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OptimizerServiceServer).CopyRoute(ctx, req.(*CopyRouteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // OptimizerService_ServiceDesc is the grpc.ServiceDesc for OptimizerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -158,6 +192,10 @@ var OptimizerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Recompute",
 			Handler:    _OptimizerService_Recompute_Handler,
+		},
+		{
+			MethodName: "CopyRoute",
+			Handler:    _OptimizerService_CopyRoute_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

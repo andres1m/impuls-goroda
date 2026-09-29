@@ -564,6 +564,177 @@ func (x *OptimizeResponse) GetComputationTimeMs() uint32 {
 	return 0
 }
 
+// Rechecks the exact ordered visits of a shared plan from the recipient's origin.
+// The result has fresh visit IDs and contains no author participation or execution state.
+type CopyRouteRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	City          string                 `protobuf:"bytes,1,opt,name=city,proto3" json:"city,omitempty"`
+	Timezone      string                 `protobuf:"bytes,2,opt,name=timezone,proto3" json:"timezone,omitempty"`
+	BasePlan      *RoutePlan             `protobuf:"bytes,3,opt,name=base_plan,json=basePlan,proto3" json:"base_plan,omitempty"`
+	Origin        *Coordinate            `protobuf:"bytes,4,opt,name=origin,proto3" json:"origin,omitempty"`
+	Destination   *Coordinate            `protobuf:"bytes,5,opt,name=destination,proto3" json:"destination,omitempty"`
+	Constraints   *RouteConstraints      `protobuf:"bytes,6,opt,name=constraints,proto3" json:"constraints,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CopyRouteRequest) Reset() {
+	*x = CopyRouteRequest{}
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CopyRouteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CopyRouteRequest) ProtoMessage() {}
+
+func (x *CopyRouteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CopyRouteRequest.ProtoReflect.Descriptor instead.
+func (*CopyRouteRequest) Descriptor() ([]byte, []int) {
+	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *CopyRouteRequest) GetCity() string {
+	if x != nil {
+		return x.City
+	}
+	return ""
+}
+
+func (x *CopyRouteRequest) GetTimezone() string {
+	if x != nil {
+		return x.Timezone
+	}
+	return ""
+}
+
+func (x *CopyRouteRequest) GetBasePlan() *RoutePlan {
+	if x != nil {
+		return x.BasePlan
+	}
+	return nil
+}
+
+func (x *CopyRouteRequest) GetOrigin() *Coordinate {
+	if x != nil {
+		return x.Origin
+	}
+	return nil
+}
+
+func (x *CopyRouteRequest) GetDestination() *Coordinate {
+	if x != nil {
+		return x.Destination
+	}
+	return nil
+}
+
+func (x *CopyRouteRequest) GetConstraints() *RouteConstraints {
+	if x != nil {
+		return x.Constraints
+	}
+	return nil
+}
+
+type CopyRouteResponse struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Status ResultStatus           `protobuf:"varint,1,opt,name=status,proto3,enum=optimizer.v1.ResultStatus" json:"status,omitempty"`
+	// Present only for READY or PARTIAL. No draft is returned for a refusal.
+	Route             *RoutePlan     `protobuf:"bytes,2,opt,name=route,proto3" json:"route,omitempty"`
+	Warnings          []*Warning     `protobuf:"bytes,3,rep,name=warnings,proto3" json:"warnings,omitempty"`
+	Conflicts         []*Conflict    `protobuf:"bytes,4,rep,name=conflicts,proto3" json:"conflicts,omitempty"`
+	Data              *DataFreshness `protobuf:"bytes,5,opt,name=data,proto3" json:"data,omitempty"`
+	ComputationTimeMs uint32         `protobuf:"varint,6,opt,name=computation_time_ms,json=computationTimeMs,proto3" json:"computation_time_ms,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *CopyRouteResponse) Reset() {
+	*x = CopyRouteResponse{}
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CopyRouteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CopyRouteResponse) ProtoMessage() {}
+
+func (x *CopyRouteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CopyRouteResponse.ProtoReflect.Descriptor instead.
+func (*CopyRouteResponse) Descriptor() ([]byte, []int) {
+	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *CopyRouteResponse) GetStatus() ResultStatus {
+	if x != nil {
+		return x.Status
+	}
+	return ResultStatus_RESULT_STATUS_UNSPECIFIED
+}
+
+func (x *CopyRouteResponse) GetRoute() *RoutePlan {
+	if x != nil {
+		return x.Route
+	}
+	return nil
+}
+
+func (x *CopyRouteResponse) GetWarnings() []*Warning {
+	if x != nil {
+		return x.Warnings
+	}
+	return nil
+}
+
+func (x *CopyRouteResponse) GetConflicts() []*Conflict {
+	if x != nil {
+		return x.Conflicts
+	}
+	return nil
+}
+
+func (x *CopyRouteResponse) GetData() *DataFreshness {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *CopyRouteResponse) GetComputationTimeMs() uint32 {
+	if x != nil {
+		return x.ComputationTimeMs
+	}
+	return 0
+}
+
 // Actual history of a visit. Visits without a record are still planned.
 type VisitExecution struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
@@ -577,7 +748,7 @@ type VisitExecution struct {
 
 func (x *VisitExecution) Reset() {
 	*x = VisitExecution{}
-	mi := &file_optimizer_v1_optimizer_proto_msgTypes[2]
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -589,7 +760,7 @@ func (x *VisitExecution) String() string {
 func (*VisitExecution) ProtoMessage() {}
 
 func (x *VisitExecution) ProtoReflect() protoreflect.Message {
-	mi := &file_optimizer_v1_optimizer_proto_msgTypes[2]
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -602,7 +773,7 @@ func (x *VisitExecution) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VisitExecution.ProtoReflect.Descriptor instead.
 func (*VisitExecution) Descriptor() ([]byte, []int) {
-	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{2}
+	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *VisitExecution) GetVisitId() []byte {
@@ -646,7 +817,7 @@ type DelayTrigger struct {
 
 func (x *DelayTrigger) Reset() {
 	*x = DelayTrigger{}
-	mi := &file_optimizer_v1_optimizer_proto_msgTypes[3]
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -658,7 +829,7 @@ func (x *DelayTrigger) String() string {
 func (*DelayTrigger) ProtoMessage() {}
 
 func (x *DelayTrigger) ProtoReflect() protoreflect.Message {
-	mi := &file_optimizer_v1_optimizer_proto_msgTypes[3]
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -671,7 +842,7 @@ func (x *DelayTrigger) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DelayTrigger.ProtoReflect.Descriptor instead.
 func (*DelayTrigger) Descriptor() ([]byte, []int) {
-	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{3}
+	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *DelayTrigger) GetMode() DelayMode {
@@ -713,7 +884,7 @@ type CancellationTrigger struct {
 
 func (x *CancellationTrigger) Reset() {
 	*x = CancellationTrigger{}
-	mi := &file_optimizer_v1_optimizer_proto_msgTypes[4]
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -725,7 +896,7 @@ func (x *CancellationTrigger) String() string {
 func (*CancellationTrigger) ProtoMessage() {}
 
 func (x *CancellationTrigger) ProtoReflect() protoreflect.Message {
-	mi := &file_optimizer_v1_optimizer_proto_msgTypes[4]
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -738,7 +909,7 @@ func (x *CancellationTrigger) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancellationTrigger.ProtoReflect.Descriptor instead.
 func (*CancellationTrigger) Descriptor() ([]byte, []int) {
-	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{4}
+	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *CancellationTrigger) GetVisitIds() [][]byte {
@@ -765,7 +936,7 @@ type RemovalTrigger struct {
 
 func (x *RemovalTrigger) Reset() {
 	*x = RemovalTrigger{}
-	mi := &file_optimizer_v1_optimizer_proto_msgTypes[5]
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -777,7 +948,7 @@ func (x *RemovalTrigger) String() string {
 func (*RemovalTrigger) ProtoMessage() {}
 
 func (x *RemovalTrigger) ProtoReflect() protoreflect.Message {
-	mi := &file_optimizer_v1_optimizer_proto_msgTypes[5]
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -790,7 +961,7 @@ func (x *RemovalTrigger) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemovalTrigger.ProtoReflect.Descriptor instead.
 func (*RemovalTrigger) Descriptor() ([]byte, []int) {
-	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{5}
+	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *RemovalTrigger) GetVisitId() []byte {
@@ -817,7 +988,7 @@ type PinTrigger struct {
 
 func (x *PinTrigger) Reset() {
 	*x = PinTrigger{}
-	mi := &file_optimizer_v1_optimizer_proto_msgTypes[6]
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -829,7 +1000,7 @@ func (x *PinTrigger) String() string {
 func (*PinTrigger) ProtoMessage() {}
 
 func (x *PinTrigger) ProtoReflect() protoreflect.Message {
-	mi := &file_optimizer_v1_optimizer_proto_msgTypes[6]
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -842,7 +1013,7 @@ func (x *PinTrigger) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PinTrigger.ProtoReflect.Descriptor instead.
 func (*PinTrigger) Descriptor() ([]byte, []int) {
-	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{6}
+	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *PinTrigger) GetVisitId() []byte {
@@ -879,7 +1050,7 @@ type RecomputeRequest struct {
 
 func (x *RecomputeRequest) Reset() {
 	*x = RecomputeRequest{}
-	mi := &file_optimizer_v1_optimizer_proto_msgTypes[7]
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -891,7 +1062,7 @@ func (x *RecomputeRequest) String() string {
 func (*RecomputeRequest) ProtoMessage() {}
 
 func (x *RecomputeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_optimizer_v1_optimizer_proto_msgTypes[7]
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -904,7 +1075,7 @@ func (x *RecomputeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecomputeRequest.ProtoReflect.Descriptor instead.
 func (*RecomputeRequest) Descriptor() ([]byte, []int) {
-	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{7}
+	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *RecomputeRequest) GetCity() string {
@@ -1023,7 +1194,7 @@ type CostChange struct {
 
 func (x *CostChange) Reset() {
 	*x = CostChange{}
-	mi := &file_optimizer_v1_optimizer_proto_msgTypes[8]
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1035,7 +1206,7 @@ func (x *CostChange) String() string {
 func (*CostChange) ProtoMessage() {}
 
 func (x *CostChange) ProtoReflect() protoreflect.Message {
-	mi := &file_optimizer_v1_optimizer_proto_msgTypes[8]
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1048,7 +1219,7 @@ func (x *CostChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CostChange.ProtoReflect.Descriptor instead.
 func (*CostChange) Descriptor() ([]byte, []int) {
-	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{8}
+	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *CostChange) GetBefore() *Money {
@@ -1075,7 +1246,7 @@ type VerificationChange struct {
 
 func (x *VerificationChange) Reset() {
 	*x = VerificationChange{}
-	mi := &file_optimizer_v1_optimizer_proto_msgTypes[9]
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1087,7 +1258,7 @@ func (x *VerificationChange) String() string {
 func (*VerificationChange) ProtoMessage() {}
 
 func (x *VerificationChange) ProtoReflect() protoreflect.Message {
-	mi := &file_optimizer_v1_optimizer_proto_msgTypes[9]
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1100,7 +1271,7 @@ func (x *VerificationChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerificationChange.ProtoReflect.Descriptor instead.
 func (*VerificationChange) Descriptor() ([]byte, []int) {
-	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{9}
+	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *VerificationChange) GetBefore() VerificationStatus {
@@ -1138,7 +1309,7 @@ type RouteChange struct {
 
 func (x *RouteChange) Reset() {
 	*x = RouteChange{}
-	mi := &file_optimizer_v1_optimizer_proto_msgTypes[10]
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1150,7 +1321,7 @@ func (x *RouteChange) String() string {
 func (*RouteChange) ProtoMessage() {}
 
 func (x *RouteChange) ProtoReflect() protoreflect.Message {
-	mi := &file_optimizer_v1_optimizer_proto_msgTypes[10]
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1163,7 +1334,7 @@ func (x *RouteChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RouteChange.ProtoReflect.Descriptor instead.
 func (*RouteChange) Descriptor() ([]byte, []int) {
-	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{10}
+	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *RouteChange) GetKind() RouteChangeKind {
@@ -1294,7 +1465,7 @@ type RecomputeResponse struct {
 
 func (x *RecomputeResponse) Reset() {
 	*x = RecomputeResponse{}
-	mi := &file_optimizer_v1_optimizer_proto_msgTypes[11]
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1306,7 +1477,7 @@ func (x *RecomputeResponse) String() string {
 func (*RecomputeResponse) ProtoMessage() {}
 
 func (x *RecomputeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_optimizer_v1_optimizer_proto_msgTypes[11]
+	mi := &file_optimizer_v1_optimizer_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1319,7 +1490,7 @@ func (x *RecomputeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecomputeResponse.ProtoReflect.Descriptor instead.
 func (*RecomputeResponse) Descriptor() ([]byte, []int) {
-	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{11}
+	return file_optimizer_v1_optimizer_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *RecomputeResponse) GetStatus() RecomputeStatus {
@@ -1380,6 +1551,20 @@ const file_optimizer_v1_optimizer_proto_rawDesc = "" +
 	"\x10OptimizeResponse\x122\n" +
 	"\x06status\x18\x01 \x01(\x0e2\x1a.optimizer.v1.ResultStatusR\x06status\x12/\n" +
 	"\x06routes\x18\x02 \x03(\v2\x17.optimizer.v1.RoutePlanR\x06routes\x121\n" +
+	"\bwarnings\x18\x03 \x03(\v2\x15.optimizer.v1.WarningR\bwarnings\x124\n" +
+	"\tconflicts\x18\x04 \x03(\v2\x16.optimizer.v1.ConflictR\tconflicts\x12/\n" +
+	"\x04data\x18\x05 \x01(\v2\x1b.optimizer.v1.DataFreshnessR\x04data\x12.\n" +
+	"\x13computation_time_ms\x18\x06 \x01(\rR\x11computationTimeMs\"\xa8\x02\n" +
+	"\x10CopyRouteRequest\x12\x12\n" +
+	"\x04city\x18\x01 \x01(\tR\x04city\x12\x1a\n" +
+	"\btimezone\x18\x02 \x01(\tR\btimezone\x124\n" +
+	"\tbase_plan\x18\x03 \x01(\v2\x17.optimizer.v1.RoutePlanR\bbasePlan\x120\n" +
+	"\x06origin\x18\x04 \x01(\v2\x18.optimizer.v1.CoordinateR\x06origin\x12:\n" +
+	"\vdestination\x18\x05 \x01(\v2\x18.optimizer.v1.CoordinateR\vdestination\x12@\n" +
+	"\vconstraints\x18\x06 \x01(\v2\x1e.optimizer.v1.RouteConstraintsR\vconstraints\"\xc0\x02\n" +
+	"\x11CopyRouteResponse\x122\n" +
+	"\x06status\x18\x01 \x01(\x0e2\x1a.optimizer.v1.ResultStatusR\x06status\x12-\n" +
+	"\x05route\x18\x02 \x01(\v2\x17.optimizer.v1.RoutePlanR\x05route\x121\n" +
 	"\bwarnings\x18\x03 \x03(\v2\x15.optimizer.v1.WarningR\bwarnings\x124\n" +
 	"\tconflicts\x18\x04 \x03(\v2\x16.optimizer.v1.ConflictR\tconflicts\x12/\n" +
 	"\x04data\x18\x05 \x01(\v2\x1b.optimizer.v1.DataFreshnessR\x04data\x12.\n" +
@@ -1478,10 +1663,11 @@ const file_optimizer_v1_optimizer_proto_rawDesc = "" +
 	"\x1eROUTE_CHANGE_KIND_TIME_SHIFTED\x10\x04\x12\"\n" +
 	"\x1eROUTE_CHANGE_KIND_COST_CHANGED\x10\x05\x12*\n" +
 	"&ROUTE_CHANGE_KIND_PARTICIPATION_ACTION\x10\x06\x12*\n" +
-	"&ROUTE_CHANGE_KIND_VERIFICATION_CHANGED\x10\a2\xab\x01\n" +
+	"&ROUTE_CHANGE_KIND_VERIFICATION_CHANGED\x10\a2\xf9\x01\n" +
 	"\x10OptimizerService\x12I\n" +
 	"\bOptimize\x12\x1d.optimizer.v1.OptimizeRequest\x1a\x1e.optimizer.v1.OptimizeResponse\x12L\n" +
-	"\tRecompute\x12\x1e.optimizer.v1.RecomputeRequest\x1a\x1f.optimizer.v1.RecomputeResponseBBZ@github.com/andres1m/impuls-goroda/proto/optimizer/v1;optimizerv1b\x06proto3"
+	"\tRecompute\x12\x1e.optimizer.v1.RecomputeRequest\x1a\x1f.optimizer.v1.RecomputeResponse\x12L\n" +
+	"\tCopyRoute\x12\x1e.optimizer.v1.CopyRouteRequest\x1a\x1f.optimizer.v1.CopyRouteResponseBBZ@github.com/andres1m/impuls-goroda/proto/optimizer/v1;optimizerv1b\x06proto3"
 
 var (
 	file_optimizer_v1_optimizer_proto_rawDescOnce sync.Once
@@ -1496,7 +1682,7 @@ func file_optimizer_v1_optimizer_proto_rawDescGZIP() []byte {
 }
 
 var file_optimizer_v1_optimizer_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
-var file_optimizer_v1_optimizer_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_optimizer_v1_optimizer_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_optimizer_v1_optimizer_proto_goTypes = []any{
 	(ExecutionStatus)(0),          // 0: optimizer.v1.ExecutionStatus
 	(DelayMode)(0),                // 1: optimizer.v1.DelayMode
@@ -1507,77 +1693,90 @@ var file_optimizer_v1_optimizer_proto_goTypes = []any{
 	(RouteChangeKind)(0),          // 6: optimizer.v1.RouteChangeKind
 	(*OptimizeRequest)(nil),       // 7: optimizer.v1.OptimizeRequest
 	(*OptimizeResponse)(nil),      // 8: optimizer.v1.OptimizeResponse
-	(*VisitExecution)(nil),        // 9: optimizer.v1.VisitExecution
-	(*DelayTrigger)(nil),          // 10: optimizer.v1.DelayTrigger
-	(*CancellationTrigger)(nil),   // 11: optimizer.v1.CancellationTrigger
-	(*RemovalTrigger)(nil),        // 12: optimizer.v1.RemovalTrigger
-	(*PinTrigger)(nil),            // 13: optimizer.v1.PinTrigger
-	(*RecomputeRequest)(nil),      // 14: optimizer.v1.RecomputeRequest
-	(*CostChange)(nil),            // 15: optimizer.v1.CostChange
-	(*VerificationChange)(nil),    // 16: optimizer.v1.VerificationChange
-	(*RouteChange)(nil),           // 17: optimizer.v1.RouteChange
-	(*RecomputeResponse)(nil),     // 18: optimizer.v1.RecomputeResponse
-	(*timestamppb.Timestamp)(nil), // 19: google.protobuf.Timestamp
-	(*Coordinate)(nil),            // 20: optimizer.v1.Coordinate
-	(*RouteConstraints)(nil),      // 21: optimizer.v1.RouteConstraints
-	(ResultStatus)(0),             // 22: optimizer.v1.ResultStatus
-	(*RoutePlan)(nil),             // 23: optimizer.v1.RoutePlan
-	(*Warning)(nil),               // 24: optimizer.v1.Warning
-	(*Conflict)(nil),              // 25: optimizer.v1.Conflict
-	(*DataFreshness)(nil),         // 26: optimizer.v1.DataFreshness
-	(*Money)(nil),                 // 27: optimizer.v1.Money
-	(VerificationStatus)(0),       // 28: optimizer.v1.VerificationStatus
-	(TargetScope)(0),              // 29: optimizer.v1.TargetScope
+	(*CopyRouteRequest)(nil),      // 9: optimizer.v1.CopyRouteRequest
+	(*CopyRouteResponse)(nil),     // 10: optimizer.v1.CopyRouteResponse
+	(*VisitExecution)(nil),        // 11: optimizer.v1.VisitExecution
+	(*DelayTrigger)(nil),          // 12: optimizer.v1.DelayTrigger
+	(*CancellationTrigger)(nil),   // 13: optimizer.v1.CancellationTrigger
+	(*RemovalTrigger)(nil),        // 14: optimizer.v1.RemovalTrigger
+	(*PinTrigger)(nil),            // 15: optimizer.v1.PinTrigger
+	(*RecomputeRequest)(nil),      // 16: optimizer.v1.RecomputeRequest
+	(*CostChange)(nil),            // 17: optimizer.v1.CostChange
+	(*VerificationChange)(nil),    // 18: optimizer.v1.VerificationChange
+	(*RouteChange)(nil),           // 19: optimizer.v1.RouteChange
+	(*RecomputeResponse)(nil),     // 20: optimizer.v1.RecomputeResponse
+	(*timestamppb.Timestamp)(nil), // 21: google.protobuf.Timestamp
+	(*Coordinate)(nil),            // 22: optimizer.v1.Coordinate
+	(*RouteConstraints)(nil),      // 23: optimizer.v1.RouteConstraints
+	(ResultStatus)(0),             // 24: optimizer.v1.ResultStatus
+	(*RoutePlan)(nil),             // 25: optimizer.v1.RoutePlan
+	(*Warning)(nil),               // 26: optimizer.v1.Warning
+	(*Conflict)(nil),              // 27: optimizer.v1.Conflict
+	(*DataFreshness)(nil),         // 28: optimizer.v1.DataFreshness
+	(*Money)(nil),                 // 29: optimizer.v1.Money
+	(VerificationStatus)(0),       // 30: optimizer.v1.VerificationStatus
+	(TargetScope)(0),              // 31: optimizer.v1.TargetScope
 }
 var file_optimizer_v1_optimizer_proto_depIdxs = []int32{
-	19, // 0: optimizer.v1.OptimizeRequest.start_at:type_name -> google.protobuf.Timestamp
-	19, // 1: optimizer.v1.OptimizeRequest.end_at:type_name -> google.protobuf.Timestamp
-	20, // 2: optimizer.v1.OptimizeRequest.origin:type_name -> optimizer.v1.Coordinate
-	20, // 3: optimizer.v1.OptimizeRequest.destination:type_name -> optimizer.v1.Coordinate
-	21, // 4: optimizer.v1.OptimizeRequest.constraints:type_name -> optimizer.v1.RouteConstraints
-	22, // 5: optimizer.v1.OptimizeResponse.status:type_name -> optimizer.v1.ResultStatus
-	23, // 6: optimizer.v1.OptimizeResponse.routes:type_name -> optimizer.v1.RoutePlan
-	24, // 7: optimizer.v1.OptimizeResponse.warnings:type_name -> optimizer.v1.Warning
-	25, // 8: optimizer.v1.OptimizeResponse.conflicts:type_name -> optimizer.v1.Conflict
-	26, // 9: optimizer.v1.OptimizeResponse.data:type_name -> optimizer.v1.DataFreshness
-	0,  // 10: optimizer.v1.VisitExecution.status:type_name -> optimizer.v1.ExecutionStatus
-	19, // 11: optimizer.v1.VisitExecution.actual_started_at:type_name -> google.protobuf.Timestamp
-	19, // 12: optimizer.v1.VisitExecution.actual_ended_at:type_name -> google.protobuf.Timestamp
-	1,  // 13: optimizer.v1.DelayTrigger.mode:type_name -> optimizer.v1.DelayMode
-	19, // 14: optimizer.v1.DelayTrigger.effective_start_at:type_name -> google.protobuf.Timestamp
-	20, // 15: optimizer.v1.DelayTrigger.position:type_name -> optimizer.v1.Coordinate
-	2,  // 16: optimizer.v1.DelayTrigger.position_source:type_name -> optimizer.v1.PositionSource
-	3,  // 17: optimizer.v1.RemovalTrigger.mode:type_name -> optimizer.v1.RemovalMode
-	4,  // 18: optimizer.v1.PinTrigger.kind:type_name -> optimizer.v1.PinKind
-	23, // 19: optimizer.v1.RecomputeRequest.base_plan:type_name -> optimizer.v1.RoutePlan
-	21, // 20: optimizer.v1.RecomputeRequest.constraints:type_name -> optimizer.v1.RouteConstraints
-	9,  // 21: optimizer.v1.RecomputeRequest.history:type_name -> optimizer.v1.VisitExecution
-	10, // 22: optimizer.v1.RecomputeRequest.delay:type_name -> optimizer.v1.DelayTrigger
-	11, // 23: optimizer.v1.RecomputeRequest.cancellation:type_name -> optimizer.v1.CancellationTrigger
-	12, // 24: optimizer.v1.RecomputeRequest.removal:type_name -> optimizer.v1.RemovalTrigger
-	13, // 25: optimizer.v1.RecomputeRequest.pin:type_name -> optimizer.v1.PinTrigger
-	27, // 26: optimizer.v1.CostChange.before:type_name -> optimizer.v1.Money
-	27, // 27: optimizer.v1.CostChange.after:type_name -> optimizer.v1.Money
-	28, // 28: optimizer.v1.VerificationChange.before:type_name -> optimizer.v1.VerificationStatus
-	28, // 29: optimizer.v1.VerificationChange.after:type_name -> optimizer.v1.VerificationStatus
-	6,  // 30: optimizer.v1.RouteChange.kind:type_name -> optimizer.v1.RouteChangeKind
-	29, // 31: optimizer.v1.RouteChange.scope:type_name -> optimizer.v1.TargetScope
-	15, // 32: optimizer.v1.RouteChange.cost:type_name -> optimizer.v1.CostChange
-	16, // 33: optimizer.v1.RouteChange.verification:type_name -> optimizer.v1.VerificationChange
-	5,  // 34: optimizer.v1.RecomputeResponse.status:type_name -> optimizer.v1.RecomputeStatus
-	23, // 35: optimizer.v1.RecomputeResponse.candidate:type_name -> optimizer.v1.RoutePlan
-	17, // 36: optimizer.v1.RecomputeResponse.changes:type_name -> optimizer.v1.RouteChange
-	25, // 37: optimizer.v1.RecomputeResponse.conflicts:type_name -> optimizer.v1.Conflict
-	26, // 38: optimizer.v1.RecomputeResponse.data:type_name -> optimizer.v1.DataFreshness
-	7,  // 39: optimizer.v1.OptimizerService.Optimize:input_type -> optimizer.v1.OptimizeRequest
-	14, // 40: optimizer.v1.OptimizerService.Recompute:input_type -> optimizer.v1.RecomputeRequest
-	8,  // 41: optimizer.v1.OptimizerService.Optimize:output_type -> optimizer.v1.OptimizeResponse
-	18, // 42: optimizer.v1.OptimizerService.Recompute:output_type -> optimizer.v1.RecomputeResponse
-	41, // [41:43] is the sub-list for method output_type
-	39, // [39:41] is the sub-list for method input_type
-	39, // [39:39] is the sub-list for extension type_name
-	39, // [39:39] is the sub-list for extension extendee
-	0,  // [0:39] is the sub-list for field type_name
+	21, // 0: optimizer.v1.OptimizeRequest.start_at:type_name -> google.protobuf.Timestamp
+	21, // 1: optimizer.v1.OptimizeRequest.end_at:type_name -> google.protobuf.Timestamp
+	22, // 2: optimizer.v1.OptimizeRequest.origin:type_name -> optimizer.v1.Coordinate
+	22, // 3: optimizer.v1.OptimizeRequest.destination:type_name -> optimizer.v1.Coordinate
+	23, // 4: optimizer.v1.OptimizeRequest.constraints:type_name -> optimizer.v1.RouteConstraints
+	24, // 5: optimizer.v1.OptimizeResponse.status:type_name -> optimizer.v1.ResultStatus
+	25, // 6: optimizer.v1.OptimizeResponse.routes:type_name -> optimizer.v1.RoutePlan
+	26, // 7: optimizer.v1.OptimizeResponse.warnings:type_name -> optimizer.v1.Warning
+	27, // 8: optimizer.v1.OptimizeResponse.conflicts:type_name -> optimizer.v1.Conflict
+	28, // 9: optimizer.v1.OptimizeResponse.data:type_name -> optimizer.v1.DataFreshness
+	25, // 10: optimizer.v1.CopyRouteRequest.base_plan:type_name -> optimizer.v1.RoutePlan
+	22, // 11: optimizer.v1.CopyRouteRequest.origin:type_name -> optimizer.v1.Coordinate
+	22, // 12: optimizer.v1.CopyRouteRequest.destination:type_name -> optimizer.v1.Coordinate
+	23, // 13: optimizer.v1.CopyRouteRequest.constraints:type_name -> optimizer.v1.RouteConstraints
+	24, // 14: optimizer.v1.CopyRouteResponse.status:type_name -> optimizer.v1.ResultStatus
+	25, // 15: optimizer.v1.CopyRouteResponse.route:type_name -> optimizer.v1.RoutePlan
+	26, // 16: optimizer.v1.CopyRouteResponse.warnings:type_name -> optimizer.v1.Warning
+	27, // 17: optimizer.v1.CopyRouteResponse.conflicts:type_name -> optimizer.v1.Conflict
+	28, // 18: optimizer.v1.CopyRouteResponse.data:type_name -> optimizer.v1.DataFreshness
+	0,  // 19: optimizer.v1.VisitExecution.status:type_name -> optimizer.v1.ExecutionStatus
+	21, // 20: optimizer.v1.VisitExecution.actual_started_at:type_name -> google.protobuf.Timestamp
+	21, // 21: optimizer.v1.VisitExecution.actual_ended_at:type_name -> google.protobuf.Timestamp
+	1,  // 22: optimizer.v1.DelayTrigger.mode:type_name -> optimizer.v1.DelayMode
+	21, // 23: optimizer.v1.DelayTrigger.effective_start_at:type_name -> google.protobuf.Timestamp
+	22, // 24: optimizer.v1.DelayTrigger.position:type_name -> optimizer.v1.Coordinate
+	2,  // 25: optimizer.v1.DelayTrigger.position_source:type_name -> optimizer.v1.PositionSource
+	3,  // 26: optimizer.v1.RemovalTrigger.mode:type_name -> optimizer.v1.RemovalMode
+	4,  // 27: optimizer.v1.PinTrigger.kind:type_name -> optimizer.v1.PinKind
+	25, // 28: optimizer.v1.RecomputeRequest.base_plan:type_name -> optimizer.v1.RoutePlan
+	23, // 29: optimizer.v1.RecomputeRequest.constraints:type_name -> optimizer.v1.RouteConstraints
+	11, // 30: optimizer.v1.RecomputeRequest.history:type_name -> optimizer.v1.VisitExecution
+	12, // 31: optimizer.v1.RecomputeRequest.delay:type_name -> optimizer.v1.DelayTrigger
+	13, // 32: optimizer.v1.RecomputeRequest.cancellation:type_name -> optimizer.v1.CancellationTrigger
+	14, // 33: optimizer.v1.RecomputeRequest.removal:type_name -> optimizer.v1.RemovalTrigger
+	15, // 34: optimizer.v1.RecomputeRequest.pin:type_name -> optimizer.v1.PinTrigger
+	29, // 35: optimizer.v1.CostChange.before:type_name -> optimizer.v1.Money
+	29, // 36: optimizer.v1.CostChange.after:type_name -> optimizer.v1.Money
+	30, // 37: optimizer.v1.VerificationChange.before:type_name -> optimizer.v1.VerificationStatus
+	30, // 38: optimizer.v1.VerificationChange.after:type_name -> optimizer.v1.VerificationStatus
+	6,  // 39: optimizer.v1.RouteChange.kind:type_name -> optimizer.v1.RouteChangeKind
+	31, // 40: optimizer.v1.RouteChange.scope:type_name -> optimizer.v1.TargetScope
+	17, // 41: optimizer.v1.RouteChange.cost:type_name -> optimizer.v1.CostChange
+	18, // 42: optimizer.v1.RouteChange.verification:type_name -> optimizer.v1.VerificationChange
+	5,  // 43: optimizer.v1.RecomputeResponse.status:type_name -> optimizer.v1.RecomputeStatus
+	25, // 44: optimizer.v1.RecomputeResponse.candidate:type_name -> optimizer.v1.RoutePlan
+	19, // 45: optimizer.v1.RecomputeResponse.changes:type_name -> optimizer.v1.RouteChange
+	27, // 46: optimizer.v1.RecomputeResponse.conflicts:type_name -> optimizer.v1.Conflict
+	28, // 47: optimizer.v1.RecomputeResponse.data:type_name -> optimizer.v1.DataFreshness
+	7,  // 48: optimizer.v1.OptimizerService.Optimize:input_type -> optimizer.v1.OptimizeRequest
+	16, // 49: optimizer.v1.OptimizerService.Recompute:input_type -> optimizer.v1.RecomputeRequest
+	9,  // 50: optimizer.v1.OptimizerService.CopyRoute:input_type -> optimizer.v1.CopyRouteRequest
+	8,  // 51: optimizer.v1.OptimizerService.Optimize:output_type -> optimizer.v1.OptimizeResponse
+	20, // 52: optimizer.v1.OptimizerService.Recompute:output_type -> optimizer.v1.RecomputeResponse
+	10, // 53: optimizer.v1.OptimizerService.CopyRoute:output_type -> optimizer.v1.CopyRouteResponse
+	51, // [51:54] is the sub-list for method output_type
+	48, // [48:51] is the sub-list for method input_type
+	48, // [48:48] is the sub-list for extension type_name
+	48, // [48:48] is the sub-list for extension extendee
+	0,  // [0:48] is the sub-list for field type_name
 }
 
 func init() { file_optimizer_v1_optimizer_proto_init() }
@@ -1588,13 +1787,13 @@ func file_optimizer_v1_optimizer_proto_init() {
 	file_optimizer_v1_constraints_proto_init()
 	file_optimizer_v1_plan_proto_init()
 	file_optimizer_v1_values_proto_init()
-	file_optimizer_v1_optimizer_proto_msgTypes[7].OneofWrappers = []any{
+	file_optimizer_v1_optimizer_proto_msgTypes[9].OneofWrappers = []any{
 		(*RecomputeRequest_Delay)(nil),
 		(*RecomputeRequest_Cancellation)(nil),
 		(*RecomputeRequest_Removal)(nil),
 		(*RecomputeRequest_Pin)(nil),
 	}
-	file_optimizer_v1_optimizer_proto_msgTypes[10].OneofWrappers = []any{
+	file_optimizer_v1_optimizer_proto_msgTypes[12].OneofWrappers = []any{
 		(*RouteChange_TimeShiftSeconds)(nil),
 		(*RouteChange_Cost)(nil),
 		(*RouteChange_ParticipationAction)(nil),
@@ -1606,7 +1805,7 @@ func file_optimizer_v1_optimizer_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_optimizer_v1_optimizer_proto_rawDesc), len(file_optimizer_v1_optimizer_proto_rawDesc)),
 			NumEnums:      7,
-			NumMessages:   12,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
