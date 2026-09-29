@@ -2,6 +2,7 @@
 import Brand from './Brand.jsx';
 import ExtractionReview from './ExtractionReview.jsx';
 import ScenarioVariants from './ScenarioVariants.jsx';
+import useClosingConfirmation from './useClosingConfirmation.js';
 import OwnerRouteScreen from './OwnerRouteScreen.jsx';
 import { loadOwnerRoute, loadSelectedRoute, RouteRequestError } from './route.js';
 import { createRouteAttempt, sendRouteCommand, terminalRouteError } from './routeCommands.js';
@@ -61,12 +62,7 @@ export default function ScenarioEntry({ scenario, apiBaseUrl, accessToken, mapAp
   const selection = useRef(null);
   useEffect(() => () => { request.current?.abort(); geoRequest.current?.abort(); }, []);
   const locked = busy || attempt !== null || saving || savePending;
-  useEffect(() => {
-    if (!(current.status === 'draft' && dirty) && !savePending && !attempt) return;
-    const warn = (event) => { event.preventDefault(); event.returnValue = true; };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [current.status, dirty, savePending, attempt]);
+  useClosingConfirmation(Boolean(current.status === 'draft' && dirty || savePending || attempt));
 
   async function saveConditions() {
     if (savingRef.current || busy || attempt || locating || current.status !== 'draft') return;
