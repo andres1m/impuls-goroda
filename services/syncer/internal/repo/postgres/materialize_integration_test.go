@@ -14,7 +14,9 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
+	"github.com/andres1m/impuls-goroda/pkg/catalogevent"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/ingest"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/materialize"
@@ -641,5 +643,44 @@ func TestSharedPlaceDoesNotFlapIntegration(t *testing.T) {
 	if err := f.pool.QueryRow(f.ctx, `SELECT address_text FROM catalog.place WHERE city = 'perm' AND id = $1`,
 		normalize.EntityID(string(f.source)+":place:a")).Scan(&address); err != nil || address != "ул Радио,д 17" {
 		t.Fatalf("place keeps %q, %v; the last description in the batch wins", address, err)
+	}
+}
+
+func (f *materializeFixture) announcement(t *testing.T, revision int64) catalogevent.Invalidation {
+	t.Helper()
+	var payload []byte
+	if err := f.pool.QueryRow(f.ctx, `SELECT payload FROM integration.change_delivery
+		WHERE city = 'perm' AND destination = 'redis' AND catalog_revision = $1`, revision).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	m, err := catalogevent.Decode(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func TestUrgentChangesAreAnnouncedToCachesIntegration(t *testing.T) {
+	f := newMaterializeFixture(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	day1, day2 := now.Add(24*time.Hour), now.Add(48*time.Hour)
+	eventA := normalize.EntityID(string(f.source) + ":event:1@place:a")
+	day2A := normalize.SessionID(eventA, day2)
+
+	f.publishEvent(t, 1, now, "a", day1, day2)
+	if m := f.announcement(t, f.revision(t)); m.Reason != catalogevent.ReasonIngest || len(m.Sessions) != 0 {
+		t.Fatalf("a batch without urgent changes announced %+v", m)
+	}
+
+	recorded := testutil.ToFloat64(lifecycleEvents)
+	if !f.publishEvent(t, 2, now, "a", day1) {
+		t.Fatal("a withdrawn session did not publish")
+	}
+	if m := f.announcement(t, f.revision(t)); m.Reason != catalogevent.ReasonUrgent ||
+		!slices.Equal(m.Sessions, []string{day2A.String()}) {
+		t.Fatalf("a cancellation announced %+v", m)
+	}
+	if got := testutil.ToFloat64(lifecycleEvents) - recorded; got != 1 {
+		t.Fatalf("recorded %v urgent changes, want 1", got)
 	}
 }

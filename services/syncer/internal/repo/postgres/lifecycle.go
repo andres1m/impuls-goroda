@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -14,6 +16,12 @@ import (
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/delivery"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/domain"
 )
+
+// lifecycleEvents counts urgent session changes queued for delivery, once their publication has committed.
+var lifecycleEvents = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "syncer_lifecycle_events_total",
+	Help: "Urgent session changes queued for delivery to gateway and Kafka.",
+})
 
 type lifecycleTransition struct {
 	EventID        uuid.UUID

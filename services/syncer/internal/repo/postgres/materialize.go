@@ -162,6 +162,12 @@ func (s *MaterializeStore) Publish(
 			Reason:          catalogevent.ReasonIngest,
 			PublishedAt:     at,
 		}
+		if len(lifecycleChanges) > 0 {
+			announcement.Reason = catalogevent.ReasonUrgent
+			for i := range lifecycleChanges {
+				announcement.Sessions = append(announcement.Sessions, lifecycleChanges[i].SessionID.String())
+			}
+		}
 		if err := EnqueueRevision(ctx, tx, &announcement); err != nil {
 			return 0, false, err
 		}
@@ -175,6 +181,7 @@ func (s *MaterializeStore) Publish(
 	if err := tx.Commit(ctx); err != nil {
 		return 0, false, fmt.Errorf("commit: %w", err)
 	}
+	lifecycleEvents.Add(float64(len(lifecycleChanges)))
 	return revision, len(touched) > 0, nil
 }
 
