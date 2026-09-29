@@ -9,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	gatewayv1 "github.com/andres1m/impuls-goroda/proto/gateway/v1"
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -66,6 +68,7 @@ func newMaterializeFixture(t *testing.T) *materializeFixture {
 
 func (f *materializeFixture) cleanup(t *testing.T) {
 	for _, q := range []string{
+		`DELETE FROM integration.change_delivery d USING integration.source_record r WHERE d.source_record_id = r.id AND r.source_id = $1`,
 		`DELETE FROM catalog.price_offer o USING integration.source_record r WHERE o.source_record_id = r.id AND r.source_id = $1`,
 		`DELETE FROM catalog.session s USING integration.source_record r WHERE s.card_source_record_id = r.id AND r.source_id = $1`,
 		`DELETE FROM catalog.event e USING integration.source_record r WHERE e.card_source_record_id = r.id AND r.source_id = $1`,
@@ -401,6 +404,33 @@ func TestMaterializeEventsIntegration(t *testing.T) {
 		s.priceActive {
 		t.Fatalf("withdrawn session %+v", s)
 	}
+	rows, err := f.pool.Query(f.ctx, `SELECT destination,payload FROM integration.change_delivery
+		WHERE city='perm' AND catalog_revision=$1 AND event_type='catalog.lifecycle.v1'`, f.revision(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var destinations []string
+	for rows.Next() {
+		var destination string
+		var payload []byte
+		if err := rows.Scan(&destination, &payload); err != nil {
+			t.Fatal(err)
+		}
+		var event gatewayv1.DeliverCatalogLifecycleRequest
+		decodeErr := protojson.Unmarshal(payload, &event)
+		if decodeErr != nil || !bytes.Equal(event.SessionId, day2A[:]) || event.NewAvailabilityStatus != "cancelled" {
+			t.Fatalf("lifecycle payload: %s, %v", payload, decodeErr)
+		}
+		destinations = append(destinations, destination)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	rows.Close()
+	slices.Sort(destinations)
+	if !slices.Equal(destinations, []string{"gateway", "kafka"}) {
+		t.Fatalf("lifecycle destinations: %v", destinations)
+	}
 	if s := f.session(t, pastA); s.status != "unknown" || s.version != 1 {
 		t.Fatalf("past session touched %+v", s)
 	}
@@ -443,6 +473,51 @@ func TestMaterializeEventsIntegration(t *testing.T) {
 	}
 	if got := f.poiCategories(t, placeB); !slices.Equal(got, []string{"culture"}) {
 		t.Fatalf("new place shows %v", got)
+	}
+}
+
+func TestMaterializeExplicitSoldOutIntegration(t *testing.T) {
+	f := newMaterializeFixture(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	start := now.Add(24 * time.Hour)
+	for version := 1; version <= 2; version++ {
+		raw := f.save(t, "event:1", fmt.Sprintf(`{"v":%d}`, version), now.Add(time.Duration(version)*time.Second))
+		pending := f.pending(t, raw.ID)
+		item := eventNormalized(&pending[0], "a", start)
+		if version == 2 {
+			item.Event.Sessions[0].AvailabilityStatus = "sold_out"
+		}
+		if _, published, err := f.store.Publish(f.ctx, domain.Perm,
+			&materialize.Outcome{Apply: []materialize.Normalized{item}}, now); err != nil || !published {
+			t.Fatalf("publish explicit status version %d: published=%v err=%v", version, published, err)
+		}
+	}
+	sessionID := normalize.SessionID(normalize.EntityID(string(f.source)+":event:1@place:a"), start)
+	if got := f.session(t, sessionID).status; got != "sold_out" {
+		t.Fatalf("status = %q", got)
+	}
+	var observedAt *time.Time
+	observedSQL := `SELECT availability_observed_at FROM catalog.session WHERE city='perm' AND id=$1`
+	if err := f.pool.QueryRow(f.ctx, observedSQL, sessionID).Scan(&observedAt); err != nil || observedAt == nil {
+		t.Fatalf("explicit availability observation = %v, err=%v", observedAt, err)
+	}
+	var count int
+	if err := f.pool.QueryRow(f.ctx, `SELECT count(*) FROM integration.change_delivery
+		WHERE city='perm' AND catalog_revision=$1 AND event_type='catalog.lifecycle.v1'`, f.revision(t)).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("sold-out deliveries = %d, want gateway and kafka", count)
+	}
+	revision := f.revision(t)
+	repeat := f.save(t, "event:1", `{"v":3}`, now.Add(3*time.Second))
+	pending := f.pending(t, repeat.ID)
+	item := eventNormalized(&pending[0], "a", start)
+	item.Event.Sessions[0].AvailabilityStatus = "sold_out"
+	outcome := &materialize.Outcome{Apply: []materialize.Normalized{item}}
+	_, published, publishErr := f.store.Publish(f.ctx, domain.Perm, outcome, now)
+	if publishErr != nil || published || f.revision(t) != revision {
+		t.Fatalf("repeated sold-out status: published=%v err=%v", published, publishErr)
 	}
 }
 

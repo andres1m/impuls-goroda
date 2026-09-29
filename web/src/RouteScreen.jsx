@@ -82,9 +82,9 @@ export default function RouteScreen({ route, mapApiKey, shared = false, actionsD
       <div className="server-summary"><span>{personalCost ? `${unknownCost ? 'Известные расходы: ' : ''}${personalCost}` : 'Стоимость неизвестна'}</span>{unknownCost && <span>Есть неучтённые расходы</span>}{plan.constraints?.pushkin_card_only && <span>По Пушкинской карте</span>}</div>
       {plan.result === 'PARTIAL' && <p className="workspace-route-alert is-warning">Вариант построен с оговорками. Проверьте условия посещений.</p>}
       {plan.warnings?.map((warning, index) => <p className="workspace-route-alert is-warning" key={`${warning.code}-${index}`}>{warning.message}</p>)}
-      {cancellations.size > 0 && <section className="server-cancellation-notice" aria-label="Отмены в маршруте">
-        <h2>Есть отменённые посещения</h2>
-        <p>{shared ? 'В расписании остались отменённые точки.' : 'Расписание пока сохранено. Изменения применяются только после вашего подтверждения.'}</p>
+      {cancellations.size > 0 && <section className="server-cancellation-notice" aria-label="Недоступные посещения в маршруте">
+        <h2>Есть недоступные посещения</h2>
+        <p>{shared ? 'В расписании остались недоступные точки.' : 'Расписание пока сохранено. Изменения применяются только после вашего подтверждения.'}</p>
         <ul>{[...cancellations.values()].map(({ visit, messages }) => <li key={visit.id}>
           <button type="button" onClick={() => chooseVisit(visit.id, true)}><span>{visit.number}</span><strong>{visit.title}</strong><span aria-hidden="true">›</span></button>
           {[...messages].map((message) => <p key={message}>{message}</p>)}

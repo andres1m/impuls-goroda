@@ -39,6 +39,11 @@ kafka:
   dlq-topic: dlq.integration.raw
   consumer-group: syncer-raw
 
+gateway-client:
+  host: gateway
+  port: 50052
+  use_tls: false
+
 # Sends catalog announcements recorded with each publication once it commits.
 delivery:
   poll-interval: 500ms

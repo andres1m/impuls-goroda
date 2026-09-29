@@ -110,6 +110,7 @@ func (s *MaterializeStore) Publish(
 	}
 
 	touched := make(map[string]bool)
+	var lifecycleChanges []lifecycleTransition
 	placeIDs := make([]string, len(o.Apply))
 	// Events sharing a place may each describe it a little differently; writing the place once, from the
 	// batch's last description, keeps a repeated batch from counting it as changed.
@@ -137,10 +138,11 @@ func (s *MaterializeStore) Publish(
 		if n.Event == nil {
 			continue
 		}
-		places, err := writeEvent(ctx, tx, city, n, placeIDs[i], ref.TagBits, at)
+		places, changes, err := writeEvent(ctx, tx, city, n, placeIDs[i], ref.TagBits, at)
 		if err != nil {
 			return 0, false, err
 		}
+		lifecycleChanges = append(lifecycleChanges, changes...)
 		for _, id := range places {
 			touched[id] = true
 		}
@@ -161,6 +163,9 @@ func (s *MaterializeStore) Publish(
 			PublishedAt:     at,
 		}
 		if err := EnqueueRevision(ctx, tx, &announcement); err != nil {
+			return 0, false, err
+		}
+		if err := enqueueLifecycle(ctx, tx, city, revision, at, lifecycleChanges); err != nil {
 			return 0, false, err
 		}
 	}

@@ -224,6 +224,7 @@ services:
       <<: *service-env
       MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:?set MAX_BOT_TOKEN in .env}
       MAX_WEBHOOK_SECRET: ${MAX_WEBHOOK_SECRET:?set MAX_WEBHOOK_SECRET in .env}
+      LIFECYCLE_SHARED_SECRET: ${LIFECYCLE_SHARED_SECRET:-}
       MAX_BOT_USERNAME: ${MAX_BOT_USERNAME:-}
       TWO_GIS_API_KEY: ${TWO_GIS_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
@@ -344,6 +345,7 @@ services:
     image: impuls-goroda/syncer:dev
     environment:
       <<: *service-env
+      LIFECYCLE_SHARED_SECRET: ${LIFECYCLE_SHARED_SECRET:-}
       # Optional: only `syncer embed` uses it.
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       POLZA_API_KEY: ${POLZA_API_KEY:-}

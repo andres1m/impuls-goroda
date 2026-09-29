@@ -49,7 +49,7 @@ SELECT 1 FROM planning.route_issue i JOIN planning.route r ON r.id=i.route_id
 JOIN planning.route_step s ON s.route_id=r.id AND s.revision=r.current_revision AND s.visit_id=i.visit_id
 LEFT JOIN planning.execution e ON e.route_id=s.route_id AND e.visit_id=s.visit_id
 WHERE i.route_id=$2 AND i.source_change_id=$4 AND i.issue_type='cancelled' AND i.state<>'resolved'
-AND COALESCE(e.status,'planned')='planned') ON CONFLICT(route_id,change_id) DO NOTHING`, id, routeID, city, changeID, revision, now)
+AND s.visit_end_at>$6 AND COALESCE(e.status,'planned')='planned') ON CONFLICT(route_id,change_id) DO NOTHING`, id, routeID, city, changeID, revision, now)
 	return err
 }
 
@@ -82,9 +82,13 @@ func (q *Queries) CurrentCancellationVisits(ctx context.Context, job Cancellatio
 JOIN planning.route r ON r.id=i.route_id AND r.owner_id=$2
 JOIN planning.route_step s ON s.route_id=r.id AND s.revision=r.current_revision AND s.visit_id=i.visit_id
 JOIN planning.route_visit v ON v.route_id=s.route_id AND v.visit_id=s.visit_id
-JOIN catalog.session c ON c.city=v.city AND c.id=v.session_id AND c.availability_status='cancelled'
+JOIN catalog.session c ON c.city=v.city AND c.id=v.session_id
+LEFT JOIN planning.participation p ON p.route_id=v.route_id AND p.visit_id=v.visit_id
 LEFT JOIN planning.execution e ON e.route_id=v.route_id AND e.visit_id=v.visit_id
 WHERE i.route_id=$1 AND i.issue_type='cancelled' AND i.state<>'resolved' AND COALESCE(e.status,'planned')='planned'
+AND s.visit_end_at>now()
+AND (c.availability_status='cancelled' OR (c.availability_status='sold_out' AND s.is_obligation
+AND COALESCE(p.status,'not_required') NOT IN ('user_reported_confirmed','provider_confirmed')))
 ORDER BY s.position,i.id`, encodeUUID([16]byte(job.RouteID)), encodeUUID([16]byte(job.OwnerID)))
 	if err != nil {
 		return nil, 0, err

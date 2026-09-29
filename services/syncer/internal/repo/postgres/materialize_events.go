@@ -2,10 +2,12 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/uber/h3-go/v4"
 
@@ -16,6 +18,8 @@ import (
 
 const placeResolution = 8
 const fineResolution = 11
+const availabilityCancelled = "cancelled"
+const availabilitySoldOut = "sold_out"
 
 func durationSeconds(d time.Duration) int32 {
 	seconds := int64(d / time.Second)
@@ -64,11 +68,11 @@ func writeEvent(
 	placeID string,
 	bits map[string]int,
 	at time.Time,
-) ([]string, error) {
+) ([]string, []lifecycleTransition, error) {
 	e := n.Event
 	mask, maskErr := interestMask(e.Tags, bits, "event "+e.ExternalID)
 	if maskErr != nil {
-		return nil, maskErr
+		return nil, nil, maskErr
 	}
 	eventID := normalize.EntityID(string(n.Raw.Source) + ":" + e.ExternalID)
 	record := n.Raw.SourceRecordID
@@ -95,7 +99,7 @@ func writeEvent(
 		eventID, city, placeID, e.Title, e.NormalizedTitle, e.Category, mask, e.Organizer, e.AgeMin,
 		n.Raw.DataMode, record, at))
 	if err != nil {
-		return nil, fmt.Errorf("upsert event %s: %w", e.ExternalID, err)
+		return nil, nil, fmt.Errorf("upsert event %s: %w", e.ExternalID, err)
 	}
 	touch(changed, placeID)
 
@@ -104,24 +108,50 @@ func writeEvent(
 		WHERE city = $1 AND card_source_record_id = $2 AND id <> $3 AND is_active
 		RETURNING place_id::text`, city, record, eventID, at))
 	if err != nil {
-		return nil, fmt.Errorf("retire moved event %s: %w", e.ExternalID, err)
+		return nil, nil, fmt.Errorf("retire moved event %s: %w", e.ExternalID, err)
 	}
 	touched = append(touched, moved...)
 
 	listed := make([]string, 0, len(e.Sessions))
+	var transitions []lifecycleTransition
 	for i := range e.Sessions {
 		s := &e.Sessions[i]
 		sessionID := normalize.SessionID(eventID, s.StartsAt)
 		listed = append(listed, sessionID.String())
+		status := s.AvailabilityStatus
+		if status == "" {
+			status = "unknown"
+		}
+		var observedAt *time.Time
+		if s.AvailabilityStatus != "" {
+			observedAt = &at
+		}
+		switch status {
+		case "unknown", "available", "registration_required", availabilitySoldOut, availabilityCancelled:
+		default:
+			return nil, nil, fmt.Errorf("invalid session availability status %q", status)
+		}
+		var oldStatus string
+		previousStatusSQL := `SELECT availability_status FROM catalog.session WHERE id=$1 AND city=$2 FOR UPDATE`
+		readErr := tx.QueryRow(ctx, previousStatusSQL, sessionID, city).Scan(&oldStatus)
+		if readErr != nil && !errors.Is(readErr, pgx.ErrNoRows) {
+			return nil, nil, fmt.Errorf("read previous session status: %w", readErr)
+		}
 		changed, sessionErr := returnedIDs(tx.Query(ctx, `
 			INSERT INTO catalog.session AS t (id, city, event_id, slot_type, starts_at, ends_at, min_duration_s,
-				recommended_duration_s, buffer_s, access_type, availability_status, is_hard_constraint, booking_url,
+				recommended_duration_s, buffer_s, access_type, availability_status, availability_observed_at,
+				cancellation_reason,
+				is_hard_constraint, booking_url,
 				data_mode, card_source_record_id, version, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9, 'unknown', $10, $11, $12, $13, 1, $14)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9, $15, $16,
+				CASE WHEN $15='cancelled' THEN 'source_status' ELSE NULL END, $10, $11, $12, $13, 1, $14)
 			ON CONFLICT (id, city) DO UPDATE SET
 				slot_type = EXCLUDED.slot_type, ends_at = EXCLUDED.ends_at, min_duration_s = EXCLUDED.min_duration_s,
 				recommended_duration_s = EXCLUDED.recommended_duration_s, access_type = EXCLUDED.access_type,
-				availability_status = 'unknown', cancellation_reason = NULL,
+				availability_status = EXCLUDED.availability_status,
+				availability_observed_at = CASE WHEN t.availability_status IS DISTINCT FROM EXCLUDED.availability_status
+					THEN EXCLUDED.availability_observed_at ELSE t.availability_observed_at END,
+				cancellation_reason = EXCLUDED.cancellation_reason,
 				is_hard_constraint = EXCLUDED.is_hard_constraint, booking_url = EXCLUDED.booking_url,
 				data_mode = EXCLUDED.data_mode, card_source_record_id = EXCLUDED.card_source_record_id,
 				version = t.version + 1, updated_at = EXCLUDED.updated_at
@@ -129,14 +159,15 @@ func writeEvent(
 					t.availability_status, t.cancellation_reason, t.is_hard_constraint, t.booking_url, t.data_mode,
 					t.card_source_record_id)
 				IS DISTINCT FROM (EXCLUDED.slot_type, EXCLUDED.ends_at, EXCLUDED.min_duration_s,
-					EXCLUDED.recommended_duration_s, EXCLUDED.access_type, 'unknown'::text, NULL::text,
+					EXCLUDED.recommended_duration_s, EXCLUDED.access_type, EXCLUDED.availability_status,
+					EXCLUDED.cancellation_reason,
 					EXCLUDED.is_hard_constraint, EXCLUDED.booking_url, EXCLUDED.data_mode, EXCLUDED.card_source_record_id)
 			RETURNING id::text`,
 			sessionID, city, eventID, s.SlotType, s.StartsAt, s.EndsAt, durationSeconds(s.MinDuration),
 			durationSeconds(s.RecommendedDuration), s.AccessType, s.SlotType == "FIXED_SESSION", s.BookingURL,
-			n.Raw.DataMode, record, at))
+			n.Raw.DataMode, record, at, status, observedAt))
 		if sessionErr != nil {
-			return nil, fmt.Errorf(
+			return nil, nil, fmt.Errorf(
 				"upsert session %s of %s: %w",
 				s.StartsAt.Format(time.RFC3339),
 				e.ExternalID,
@@ -144,6 +175,13 @@ func writeEvent(
 			)
 		}
 		touch(changed, placeID)
+		becameUrgent := status == availabilityCancelled || status == availabilitySoldOut
+		if oldStatus != "" && oldStatus != status && becameUrgent {
+			transitions = append(transitions, lifecycleTransition{
+				EventID: eventID, SessionID: sessionID, OldStatus: oldStatus,
+				NewStatus: status, SourceRecordID: record, DataMode: string(n.Raw.DataMode), Reason: "source_status",
+			})
+		}
 
 		var currency *string
 		if s.Price.AmountMin != nil {
@@ -168,29 +206,55 @@ func writeEvent(
 			normalize.PriceID(sessionID), city, sessionID, s.Price.Status, s.Price.TariffLabel, s.Price.AmountMin,
 			s.Price.AmountMax, currency, s.BookingURL, record, at, n.Raw.DataMode))
 		if err != nil {
-			return nil, fmt.Errorf("upsert price of %s: %w", e.ExternalID, err)
+			return nil, nil, fmt.Errorf("upsert price of %s: %w", e.ExternalID, err)
 		}
 		touch(changed, placeID)
 	}
 
 	// A session missing from a version of an event that is still published was taken down by the source.
-	withdrawn, err := returnedIDs(tx.Query(ctx, `
-		UPDATE catalog.session SET availability_status = 'cancelled', cancellation_reason = 'source_removed',
-			version = version + 1, updated_at = $4
-		WHERE city = $1 AND card_source_record_id = $2 AND ends_at > $4
-			AND availability_status <> 'cancelled' AND NOT (id = ANY ($3::uuid[]))
-		RETURNING id::text`, city, record, listed, at))
+	rows, err := tx.Query(ctx, `
+		WITH previous AS (
+			SELECT id, availability_status, event_id, data_mode FROM catalog.session
+			WHERE city = $1 AND card_source_record_id = $2 AND ends_at > $4
+				AND availability_status <> 'cancelled' AND NOT (id = ANY ($3::uuid[]))
+			FOR UPDATE
+		), changed AS (
+			UPDATE catalog.session s SET availability_status = 'cancelled', cancellation_reason = 'source_removed',
+				version = version + 1, updated_at = $4
+			FROM previous p WHERE s.id = p.id AND s.city = $1 RETURNING s.id
+		)
+		SELECT p.id, p.event_id, p.availability_status, p.data_mode
+		FROM changed c JOIN previous p ON p.id = c.id`, city, record, listed, at)
 	if err != nil {
-		return nil, fmt.Errorf("withdraw sessions of %s: %w", e.ExternalID, err)
+		return nil, nil, fmt.Errorf("withdraw sessions of %s: %w", e.ExternalID, err)
 	}
+	var withdrawn []string
+	for rows.Next() {
+		var sessionID, withdrawnEventID uuid.UUID
+		var oldStatus, dataMode string
+		if err := rows.Scan(&sessionID, &withdrawnEventID, &oldStatus, &dataMode); err != nil {
+			rows.Close()
+			return nil, nil, fmt.Errorf("read withdrawn session: %w", err)
+		}
+		withdrawn = append(withdrawn, sessionID.String())
+		transitions = append(transitions, lifecycleTransition{
+			EventID: withdrawnEventID, SessionID: sessionID, OldStatus: oldStatus,
+			NewStatus: availabilityCancelled, SourceRecordID: record, DataMode: dataMode, Reason: "source_removed",
+		})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, nil, fmt.Errorf("read withdrawn sessions: %w", err)
+	}
+	rows.Close()
 	if len(withdrawn) > 0 {
 		if _, err := tx.Exec(ctx, `UPDATE catalog.price_offer SET is_active = false
 			WHERE city = $1 AND session_id = ANY ($2::uuid[]) AND is_active`, city, withdrawn); err != nil {
-			return nil, fmt.Errorf("retire prices of withdrawn sessions of %s: %w", e.ExternalID, err)
+			return nil, nil, fmt.Errorf("retire prices of withdrawn sessions of %s: %w", e.ExternalID, err)
 		}
 		touched = append(touched, placeID)
 	}
-	return touched, nil
+	return touched, transitions, nil
 }
 
 // projectPlaces rebuilds the search projection of the places, reading their coordinates from the catalog.

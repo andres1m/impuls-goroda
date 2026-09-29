@@ -2,13 +2,16 @@ package grpcapi
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
+	"fmt"
 	"time"
 
 	pb "github.com/andres1m/impuls-goroda/proto/gateway/v1"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/lifecycle"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/repo/postgres"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -19,14 +22,24 @@ type Receiver interface {
 type LifecycleServer struct {
 	pb.UnimplementedLifecycleServiceServer
 	receiver Receiver
+	secret   string
 	slots    chan struct{}
 }
 
-func NewLifecycleServer(receiver Receiver) *LifecycleServer {
-	return &LifecycleServer{receiver: receiver, slots: make(chan struct{}, 4)}
+const lifecycleConcurrentRequests = 4
+
+var errInvalidServiceCredential = status.Error(codes.Unauthenticated, "invalid service credential")
+
+func NewLifecycleServer(receiver Receiver, secret string) *LifecycleServer {
+	return &LifecycleServer{receiver: receiver, secret: secret, slots: make(chan struct{}, lifecycleConcurrentRequests)}
 }
 
 func (s *LifecycleServer) DeliverCatalogLifecycle(ctx context.Context, request *pb.DeliverCatalogLifecycleRequest) (*pb.DeliverCatalogLifecycleResponse, error) {
+	values, _ := metadata.FromIncomingContext(ctx)
+	provided := values.Get("x-lifecycle-secret")
+	if len(provided) != 1 || s.secret == "" || subtle.ConstantTimeCompare([]byte(provided[0]), []byte(s.secret)) != 1 {
+		return nil, fmt.Errorf("lifecycle authorization: %w", errInvalidServiceCredential)
+	}
 	change, hash, err := lifecycle.Decode(request)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid catalog lifecycle change")
