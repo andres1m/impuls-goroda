@@ -61,7 +61,8 @@ func BuildPrompt(vocab []Tag, batch []Candidate) ai.Prompt {
 var ErrAnswer = errors.New("unusable model answer")
 
 // Parse returns the tag mask of every well-formed item, keyed by its 1-based number. Codes outside the
-// vocabulary are dropped; an item numbered twice is dropped whole, because its owner is unknown.
+// vocabulary are dropped; an item numbered twice is dropped whole, because its owner is unknown. An item
+// without a tag list, or whose codes are all unknown, is no answer: only an explicit empty list means "none".
 func Parse(answer string, count int, vocab []Tag) (map[int]int64, error) {
 	start, end := strings.Index(answer, "["), strings.LastIndex(answer, "]")
 	if start < 0 || end < start {
@@ -89,11 +90,17 @@ func Parse(answer string, count int, vocab []Tag) (map[int]int64, error) {
 			continue
 		}
 		seen[it.N] = true
+		if it.Tags == nil {
+			continue
+		}
 		var mask int64
 		for _, code := range it.Tags {
 			if bit, ok := bits[code]; ok {
 				mask |= 1 << bit
 			}
+		}
+		if mask == 0 && len(it.Tags) > 0 {
+			continue
 		}
 		masks[it.N] = mask
 	}

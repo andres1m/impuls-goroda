@@ -48,6 +48,8 @@ func TestParse(t *testing.T) {
 			map[int]int64{1: 1 << 7, 2: 1<<0 | 1<<1}},
 		{"fenced", "```json\n[{\"n\":1,\"tags\":[\"classical_art\"]}]\n```", map[int]int64{1: 1 << 1}},
 		{"unknown code dropped", `[{"n":1,"tags":["nope","gastro_coffee"]}]`, map[int]int64{1: 1 << 7}},
+		{"only unknown codes is no answer", `[{"n":1,"tags":["coffee"]},{"n":2,"tags":["gastro_coffee"]}]`, map[int]int64{2: 1 << 7}},
+		{"missing tags is no answer", `[{"n":1},{"n":2,"tags":null}]`, map[int]int64{}},
 		{"empty tags are a valid answer", `[{"n":1,"tags":[]}]`, map[int]int64{1: 0}},
 		{"number out of range ignored", `[{"n":0,"tags":["gastro_coffee"]},{"n":3,"tags":["gastro_coffee"]}]`, map[int]int64{}},
 		{"duplicate number voids the item", `[{"n":1,"tags":["gastro_coffee"]},{"n":1,"tags":["classical_art"]}]`, map[int]int64{}},
