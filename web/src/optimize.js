@@ -10,6 +10,7 @@ export class GatewayError extends Error {
     this.code = response.code;
     this.requestId = response.request_id;
     this.retryable = response.retryable;
+    this.currentVersion = response.current_version;
   }
 }
 
@@ -21,7 +22,7 @@ function validErrorResponse(body) {
     typeof body.retryable === 'boolean';
 }
 
-function parseOptimizeResponse(body) {
+export function parseOptimizeResponse(body) {
   if (
     !body || !resultStatuses.has(body.status) ||
     typeof body.request_id !== 'string' || body.request_id.length === 0 ||

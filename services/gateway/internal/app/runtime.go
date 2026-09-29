@@ -16,6 +16,7 @@ import (
 )
 
 type Config struct {
+	Optimizer          Optimizer
 	BotToken           string
 	WebhookSecret      string
 	InitDataMaxAge     time.Duration
@@ -37,6 +38,7 @@ type Runtime struct {
 
 	service       *auth.Service
 	queries       *postgres.Queries
+	transactor    *postgres.Transactor
 	commands      *postgres.CommandExecutor
 	webhook       *auth.WebhookVerifier
 	anonymous     *auth.RateLimiter
@@ -127,6 +129,7 @@ func (r *Runtime) Init(context.Context) error {
 	}
 
 	r.queries = queries
+	r.transactor = transactor
 	r.commands = commands
 	r.service = service
 	r.webhook = webhook

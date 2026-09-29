@@ -16,6 +16,9 @@ type Operation string
 
 const (
 	OptimizeRoutes           Operation = "optimizeRoutes"
+	SelectScenarioRoute      Operation = "selectScenarioRoute"
+	CompleteBotScenario      Operation = "completeBotScenario"
+	SaveBotScenarioDraft     Operation = "saveBotScenarioDraft"
 	SaveRoute                Operation = "saveRoute"
 	ProposePanicReroute      Operation = "proposePanicReroute"
 	ApplyRouteProposal       Operation = "applyRouteProposal"
@@ -59,7 +62,7 @@ func (e *Envelope) Validate() error {
 
 func (o Operation) Valid() bool {
 	switch o {
-	case OptimizeRoutes, SaveRoute, ProposePanicReroute, ApplyRouteProposal,
+	case SelectScenarioRoute, OptimizeRoutes, CompleteBotScenario, SaveBotScenarioDraft, SaveRoute, ProposePanicReroute, ApplyRouteProposal,
 		RejectRouteProposal, SetVisitPin, ProposeVisitRemoval, UpdateVisitParticipation,
 		UpdateVisitExecution, CreateRouteShare, RevokeRouteShare, CopySharedRoute, DeleteRoute:
 		return true

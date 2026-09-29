@@ -9,6 +9,7 @@ import (
 
 	"github.com/andres1m/impuls-goroda/pkg/router"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/maxbot"
+	"github.com/andres1m/impuls-goroda/services/gateway/internal/repo/postgres"
 	"github.com/labstack/echo/v5"
 )
 
@@ -51,13 +52,10 @@ func (r *BotRouter) webhook() echo.HandlerFunc {
 			}
 		}
 		if err := r.bot.Handle(c.Request().Context(), &update); err != nil {
-			return &Error{
-				Status:    http.StatusServiceUnavailable,
-				Code:      "BOT_UNAVAILABLE",
-				Message:   "Bot is temporarily unavailable",
-				Retryable: true,
-				Cause:     err,
+			if errors.Is(err, postgres.ErrBotEventConflict) {
+				return &Error{Status: http.StatusBadRequest, Code: "MALFORMED_REQUEST", Message: "Event payload does not match"}
 			}
+			return &Error{Status: http.StatusServiceUnavailable, Code: "BOT_UNAVAILABLE", Message: "Bot is temporarily unavailable", Retryable: true, Cause: err}
 		}
 		return c.NoContent(http.StatusOK)
 	}

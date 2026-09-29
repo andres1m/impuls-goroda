@@ -19,6 +19,7 @@ const (
 
 type CatalogSnapshot struct {
 	PlaceID             *PlaceID
+	EntranceID          *EntranceID
 	EventID             *EventID
 	SessionID           *EventSessionID
 	Title               string
@@ -65,6 +66,14 @@ func (s *CatalogSnapshot) Validate() error {
 func (s *CatalogSnapshot) validateEntityChain() error {
 	if s.PlaceID != nil {
 		if err := requiredID([16]byte(*s.PlaceID)); err != nil {
+			return err
+		}
+	}
+	if s.EntranceID != nil {
+		if s.PlaceID == nil {
+			return errors.New("catalog entrance requires a place")
+		}
+		if err := requiredID([16]byte(*s.EntranceID)); err != nil {
 			return err
 		}
 	}

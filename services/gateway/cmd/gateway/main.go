@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/andres1m/impuls-goroda/pkg/ai"
 	"github.com/andres1m/impuls-goroda/pkg/config"
 	"github.com/andres1m/impuls-goroda/pkg/db"
 	"github.com/andres1m/impuls-goroda/pkg/logger"
@@ -28,6 +29,7 @@ import (
 const configPath = "config.yaml"
 
 type appConfig struct {
+	AI        *ai.Config        `yaml:"ai"`
 	Logger    config.Logger     `yaml:"logger"`
 	Telemetry config.Telemetry  `yaml:"telemetry"`
 	Database  config.Database   `yaml:"database"`
@@ -38,9 +40,10 @@ type appConfig struct {
 }
 
 type gatewayConfig struct {
-	Auth      gatewayAuthConfig `yaml:"auth"`
-	CORS      gatewayCORSConfig `yaml:"cors"`
-	RateLimit rateLimitConfig   `yaml:"rate-limit"`
+	Computation optimizerclient.Policy `yaml:"computation"`
+	Auth        gatewayAuthConfig      `yaml:"auth"`
+	CORS        gatewayCORSConfig      `yaml:"cors"`
+	RateLimit   rateLimitConfig        `yaml:"rate-limit"`
 }
 
 type gatewayAuthConfig struct {
@@ -117,16 +120,34 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("create CORS middleware: %w", err)
 	}
 	routers := []router.Router{
+		httpapi.NewReadinessRouter(authRuntime),
 		httpapi.NewAuthRouter(authRuntime),
 		httpapi.NewVisitRouter(authRuntime),
+		httpapi.NewRouteRouter(authRuntime),
+		httpapi.NewDeleteRouter(authRuntime),
+		httpapi.NewRecoveryRouter(authRuntime),
+		httpapi.NewScenarioRouter(authRuntime),
+		httpapi.NewPinRouter(authRuntime),
+		httpapi.NewProposalRouter(authRuntime),
+		httpapi.NewPanicRouter(authRuntime),
+		httpapi.NewShareRouter(authRuntime, os.Getenv("MAX_BOT_USERNAME")),
 		httpapi.NewDirectionsRouter(os.Getenv("TWO_GIS_API_KEY"), authRuntime),
+		httpapi.NewLunchSearchRouter(os.Getenv("TWO_GIS_API_KEY"), authRuntime),
 	}
 	if username := os.Getenv("MAX_BOT_USERNAME"); username != "" {
 		bot, err := maxbot.NewClient(infra.cfg.Gateway.Auth.BotToken, username)
 		if err != nil {
 			return fmt.Errorf("create MAX bot: %w", err)
 		}
-		routers = append(routers, httpapi.NewBotRouter(authRuntime, bot))
+		var extractor *app.ScenarioExtractor
+		if infra.cfg.AI != nil {
+			models, err := ai.New(*infra.cfg.AI)
+			if err != nil {
+				return errors.New("invalid bot model configuration")
+			}
+			extractor = app.NewScenarioExtractor(models.Text())
+		}
+		routers = append(routers, httpapi.NewBotRouter(authRuntime, app.NewBotHandlerWithExtractor(authRuntime, bot, extractor)))
 	}
 	apiServer := server.New("api-server", infra.cfg.APIServer,
 		server.WithIPExtractor(echo.ExtractIPFromXFFHeader(echo.TrustLinkLocal(false))),
@@ -160,6 +181,7 @@ func run(ctx context.Context) error {
 func newAuthRuntime(infra *infrastructureComponents) (*app.Runtime, error) {
 	cfg := infra.cfg.Gateway
 	return app.NewRuntime(infra.pool, infra.log.Log, &app.Config{
+		Optimizer:         infra.optimizer,
 		BotToken:          cfg.Auth.BotToken,
 		WebhookSecret:     cfg.Auth.WebhookSecret,
 		InitDataMaxAge:    cfg.Auth.InitDataMaxAge,
@@ -249,11 +271,15 @@ func initInfrastructure() (*infrastructureComponents, error) {
 		return nil, fmt.Errorf("create db error: %w", err)
 	}
 
+	optimizer, err := optimizerclient.NewWithPolicy(zapLog.Log, &cfg.Optimizer, cfg.Gateway.Computation)
+	if err != nil {
+		return nil, fmt.Errorf("create optimizer client error: %w", err)
+	}
 	return &infrastructureComponents{
 		cfg:       &cfg,
 		log:       zapLog,
 		pool:      pool,
-		optimizer: optimizerclient.New(zapLog.Log, &cfg.Optimizer),
+		optimizer: optimizer,
 	}, nil
 }
 

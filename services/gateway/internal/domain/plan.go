@@ -76,6 +76,7 @@ func (c Conflict) Validate() error {
 }
 
 type RoutePlanSnapshot struct {
+	Resume          *RouteResume
 	SchemaVersion   int
 	Lifecycle       RouteLifecycle
 	ArchetypeID     string
@@ -93,6 +94,12 @@ type RoutePlanSnapshot struct {
 	Geometry        []Coordinate
 	Steps           []RouteStep
 	Legs            []RouteLeg
+}
+
+type RouteResume struct {
+	LegPosition int
+	DepartureAt time.Time
+	Position    Coordinate
 }
 
 func (s *RoutePlanSnapshot) Validate() error {
@@ -169,10 +176,6 @@ func (s *RoutePlanSnapshot) validateBudgetAndCost() error {
 	}
 	if s.Constraints.Budget.Limit != nil && s.Constraints.Budget.Limit.Currency != s.Cost.KnownPersonal.Currency {
 		return errors.New("budget and route cost currencies must match")
-	}
-	if s.Constraints.ProgramBalance != nil &&
-		s.Constraints.ProgramBalance.Balance.Currency != s.Cost.KnownPersonal.Currency {
-		return errors.New("program balance and route cost currencies must match")
 	}
 	switch s.Constraints.Budget.Mode {
 	case BudgetNone:
@@ -301,6 +304,10 @@ func (r *RouteRevision) Validate() error {
 
 func (s *RoutePlanSnapshot) Clone() RoutePlanSnapshot {
 	clone := *s
+	if s.Resume != nil {
+		resume := *s.Resume
+		clone.Resume = &resume
+	}
 	clone.Destination = cloneCoordinate(s.Destination)
 	clone.Constraints = s.Constraints.clone()
 	clone.Warnings = append([]Warning(nil), s.Warnings...)
@@ -332,10 +339,6 @@ func (c *RouteConstraints) clone() RouteConstraints {
 	clone.ExcludedCategories = append([]string(nil), c.ExcludedCategories...)
 	clone.MovementModes = append([]MovementMode(nil), c.MovementModes...)
 	clone.BenefitPrograms = append([]string(nil), c.BenefitPrograms...)
-	if c.ProgramBalance != nil {
-		balance := *c.ProgramBalance
-		clone.ProgramBalance = &balance
-	}
 	clone.AudienceClaims = append([]AudienceClaim(nil), c.AudienceClaims...)
 	clone.Obligations = append([]RouteObligation(nil), c.Obligations...)
 	for i := range clone.Obligations {
@@ -369,6 +372,10 @@ func (s *RouteStep) clone() RouteStep {
 func (s *CatalogSnapshot) clone() CatalogSnapshot {
 	clone := *s
 	clone.PlaceID = clonePlaceID(s.PlaceID)
+	if s.EntranceID != nil {
+		entrance := *s.EntranceID
+		clone.EntranceID = &entrance
+	}
 	clone.EventID = cloneEventID(s.EventID)
 	clone.SessionID = cloneSessionID(s.SessionID)
 	clone.SessionStartsAt = cloneTime(s.SessionStartsAt)

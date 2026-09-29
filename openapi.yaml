@@ -145,6 +145,203 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/me/scenario:
+    get:
+      tags: [Context]
+      operationId: getLatestBotScenario
+      summary: Read the most recent unexpired scenario owned by the current user
+      description: An empty response has scenario set to null. Responses use Cache-Control no-store.
+      responses:
+        '200':
+          description: Latest owner scenario or an empty state
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LatestBotScenarioResponse'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/scenarios/{scenario_id}:
+    parameters:
+      - $ref: '#/components/parameters/ScenarioID'
+    get:
+      tags: [Context]
+      operationId: getBotScenario
+      summary: Read an owner scenario referenced by a bot launch link
+      description: The scenario identifier is not an access credential. Responses use Cache-Control no-store.
+      responses:
+        '200':
+          description: Owner scenario
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BotScenarioResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/ScenarioNotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/scenarios/{scenario_id}/draft:
+    parameters:
+      - $ref: '#/components/parameters/ScenarioID'
+    post:
+      tags: [Context]
+      operationId: saveBotScenarioDraft
+      summary: Save incomplete planning input without calculating routes
+      description: |
+        Replaces the owner's draft input and increments the scenario version.
+        Pending extraction is retained separately; saving does not confirm it.
+        A previous refusal outcome is cleared. Completed scenarios cannot be edited.
+        This operation does not use If-Match. Repeated keys replay the original response.
+        Responses use Cache-Control no-store.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveBotScenarioDraftRequest'
+      responses:
+        '200':
+          description: Saved owner draft
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BotScenarioResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/ScenarioNotFound'
+        '409':
+          $ref: '#/components/responses/ScenarioConflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/scenarios/{scenario_id}/complete:
+    parameters:
+      - $ref: '#/components/parameters/ScenarioID'
+    post:
+      tags: [Context]
+      operationId: completeBotScenario
+      summary: Confirm complete planning input and calculate route variants
+      description: |
+        The full input confirms the displayed conditions, including any user edits.
+        A scenario version is independent of route revisions; this operation does not use If-Match.
+        The command result and scenario update are committed together with any new draft routes.
+        A repeated key replays the original result before checking the current scenario version.
+        Reusing a key with different input or version is a conflict.
+        A business refusal keeps the scenario editable and advances its version.
+        Successful calculation completes the scenario; a new key cannot calculate it again.
+        Technical failures leave the scenario unfinished. Responses use Cache-Control no-store.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteBotScenarioRequest'
+      responses:
+        '200':
+          description: Calculated variants or a business refusal
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OptimizeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/ScenarioNotFound'
+        '408':
+          description: Calculation request was canceled
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          $ref: '#/components/responses/ScenarioConflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '502':
+          description: Calculation service returned an invalid result
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          description: Calculation exceeded its deadline
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/me/context/selection:
+    post:
+      tags: [Context]
+      operationId: selectScenarioRoute
+      summary: Remember an owner route without changing its revision
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScenarioSelectionRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/RouteCommandSucceeded'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CommandConflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/routes:
     get:
       tags: [Routes]
@@ -172,6 +369,48 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/routes/{route_id}/lunch/search:
+    parameters:
+      - $ref: '#/components/parameters/RouteID'
+    post:
+      tags: [Routes]
+      operationId: searchNearbyLunchPlaces
+      summary: Search nearby places for lunch without changing the route
+      description: Owner-only search around a fresh device position. Distance is straight-line; hours, price and availability are unknown. Device position is not persisted. No revision or idempotency key is needed for this read operation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LunchSearchRequest'
+      responses:
+        '200':
+          description: Real search results, including an empty list
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LunchSearchResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          description: Search unavailable. Codes include LUNCH_SEARCH_UNAVAILABLE, LUNCH_SEARCH_NOT_CONFIGURED, LUNCH_SEARCH_BUSY, LUNCH_SEARCH_ACCESS_DENIED and LUNCH_SEARCH_RATE_LIMITED. Provider failures are never returned as an empty success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/routes/optimize:
     post:
       tags: [Routes]
@@ -707,6 +946,12 @@ components:
       scheme: bearer
       description: Opaque gateway session token. It is not a JWT.
   parameters:
+    ScenarioID:
+      name: scenario_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/ScenarioID'
     RouteID:
       name: route_id
       in: path
@@ -783,6 +1028,24 @@ components:
         pattern: '^"[1-9][0-9]*"$'
         example: '"7"'
   responses:
+    ScenarioNotFound:
+      description: Scenario is absent, expired, or owned by another user
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/XRequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ScenarioConflict:
+      description: Stale scenario version, reused command key, or an already completed scenario
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/XRequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ScenarioConflictError'
     BadRequest:
       description: Malformed request or invalid path/query/header value
       headers:
@@ -933,6 +1196,73 @@ components:
           schema:
             $ref: '#/components/schemas/ProposalResponse'
   schemas:
+    LunchSearchRequest:
+      type: object
+      additionalProperties: false
+      required: [position, radius_meters]
+      properties:
+        position:
+          $ref: '#/components/schemas/Coordinate'
+        radius_meters:
+          type: integer
+          enum: [300, 500, 800, 1000]
+    LunchSearchResponse:
+      type: object
+      additionalProperties: false
+      required: [request_id, searched_at, radius_meters, candidates]
+      properties:
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        searched_at:
+          type: string
+          format: date-time
+        radius_meters:
+          type: integer
+          enum: [300, 500, 800, 1000]
+        candidates:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/LunchSearchCandidate'
+    LunchSearchCandidate:
+      type: object
+      additionalProperties: false
+      required: [provider, external_id, title, position, distance_meters, observed_at, price_status, availability_status, hours_status]
+      properties:
+        provider:
+          type: string
+          const: 2gis
+        external_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        address:
+          type: string
+          maxLength: 1000
+        position:
+          $ref: '#/components/schemas/Coordinate'
+        distance_meters:
+          type: integer
+          minimum: 0
+          maximum: 1000
+          description: Rounded straight-line distance from the search position, not walking distance.
+        observed_at:
+          type: string
+          format: date-time
+          description: Retrieval time, not proof of fresh opening hours.
+        price_status:
+          type: string
+          const: unknown
+        availability_status:
+          type: string
+          const: unknown
+        hours_status:
+          type: string
+          const: unknown
     UUID:
       type: string
       format: uuid
@@ -1090,12 +1420,30 @@ components:
     ScenarioContextResponse:
       type: object
       additionalProperties: false
-      required: [request_id, confirmed_input, updated_at]
+      required: [request_id, confirmed_input]
+      dependentRequired:
+        selected_route_id: [selected_revision]
+        selected_revision: [selected_route_id]
+      allOf:
+        - if:
+            properties:
+              confirmed_input:
+                type: 'null'
+          then:
+            not:
+              anyOf:
+                - required: [updated_at]
+                - required: [selected_route_id]
+                - required: [selected_revision]
+          else:
+            required: [updated_at]
       properties:
         request_id:
           $ref: '#/components/schemas/RequestID'
         confirmed_input:
-          $ref: '#/components/schemas/ConfirmedRouteInput'
+          oneOf:
+            - $ref: '#/components/schemas/ConfirmedRouteInput'
+            - type: 'null'
         selected_route_id:
           $ref: '#/components/schemas/UUID'
         selected_revision:
@@ -1103,6 +1451,295 @@ components:
         updated_at:
           type: string
           format: date-time
+    ScenarioID:
+      type: string
+      format: uuid
+      pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-7[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+    ScenarioVersion:
+      type: string
+      pattern: '^[1-9][0-9]*$'
+      maxLength: 19
+      description: Positive signed 64-bit scenario version, independent of route revisions.
+    BotScenarioResponse:
+      type: object
+      additionalProperties: false
+      required: [request_id, scenario]
+      properties:
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        scenario:
+          $ref: '#/components/schemas/BotScenario'
+    LatestBotScenarioResponse:
+      type: object
+      additionalProperties: false
+      required: [request_id, scenario]
+      properties:
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        scenario:
+          oneOf:
+            - $ref: '#/components/schemas/BotScenario'
+            - type: 'null'
+    BotScenario:
+      type: object
+      additionalProperties: false
+      required: [scenario_id, version, source, input, status, updated_at]
+      properties:
+        scenario_id:
+          $ref: '#/components/schemas/ScenarioID'
+        version:
+          $ref: '#/components/schemas/ScenarioVersion'
+        source:
+          type: string
+          enum: [preset, custom]
+        preset_id:
+          type: string
+          enum: [vibe, mood, culture, energy, balance, benefit]
+        source_text:
+          type: string
+          minLength: 1
+          description: Original owner input; it is not silently truncated to the semantic query limit.
+        input:
+          $ref: '#/components/schemas/BotScenarioInput'
+        pending_extraction:
+          $ref: '#/components/schemas/BotScenarioInput'
+        status:
+          type: string
+          enum: [draft, completed]
+        updated_at:
+          type: string
+          format: date-time
+        outcome:
+          $ref: '#/components/schemas/BotScenarioOutcome'
+      allOf:
+        - if:
+            properties:
+              source:
+                const: preset
+          then:
+            required: [preset_id]
+          else:
+            required: [source_text]
+        - if:
+            properties:
+              status:
+                const: completed
+          then:
+            required: [outcome]
+            not:
+              required: [pending_extraction]
+            properties:
+              outcome:
+                properties:
+                  status:
+                    enum: [READY, PARTIAL]
+          else:
+            properties:
+              outcome:
+                properties:
+                  status:
+                    enum: [NO_FEASIBLE_ROUTE, CONFLICT]
+    BotScenarioOutcome:
+      type: object
+      additionalProperties: false
+      required: [status, route_ids, conflicts, warnings, data_mode]
+      allOf:
+        - if:
+            properties:
+              status:
+                enum: [READY, PARTIAL]
+          then:
+            properties:
+              route_ids:
+                minItems: 1
+          else:
+            properties:
+              route_ids:
+                maxItems: 0
+      properties:
+        status:
+          type: string
+          enum: [READY, PARTIAL, NO_FEASIBLE_ROUTE, CONFLICT]
+        route_ids:
+          type: array
+          maxItems: 3
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/UUID'
+        conflicts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Conflict'
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Warning'
+        data_mode:
+          $ref: '#/components/schemas/DataMode'
+        data_as_of:
+          type: string
+          format: date-time
+    SaveBotScenarioDraftRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_version, input]
+      properties:
+        expected_version:
+          $ref: '#/components/schemas/ScenarioVersion'
+        input:
+          $ref: '#/components/schemas/BotScenarioInput'
+    CompleteBotScenarioRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_version, input]
+      properties:
+        expected_version:
+          $ref: '#/components/schemas/ScenarioVersion'
+        input:
+          $ref: '#/components/schemas/ConfirmedRouteInput'
+    ScenarioConflictError:
+      type: object
+      additionalProperties: false
+      required: [code, message, request_id, retryable]
+      properties:
+        code:
+          type: string
+          enum: [SCENARIO_VERSION_CONFLICT, SCENARIO_ALREADY_COMPLETED, IDEMPOTENCY_KEY_REUSED]
+        message:
+          type: string
+          minLength: 1
+          maxLength: 512
+        request_id:
+          $ref: '#/components/schemas/RequestID'
+        retryable:
+          type: boolean
+        current_version:
+          $ref: '#/components/schemas/ScenarioVersion'
+      allOf:
+        - if:
+            properties:
+              code:
+                const: SCENARIO_VERSION_CONFLICT
+          then:
+            required: [current_version]
+    BotScenarioInput:
+      type: object
+      additionalProperties: false
+      description: Known planning fields only. Missing values remain unspecified until completion.
+      properties:
+        city:
+          type: string
+          minLength: 1
+          maxLength: 64
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 64
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+        origin:
+          $ref: '#/components/schemas/Coordinate'
+        destination:
+          $ref: '#/components/schemas/Coordinate'
+        constraints:
+          $ref: '#/components/schemas/BotScenarioConstraints'
+    BotScenarioConstraints:
+      type: object
+      additionalProperties: false
+      properties:
+        interest_mask:
+          $ref: '#/components/schemas/InterestMask'
+        excluded_categories:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [culture, sport, volunteer, walk, tourism, gastro]
+        movement_modes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+        load_profile:
+          type: string
+          minLength: 1
+          maxLength: 64
+        budget:
+          $ref: '#/components/schemas/BotScenarioBudget'
+        benefit_programs:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+        audience_claims:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/AudienceClaim'
+        obligations:
+          type: array
+          items:
+            $ref: '#/components/schemas/RouteObligation'
+        soft_preferences:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        lunch_window:
+          $ref: '#/components/schemas/LunchWindow'
+        accepted_unknowns:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        pushkin_card_only:
+          type: boolean
+        semantic_query:
+          $ref: '#/components/schemas/SemanticQuery'
+    BotScenarioBudget:
+      type: object
+      additionalProperties: false
+      allOf:
+        - if:
+            required: [mode]
+            properties:
+              mode:
+                const: none
+          then:
+            not:
+              required: [limit]
+      properties:
+        mode:
+          type: string
+          enum: [none, advisory, strict]
+        limit:
+          $ref: '#/components/schemas/Money'
+    SemanticQuery:
+      type: string
+      minLength: 1
+      maxLength: 1000
+      pattern: '\S'
+      description: User-confirmed free-text wishes. Omit the field when there are no wishes.
+    ScenarioSelectionRequest:
+      type: object
+      additionalProperties: false
+      required: [route_id]
+      properties:
+        route_id:
+          $ref: '#/components/schemas/UUID'
     ConfirmedRouteInput:
       type: object
       additionalProperties: false
@@ -1255,6 +1892,8 @@ components:
           type: boolean
           default: false
           description: Paid visits must accept the Pushkin card; free visits stay allowed.
+        semantic_query:
+          $ref: '#/components/schemas/SemanticQuery'
     Price:
       oneOf:
         - type: object
@@ -1616,6 +2255,11 @@ components:
           uniqueItems: true
           items:
             $ref: '#/components/schemas/UUID'
+        session_ids:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/UUID'
         message:
           type: string
           minLength: 1
@@ -1774,6 +2418,9 @@ components:
           maxLength: 64
         plan:
           $ref: '#/components/schemas/RoutePlan'
+        pending_proposal:
+          $ref: '#/components/schemas/RouteProposal'
+          description: Current pending owner proposal based on this revision. Omitted when absent.
         participation:
           type: array
           items:
@@ -2118,7 +2765,7 @@ components:
     PanicRequest:
       type: object
       additionalProperties: false
-      required: [route_id, delay_mode, position]
+      required: [route_id, delay_mode, position, position_source]
       properties:
         route_id:
           $ref: '#/components/schemas/UUID'
@@ -2356,10 +3003,11 @@ components:
         routes: []
         conflicts:
           - code: OVERLAPPING_OBLIGATIONS
-            visit_ids:
+            visit_ids: []
+            session_ids:
               - 22222222-2222-4222-8222-222222222222
               - 33333333-3333-4333-8333-333333333333
-            message: Confirmed visits overlap
+            message: Required sessions overlap
     StaleRevision:
       summary: The route changed after the client read it
       value:
