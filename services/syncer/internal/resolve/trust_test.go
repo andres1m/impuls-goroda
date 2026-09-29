@@ -41,7 +41,7 @@ func TestSelectPrefersTheMoreTrustedSourceThenTheNewer(t *testing.T) {
 		fact("e", AttrCoordinates, domain.MkrfEvents, `{"lat":3,"lon":4}`, t0.Add(time.Hour)),
 		fact("f", AttrSourcePlaceID, domain.OSM, `"node/1"`, t0),
 	}
-	got := DefaultTrust.Select(facts)
+	got := DefaultTrust.Select(facts, "")
 	if got[AttrTitle].ID != "c" || got[AttrCoordinates].ID != "d" {
 		t.Fatalf("selected %+v", got)
 	}
@@ -52,10 +52,28 @@ func TestSelectPrefersTheMoreTrustedSourceThenTheNewer(t *testing.T) {
 
 func TestSelectBreaksFullTiesByFactID(t *testing.T) {
 	t0 := time.Date(2026, 9, 30, 10, 0, 0, 0, time.UTC)
-	a := DefaultTrust.Select([]Fact{fact("x", AttrTitle, domain.OSM, `"1"`, t0), fact("y", AttrTitle, domain.OSM, `"2"`, t0)})
-	b := DefaultTrust.Select([]Fact{fact("y", AttrTitle, domain.OSM, `"2"`, t0), fact("x", AttrTitle, domain.OSM, `"1"`, t0)})
+	a := DefaultTrust.Select([]Fact{fact("x", AttrTitle, domain.OSM, `"1"`, t0), fact("y", AttrTitle, domain.OSM, `"2"`, t0)}, "")
+	b := DefaultTrust.Select([]Fact{fact("y", AttrTitle, domain.OSM, `"2"`, t0), fact("x", AttrTitle, domain.OSM, `"1"`, t0)}, "")
 	if a[AttrTitle].ID != b[AttrTitle].ID {
 		t.Fatal("selection depends on the order facts are listed in")
+	}
+}
+
+func TestSelectKeepsTheIncumbentRecordOnATie(t *testing.T) {
+	t0 := time.Date(2026, 9, 30, 10, 0, 0, 0, time.UTC)
+	x := fact("x", AttrAddress, domain.MkrfEvents, `"ул. Ленина, 1"`, t0)
+	y := fact("y", AttrAddress, domain.MkrfEvents, `"ул Ленина,д 1"`, t0)
+	x.SourceRecordID, y.SourceRecordID = "rec-x", "rec-y"
+	if got := DefaultTrust.Select([]Fact{x, y}, "rec-y")[AttrAddress]; got.ID != "y" {
+		t.Fatalf("a tie must not move the place off the record it already follows: %+v", got)
+	}
+	if got := DefaultTrust.Select([]Fact{x, y}, "rec-x")[AttrAddress]; got.ID != "x" {
+		t.Fatalf("selected %+v", got)
+	}
+	newer := fact("z", AttrAddress, domain.MkrfEvents, `"новый адрес"`, t0.Add(time.Minute))
+	newer.SourceRecordID = "rec-z"
+	if got := DefaultTrust.Select([]Fact{x, y, newer}, "rec-y")[AttrAddress]; got.ID != "z" {
+		t.Fatalf("newer data still wins: %+v", got)
 	}
 }
 
