@@ -54,8 +54,10 @@ type Fact struct {
 }
 
 // Select picks the fact each attribute takes its value from: the most trusted source, then the newest
-// fetch, then the smallest ID so that the choice does not depend on the order facts come in.
-func (t Trust) Select(facts []Fact) map[string]Fact {
+// fetch, then the record the place already follows (several records of one source often describe a
+// place a little differently, and processing them again must not move it), then the smallest ID so
+// that the choice does not depend on the order facts come in.
+func (t Trust) Select(facts []Fact, incumbent string) map[string]Fact {
 	best := make(map[string]Fact)
 	for i := range facts {
 		f := facts[i]
@@ -63,19 +65,22 @@ func (t Trust) Select(facts []Fact) map[string]Fact {
 			continue
 		}
 		cur, ok := best[f.Attribute]
-		if !ok || t.better(f, cur) {
+		if !ok || t.better(f, cur, incumbent) {
 			best[f.Attribute] = f
 		}
 	}
 	return best
 }
 
-func (t Trust) better(a, b Fact) bool {
+func (t Trust) better(a, b Fact, incumbent string) bool {
 	if ra, rb := t.Rank(a.Attribute, a.Source), t.Rank(b.Attribute, b.Source); ra != rb {
 		return ra < rb
 	}
 	if !a.FetchedAt.Equal(b.FetchedAt) {
 		return a.FetchedAt.After(b.FetchedAt)
+	}
+	if ai, bi := a.SourceRecordID == incumbent, b.SourceRecordID == incumbent; ai != bi {
+		return ai
 	}
 	return a.ID < b.ID
 }

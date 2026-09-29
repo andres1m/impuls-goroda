@@ -144,7 +144,16 @@ func applyFacts(
 	if err != nil {
 		return false, err
 	}
-	picked := trust.Select(facts)
+	var incumbent *string
+	if err := tx.QueryRow(ctx, `SELECT card_source_record_id::text FROM catalog.place WHERE id = $1 AND city = $2`,
+		placeID, city).Scan(&incumbent); err != nil {
+		return false, fmt.Errorf("read card record of %s: %w", placeID, err)
+	}
+	current := ""
+	if incumbent != nil {
+		current = *incumbent
+	}
+	picked := trust.Select(facts, current)
 	title, hasTitle := picked[resolve.AttrTitle]
 	coords, hasCoords := picked[resolve.AttrCoordinates]
 	if !hasTitle || !hasCoords {
