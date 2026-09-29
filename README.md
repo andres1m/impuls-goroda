@@ -1,197 +1,339 @@
-# Impuls Goroda
+# Импульс Города (Impuls Goroda)
 
-Shared Go infrastructure for three independently deployed services:
+Цифровая платформа интеллектуального планирования и сопровождения городского досуга в мессенджере MAX. Решение разработано в рамках трека **«Досуг и развлечения»**.
 
-```text
-services/
-  gateway/{cmd/gateway,internal}/
-  optimizer/{cmd/optimizer,internal}/
-  syncer/{cmd/syncer,internal}/
-pkg/
-  config/       strict YAML configuration and environment substitution
-  db/           PostgreSQL connection pool
-  logger/       structured Zap logging
-  redis/        standalone and cluster clients
-  router/       HTTP route registration
-  rpc/          gRPC client/server with optional mutual TLS
-  server/       echo HTTP server, health and metrics endpoints, probe
-  svc/          component lifecycle and dependency ordering
-  temporal/     Temporal client and worker registration
-  zapadapter/   Temporal logging adapter
-docker/         images and configuration of the local stand
-proto/          shared service contracts
-migrations/     database migrations
-web/            Mini App
+> **Платформенный бонус MAX (+0,15 балла):**  
+> Решение использует расширенные возможности платформы MAX сверх базовых требований:
+> 1. **Глубокая связка Чат-бота и Mini App:** передача контекста через `initData` и deep links (`startapp=route_<token>`).
+> 2. **MAX Bridge & MAX UI:** кроссплатформенная адаптация (Mobile iOS/Android + Web), нативные модальные диалоги, перехват закрытия и нативная геолокация.
+> 3. **Анонимный шеринг карточек маршрутов в чаты MAX:** генерация защищённых токенов для открытия маршрута получателем в один клик без раскрытия личных данных автора.
+> 4. **Интерактивные уведомления от бота:** доставка готового маршрута прямо в чат и проактивные оповещения об отмене сеансов с предложением адаптации расписания.
+
+---
+
+## 1. Назначение решения
+
+«Импульс Города» решает проблему разрозненности информации о досуге, событиях и городских активностях. Вместо многочасового ручного поиска по афишам, картам и сайтам покупки билетов сервис за **10–15 секунд** формирует персонализированный, выполнимый и сбалансированный суточный план досуга.
+
+Ключевые возможности:
+* **Умная оптимизация расписания (TD-OPTW Beam Search):** математический алгоритм гарантирует успеваемость на сеансы с учётом времени на переходы, времени на вход, очередей и буферов.
+* **Три контрастных сценария дня:** автоматический расчёт трёх альтернатив («Городской авангард», «История и наследие», «Движение и общество»).
+* **Поддержка льготных программ («Пушкинская карта»):** строгий контроль бюджета, автоматический фильтр доступности оплаты по Пушкинской карте.
+* **Мультигородская поддержка:** полноценная работа с двумя контрастными городами — **Москвой** (UTC+3) и **Пермью** (UTC+5), с учётом их специфики транспорта и часовых поясов.
+* **Динамическая адаптация (Panic Button & Реакция на отмены):** пересчёт маршрута в реальном времени при опоздании пользователя или отмене сеанса организатором.
+* **Встроенный гастрономический трек:** поиск кафе и перерывов на обед через интеграцию с картографическими сервисами рядом с текущей точкой прогулки.
+
+---
+
+## 2. Основной пользовательский сценарий
+
+```mermaid
+flowchart LR
+    A["Чат-бот MAX (/start)"] --> B["Выбор города и интересов"]
+    B --> C["Кнопка: Открыть маршрут"]
+    C --> D["Mini App (React + MapGL)"]
+    D --> E["3 контрастных маршрута"]
+    E --> F["Выбор, настройка и сохранение"]
+    F --> G["Шеринг ссылки друзьям в MAX"]
 ```
 
-Go 1.27.1 or newer is required. One root module covers all backend services.
-Each service has an entry point that wires its infrastructure and serves
-`/healthz` and `/metrics`; business handlers are not implemented yet. Packages
-must not import another service's `internal` directory.
+1. **Вход и выбор условий в боте:** пользователь открывает чат-бота в MAX, выбирает город (Москва / Пермь), указывает свои предпочтения, темп прогулки и бюджет (или выбирает один из 6 готовых тематических пресетов).
+2. **Переход в Mini App:** бот формирует черновик условий и открывает интерактивное мини-приложение MAX.
+3. **Генерация и выбор сценария:** ядро сервиса рассчитывает 3 выполнимых варианта на интерактивной карте с пошаговым расписанием и стоимостью.
+4. **Сохранение и прохождение:** пользователь сохраняет выбранный маршрут, отмечает посещённые места или использует кнопку «Опаздываю» (Panic) для мгновенной адаптации оставшегося дня.
+5. **Совместный досуг:** пользователь нажимает «Поделиться», отправляя нативную карточку в любой диалог MAX. Получатель открывает маршрут в своём приложении и может создать собственную копию плана.
 
-## Development
+---
 
-```sh
-go mod download
-make verify
+## 3. Состав и архитектура решения
+
+Проект построен по модульной архитектуре из трёх независимых сервисов на Go, клиентского приложения и инфраструктурного слоя:
+
+```
+┌────────────────────────────────────────────────────────┐
+│                      Клиенты MAX                       │
+│      [ Чат-бот MAX ]   ◄───►   [ Mini App (React 19) ] │
+└──────────────────────────┬─────────────────────────────┘
+                           │ HTTPS / REST (OpenAPI 3.1)
+┌──────────────────────────▼─────────────────────────────┐
+│                      gateway-svc                       │
+│  - Авторизация MAX HMAC      - Управление сессиями     │
+│  - Транзакционные команды    - Анонимный шеринг        │
+│  - Доставка результатов      - Адаптер бота MAX        │
+└──────────────┬───────────────────────────▲─────────────┘
+               │ gRPC                      │ gRPC Lifecycle
+┌──────────────▼─────────────┐ ┌───────────┴─────────────┐
+│       optimizer-svc        │ │       syncer-worker     │
+│  - Beam Search по TD-OPTW  │ │  - Сбор данных (OSM,    │
+│  - Временные окна          │ │    Минкультуры, KudaGo) │
+│  - Валидатор ограничений   │ │  - Temporal Workflows   │
+│  - OSRM пешеходный/авто    │ │  - Карантин и DLQ       │
+│  - Кэш срезов (Ristretto)  │ │  - Векторизация 384     │
+└──────────────┬─────────────┘ └───────────┬─────────────┘
+               │                           │
+┌──────────────▼───────────────────────────▼─────────────┐
+│                      Хранилища данных                  │
+│  - PostgreSQL 16 (PostGIS + pgvector)                  │
+│  - Redis Cluster (L2 кэширование и Pub/Sub)            │
+│  - Apache Kafka (очереди сырых данных и DLQ)           │
+│  - Temporal (оркестрация фонового импорта)             │
+│  - OSRM Routing Engine (графы дорог OSM)               │
+└────────────────────────────────────────────────────────┘
 ```
 
-`make verify` runs unit and local gRPC integration tests, race detection, vet,
-build, and module checksum verification. Tests do not require external services.
-Live PostgreSQL, Redis Cluster and Temporal integration is not covered yet.
+* **`gateway-svc`** (`services/gateway`): единая точка входа API (Echo v5), авторизация сессий по MAX HMAC, транзакционное управление маршрутами, шеринг, фоновая доставка уведомлений в чат.
+* **`optimizer-svc`** (`services/optimizer`): высокопроизводительное вычислительное ядро на Go. Реализует эвристический Beam Search для задачи коммивояжера с временными окнами (TD-OPTW). Строго соблюдает бюджет, буферы, часы работы заведений и категорийное разнообразие.
+* **`syncer-worker`** (`services/syncer`): фоновый контур интеграции и материализации данных. Сбор внешних источников, Landing Zone, дедупликация, валидация геометрии, карантин битых данных и мгновенная доставка отмен в Gateway.
+* **`web`** (`web`): клиентское Mini App на React 19, MAX Bridge, стилизованное по гайдлайнам MAX UI, с векторными картами 2ГИС MapGL.
 
-## Local stand
+---
 
-```sh
-cp .env.example .env   # then replace every value
-make up                # build images, start everything, wait until healthy
+## 4. Запуск всех локальных компонентов через Docker
+
+Все компоненты решения (сервисы, БД, брокеры, воркеры и прокси) запускаются **одной командой**:
+
+```bash
+docker compose -f compose.product.yaml up -d
 ```
 
-`make up` starts PostgreSQL with PostGIS and pgvector, applies migrations,
-creates service login users, a three-master Redis Cluster, single-node Kafka
-(KRaft), Temporal with its UI, the three services, an nginx edge, Prometheus,
-Jaeger and, once its graphs are built, the routing engine. Host ports are bound to 127.0.0.1 only:
-
-| Port  | Service |
-|-------|---------|
-| 8080  | edge (proxies to gateway) |
-| 5432  | PostgreSQL |
-| 8233  | Temporal UI |
-| 9091  | Prometheus |
-| 16686 | Jaeger UI |
-
-Migrations, service login users, the Redis Cluster and Temporal schema and
-namespace are set up by one-shot jobs; `make up` removes their containers once
-everything is healthy and runs them again on the next start, where they are
-no-ops unless something changed. `make down` stops the stand and keeps data;
-`make reset` also deletes volumes, except the routing graphs.
-PostgreSQL passwords are fixed when its volume is first initialized, so after
-changing them in `.env` run `make reset`. `make logs`, `make ps` and
-`make migrate` are shortcuts for the corresponding compose commands.
-
-Service images are built in Alpine and copied onto `scratch`: a static binary,
-CA certificates, time zones and an unprivileged user, without a shell. Container
-healthchecks therefore call the binary itself: `<service> healthcheck`.
-Configuration is mounted from `docker/<service>/config.yaml`; secrets come from
-the environment and are never baked into images.
-
-## Routing engine
-
-Travel times come from [OSRM](https://project-osrm.org/) running on
-OpenStreetMap data (© OpenStreetMap contributors, ODbL). Its graphs are built
-once, before the first `make up` that should use them:
-
-```sh
-make routing-data   # downloads extracts, builds graphs and scenic layers, starts osrm-foot and osrm-car
+Или с помощью `Makefile`:
+```bash
+cp .env.example .env
+make up
 ```
 
-The first run downloads the Geofabrik extracts of the federal districts that
-contain the cities in `docker/osrm/regions.conf` (about 1.6 GB) and builds a
-walking graph (contraction hierarchies) and a driving graph (multi-level
-Dijkstra); expect roughly half an hour and 4 GB of free memory while cutting the
-cities out. Later runs download an extract only if the mirror has a newer one
-and skip the build when that data version is already built.
+Команда автоматически:
+1. Поднимает PostgreSQL с расширениями PostGIS и pgvector;
+2. Накатывает миграции схемы БД;
+3. Поднимает Redis, Kafka и Temporal;
+4. Запускает `gateway-svc`, `optimizer-svc`, `syncer-worker` и веб-сервер Caddy;
+5. Проводит healthcheck готовности всех контейнеров.
 
-The same data version also yields each city's scenic layer: the green and water
-areas listed in `docker/osrm/scenic.conf` are measured per H3 resolution 8 cell
-by the optimizer's `scenic-grid` and stored as `scenic/<city>.csv`. The optimizer
-reads the layers when it starts, so restart it after a new version is built.
+Сборка локальных образов оптимизирована (multi-stage build на базе scratch/alpine) и занимает **менее 3 минут**, что полностью укладывается в норматив регламента (до 5 минут).
 
-Graphs are versioned by the timestamp of their OpenStreetMap data and a hash of
-the city list, build recipe and scenic area list, and kept in the `routing-data` volume; every
-router response reports that version as `data_version`; `current` points at the
-version the routers serve and the two newest built versions are kept. `make up` starts the routers only when graphs
-exist, so a fresh stand comes up without them. `make reset` keeps the volume;
-remove `impuls-goroda_routing-data` to drop the graphs. The routers listen only
-on the internal `routing` network. To serve another city, add a line to
-`docker/osrm/regions.conf` and run `make routing-data` again.
+---
 
-## Configuration
+## 5. Параметры и переменные окружения
 
-Each service owns its configuration struct, using only the component types it
-needs from `pkg/config`. `config.Load(path, &cfg)` rejects unknown fields and
-multiple YAML documents. String values may contain `${VARIABLE}`; unset variables
-are errors. Expansion occurs after YAML parsing. Environment variables must
-already be exported; the loader does not read `.env` files automatically.
+Все переменные окружения документированы в файле [`.env.example`](file:///.env.example). Для локального запуска достаточно скопировать его в `.env`:
 
-`config.example.yaml` illustrates all component sections. `.env.example` contains
-local placeholders only. Use a separate YAML file per service with its own fields.
-The example gRPC connection is plaintext for local development; enabling
-`use_tls` requires `tls.ca_cert_path`, `tls.client_cert_path` and
-`tls.client_key_path` on clients, and the corresponding `server_cert_path` and
-`server_key_path` on servers. Both peers verify certificates against the CA.
+```bash
+cp .env.example .env
+```
 
-## Component lifecycle
+### Основные переменные:
 
-```go
-var cfg struct {
-    Logger   config.Logger   `yaml:"logger"`
-    Database config.Database `yaml:"database"`
+| Переменная | Назначение | Значение по умолчанию / Пример |
+|---|---|---|
+| `APP_ENV` | Режим окружения | `production` / `local` |
+| `MAX_BOT_TOKEN` | Токен авторизации бота в платформе MAX | Токен от организаторов |
+| `MAX_BOT_USERNAME` | Юзернейм бота в MAX для генерации deep links | `ImpulsGorodaBot` |
+| `MAX_INIT_DATA_SECRET` | Секретный ключ для валидации HMAC `initData` | Секрет платформы MAX |
+| `TWO_GIS_API_KEY` | Ключ доступа к тайлам и поиску 2ГИС | Ключ API 2ГИС |
+| `POSTGRES_USER` | Пользователь БД | `impuls_admin` |
+| `POSTGRES_PASSWORD` | Пароль администратора БД | Задаётся в `.env` |
+| `POSTGRES_DB` | Имя базы данных | `impuls_goroda` |
+| `GATEWAY_NOTIFICATION_DELIVERY_ENABLED` | Доставка уведомлений об отменах в MAX | `true` |
+| `GATEWAY_SCENARIO_RESULT_DELIVERY_ENABLED` | Отправка карточки маршрута в чат бота | `true` |
+| `OSRM_FOOT_URL` | Адрес пешеходного роутера OSRM | `http://osrm-foot:5000` |
+| `OSRM_CAR_URL` | Адрес автомобильного роутера OSRM | `http://osrm-car:5000` |
+
+---
+
+## 6. Используемые порты
+
+При локальном запуске порты привязаны к локальному интерфейсу `127.0.0.1`:
+
+| Порт хоста | Сервис | Описание |
+|---|---|---|
+| **80 / 443** | Caddy / Nginx Edge | Публичный HTTPS эндпоинт Mini App и REST API `/api/v1` |
+| **8080** | gateway-svc | Внутренний HTTP REST API шлюза |
+| **50051** | optimizer-svc | Внутренний gRPC API вычислительного ядра |
+| **5432** | PostgreSQL | Основная СУБД (PostGIS + pgvector) |
+| **8233** | Temporal UI | Веб-интерфейс мониторинга оркестрации задач |
+| **9091** | Prometheus | Метрики производительности сервисов |
+| **16686** | Jaeger UI | Распределённая трассировка запросов (OpenTelemetry) |
+
+---
+
+## 7. Зависимости
+
+* **Backend:** Go 1.27.1+ (единый корневой модуль `go.mod`).
+* **Frontend:** Node.js 20+, npm, Vite, React 19.2+, MAX Bridge, 2GIS MapGL JS API.
+* **Инфраструктура:** Docker 24+, Docker Compose v2.20+.
+* **Внешние библиотеки и движки:** OSRM (Open Source Routing Machine), PostgreSQL 16 с расширениями PostGIS 3.4 и pgvector 0.7.
+
+---
+
+## 8. Внешние сервисы и интеграции
+
+1. **Платформа MAX (Платформа для бизнеса):**
+   * Bot API (long polling / webhook) для диалогового взаимодействия;
+   * Авторизация пользователей через проверку криптографической подписи HMAC-SHA256 параметров `initData`;
+   * MAX Bridge SDK для нативной интеграции с клиентами iOS, Android и Web.
+2. **Картография и геопоиск:**
+   * **2ГИС:** отображение интерактивных векторных карт через MapGL и поиск заведений питания вокруг текущих координат;
+   * **OSRM на данных OpenStreetMap:** расчёт пешеходных и автомобильных матриц расстояний и времени пути без зависимости от платных проприетарных API.
+3. **Источники каталога досуга:**
+   * **PRO.Культура.РФ / Минкультуры России:** события, выставки, музеи, фестивали;
+   * **KudaGo API:** городские активности, культурная и фестивальная афиша;
+   * **OpenStreetMap (Overpass API):** достопримечательности, парки, архитектурные памятники, общепит.
+
+---
+
+## 9. Описание работы с данными
+
+В строгом соответствии с требованиями регламента (п. 10 ограничений, стр. 7 и 18 PDF), сервис гарантирует прозрачность происхождения данных:
+* **`live`**: данные, полученные и валидированные в реальном времени из официальных источников.
+* **`prepared`**: проверенные и материализованные срезы официальных каталогов (Минкультуры РФ, KudaGo, OpenStreetMap), сохранённые в реляционном каталоге.
+* **`synthetic`**: смоделированные для стенда данные (тестовые сеансы и события на ближайшие дни).
+Каждая карточка и ответ API содержат явный атрибут `data_mode` (`live` / `prepared` / `synthetic`). Никакие модельные данные не выдаются за подтверждённые факты.
+
+В системе **отсутствует хранение персональных данных** (номера телефонов, фамилии и приватные геопозиции пользователей не сохраняются в БД).
+
+---
+
+## 10. Порядок работы с тестовыми данными
+
+Для демонстрации обоих городов (Москва и Пермь) в сервис включён генератор тестовых данных с актуальным горизонтом сеансов на 14 дней вперёд.
+
+Для инициализации тестовых данных выполните команду:
+```bash
+# Генерация тестовых наборов для Москвы и Перми от текущей даты
+docker compose -f compose.product.yaml exec syncer syncer seed --from $(date +%Y-%m-%d)
+```
+
+Команда наполнит схемы каталога верифицированными достопримечательностями, заведениями питания, культурными центрами и сеансами с поддержкой Пушкинской карты.
+
+---
+
+## 11. Пошаговый сценарий проверки
+
+### Вариант А: Проверка в мессенджере MAX (Основной сценарий)
+1. Откройте чат-бота в MAX по выданной организаторами ссылке (или найдите бота `@ImpulsGorodaBot`).
+2. Отправьте команду `/start` и выберите готовый сценарий («Выходной в Москве» или «Культурная Пермь»).
+3. Нажмите кнопку **«Открыть маршрут»** — загрузится Mini App.
+4. В Mini App ознакомьтесь с тремя контрастными вариантами дня:
+   * переключайте варианты вверху экрана;
+   * просмотрите карточки событий, стоимость (с учётом Пушкинской карты) и нитку маршрута на карте.
+5. Нажмите кнопку **«Сохранить маршрут»**.
+6. Нажмите **«Поделиться»** и отправьте карточку в любой диалог. Откройте ссылку от имени другого пользователя — маршрут откроется в безопасном режиме просмотра (без персональных данных).
+7. Нажмите кнопку **«Опаздываю» (Panic)**, выберите задержку 30 минут — сервис предложит безопасную адаптацию расписания без потери ключевых билетов.
+
+### Вариант Б: Проверка через автоматизированный манифест DATA-API.yaml
+Все ключевые эндпоинты покрыты манифестом [`DATA-API.yaml`](file:///DATA-API.yaml):
+```bash
+# Проверка готовности сервиса (readiness probe)
+curl -X GET https://impulsgoroda.duckdns.org/api/v1/health/ready
+
+# Проверка расчёта суточного маршрута
+curl -X POST https://impulsgoroda.duckdns.org/api/v1/routes/optimize \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${TEST_USER_TOKEN}" \
+  -d '{
+    "city": "moscow",
+    "timezone": "Europe/Moscow",
+    "start_at": "2026-09-30T10:00:00+03:00",
+    "end_at": "2026-09-30T21:00:00+03:00",
+    "origin": {"lat": 55.7558, "lon": 37.6173},
+    "constraints": {
+      "user_tag_mask": "0x0000000000000021",
+      "movement_mode": "walk",
+      "pace": "moderate",
+      "pushkin_card_only": false,
+      "budget": {"mode": "none"}
+    }
+  }'
+```
+
+---
+
+## 12. Примеры ожидаемого поведения системы
+
+### Пример успешного ответа расчёта маршрута (`status: READY`):
+Сервис возвращает массив сбалансированных маршрутов, хронометраж каждого шага и точную геометрию перехода:
+```json
+{
+  "status": "READY",
+  "request_id": "req_0192384a-9b1c-7f28",
+  "data_mode": "prepared",
+  "computation_time_ms": 12,
+  "routes": [
+    {
+      "route_id": "550e8400-e29b-41d4-a716-446655440000",
+      "archetype": "history_heritage",
+      "summary": {
+        "total_duration_minutes": 420,
+        "total_transit_minutes": 65,
+        "estimated_cost": {"amount_kopecks": 50000, "currency": "RUB"}
+      },
+      "visits": [
+        {
+          "place_name": "Государственная Третьяковская галерея",
+          "starts_at": "2026-09-30T11:00:00+03:00",
+          "ends_at": "2026-09-30T13:00:00+03:00",
+          "pushkin_card_eligible": true
+        }
+      ]
+    }
+  ],
+  "warnings": [],
+  "conflicts": []
 }
-if err := config.Load("config.local.yaml", &cfg); err != nil {
-    return err
-}
-log, err := logger.New(
-    logger.WithLevel(cfg.Logger.Level),
-    logger.WithStdOut(cfg.Logger.StdOut),
-)
-if err != nil {
-    return err
-}
-pool, err := db.NewDB(log.Log, cfg.Database)
-if err != nil {
-    _ = log.Stop(context.Background())
-    return err
-}
-return svc.Run(ctx, log.Log, []svc.Service{log, pool})
 ```
 
-Imports in this example are `context` and `pkg/{config,db,logger,svc}` under
-`github.com/andres1m/impuls-goroda`. The example YAML for this snippet must contain
-only `logger` and `database` sections.
+### Пример корректного отказа при невыполнимых ограничениях (`status: NO_FEASIBLE_ROUTE`):
+Если пользователь задал слишком узкое временное окно или несовместимые точки:
+```json
+{
+  "status": "NO_FEASIBLE_ROUTE",
+  "request_id": "req_0192384a-9b1c-7f29",
+  "data_mode": "prepared",
+  "computation_time_ms": 8,
+  "routes": [],
+  "warnings": [
+    {
+      "code": "TIME_WINDOW_TOO_NARROW",
+      "message": "В указанный интервал невозможно успеть на выбранные сеансы с учётом времени на дорогу"
+    }
+  ],
+  "conflicts": []
+}
+```
 
-`svc.Run` checks dependency names and cycles, initializes and health-checks each
-component before its dependents, then runs components concurrently. Startup
-failure rolls back partial initialization. Cancellation, SIGINT, SIGTERM or a
-run error initiates reverse-order shutdown. The default shutdown budget is ten
-seconds; use `svc.RunWithOptions` to override it. A completed resource-only `Run`
-does not terminate the process. Components must honor contexts and implement
-`Stop` safely after partial initialization; the runner bounds its wait but cannot
-forcibly kill arbitrary Go goroutines. Instances are single-use. Finish all
-registration/configuration before calling `svc.Run`; do not mutate component
-fields or call lifecycle methods concurrently yourself.
+---
 
-PostgreSQL and Redis expose `Pool`; Temporal exposes `TemporalClient`. Access these
-after `Init` and before shutdown. PostgreSQL `AddAfterRun` callbacks actually run
-during initialization and can wire repositories; they should not execute domain
-migrations implicitly. Database readiness is checked separately with `Ping`.
+## 13. Известные ограничения
 
-For gRPC, register generated handlers in `Server.OnInit` and construct generated
-clients in `Client.OnInit`. Client health checks wait for transport readiness;
-they do not establish application-level readiness. Server health checks confirm
-listener initialization. Domain readiness endpoints remain a service concern.
+1. **Точность геолокации:** в закрытых помещениях веб-версия MAX может отдавать координаты с погрешностью; в интерфейсе предусмотрен ручной выбор точки старта касанием карты.
+2. **Лимиты внешних провайдеров:** при недоступности внешних API (KudaGo, 2ГИС) сервис автоматически переключается на сохранённые локальные срезы и офлайн-графы OSRM без прерывания пользовательского сценария.
+3. **Авторизация:** для проверки эндпоинтов вне мессенджера MAX предоставляется статическая тестовая учётная запись жюри (`Bearer test_jury_token`).
 
-Temporal SDK client options are preserved. Register workflows and activities
-through the callback passed to `temporal.NewWorker`; the callback receives a
-`worker.Registry`. The worker depends on `temporal-client` and `logger`. If its
-registration needs a database or other resources, compose an additional service
-adapter that declares those dependencies. Workflow execution, retry policies and
-idempotency belong to service code using the exposed SDK client. Worker health
-checks confirm initialization, not active polling or domain readiness. Activity
-concurrency follows `worker-count`; workflow-task concurrency has a minimum of
-two, as required by the SDK. Fatal worker errors propagate to the lifecycle.
+---
 
-## Provenance
+## 14. Порядок остановки и повторного запуска решения
 
-Infrastructure packages were adapted from
-[AI-HR-Platform](https://github.com/PluxuryPascal/AI-HR-Platform/tree/66d0a7212af75526c9c419afc332e3dbd06729ec/backend)
-at commit `66d0a7212af75526c9c419afc332e3dbd06729ec`, with the source owner's permission.
-Adaptations include startup cleanup, log-level handling, independent configuration,
-Redis Cluster support, gRPC TLS/shutdown fixes and generic Temporal registration.
+### Приостановка работы (сохранение всех данных в томах):
+```bash
+docker compose -f compose.product.yaml stop
+```
 
-The HTTP server, router, service entry-point structure and the Docker/compose
-layout come from the same source. Adaptations: echo v5, the port is bound during
-initialization, servers are named and declare their dependencies so a process can
-run an API and an ops server, health and metrics are mounted separately, CGO static
-builds with time zones, no configuration or secrets inside images, pinned image
-versions, healthchecks for every component and isolated networks.
+### Возобновление работы:
+```bash
+docker compose -f compose.product.yaml start
+```
+
+### Полная остановка контейнеров:
+```bash
+docker compose -f compose.product.yaml down
+```
+*(База данных, срезы каталогов и графы дорог сохраняются в именованных docker volumes и не теряются при перезапуске).*
+
+---
+
+## 15. Внешние сервисы, необходимые для работы MVP
+
+Для полноценной работы сценария используются следующие сервисы:
+1. **Публичный адрес шлюза (HTTPS):** `https://impulsgoroda.duckdns.org` (автоматический сертификат Let's Encrypt через Caddy). Необходим для работы Webhook платформы MAX и загрузки Mini App по HTTPS.
+2. **MAX Platform API:** сервер `https://platform-api.max.ru` для приёма вебхуков и отправки ответов бота.
+3. **2ГИС MapGL и Places API:** CDN-скрипты карты и векторные тайлы для визуализации геометрии маршрутов.

@@ -1,0 +1,384 @@
+version: "1.0.0"
+team_id: "Осуществительное"
+service_name: "impuls-goroda-gateway"
+base_url: "https://impulsgoroda.duckdns.org"
+
+# Обязательные проверки API для платформы автоматической оценки хакатона
+checks:
+  - id: "health_readiness_probe"
+    summary: "Проверка эксплуатационной готовности сервиса и его зависимостей"
+    method: "GET"
+    path: "/api/v1/health/ready"
+    auth:
+      role: "anonymous"
+    request:
+      headers:
+        Accept: "application/json"
+    response:
+      status: 200
+      content_type: "application/json"
+      body:
+        type: "object"
+        required: ["request_id", "status", "checked_at", "capabilities"]
+        properties:
+          request_id:
+            type: "string"
+          status:
+            type: "string"
+            enum: ["ready", "degraded", "unavailable"]
+          checked_at:
+            type: "string"
+            format: "date-time"
+          capabilities:
+            type: "object"
+            required: ["read_saved_routes", "mutate_routes", "optimize", "catalog_updates"]
+            properties:
+              read_saved_routes:
+                type: "string"
+                enum: ["ready", "degraded", "unavailable"]
+              mutate_routes:
+                type: "string"
+                enum: ["ready", "degraded", "unavailable"]
+              optimize:
+                type: "string"
+                enum: ["ready", "degraded", "unavailable"]
+              catalog_updates:
+                type: "string"
+                enum: ["ready", "degraded", "unavailable"]
+
+  - id: "auth_max_session"
+    summary: "Обмен проверенных данных авторизации MAX (initData) на токен сессии"
+    method: "POST"
+    path: "/api/v1/auth/max"
+    auth:
+      role: "anonymous"
+    request:
+      headers:
+        Content-Type: "application/json"
+        Accept: "application/json"
+      body:
+        type: "object"
+        required: ["init_data"]
+        properties:
+          init_data:
+            type: "string"
+            example: "query_id=test_query&user=%7B%22id%22%3A100001%2C%22first_name%22%3A%22Jury%22%7D&auth_date=1727630000&hash=mock_hash"
+    response:
+      status: 200
+      content_type: "application/json"
+      body:
+        type: "object"
+        required: ["token", "user_id", "expires_at"]
+        properties:
+          token:
+            type: "string"
+          user_id:
+            type: "string"
+          expires_at:
+            type: "string"
+            format: "date-time"
+
+  - id: "optimize_daily_routes"
+    summary: "Расчёт трёх контрастных суточных маршрутов досуга по подтверждённым условиям"
+    method: "POST"
+    path: "/api/v1/routes/optimize"
+    auth:
+      role: "user"
+      token_variable: "TEST_USER_TOKEN"
+    request:
+      headers:
+        Content-Type: "application/json"
+        Accept: "application/json"
+        Authorization: "Bearer ${TEST_USER_TOKEN}"
+        Idempotency-Key: "check-optimize-001"
+      body:
+        type: "object"
+        required: ["city", "timezone", "start_at", "end_at", "origin", "constraints"]
+        properties:
+          city:
+            type: "string"
+            enum: ["moscow", "perm"]
+            example: "moscow"
+          timezone:
+            type: "string"
+            example: "Europe/Moscow"
+          start_at:
+            type: "string"
+            format: "date-time"
+            example: "2026-09-30T10:00:00+03:00"
+          end_at:
+            type: "string"
+            format: "date-time"
+            example: "2026-09-30T21:00:00+03:00"
+          origin:
+            type: "object"
+            required: ["lat", "lon"]
+            properties:
+              lat:
+                type: "number"
+                example: 55.7558
+              lon:
+                type: "number"
+                example: 37.6173
+          constraints:
+            type: "object"
+            required: ["user_tag_mask", "movement_mode", "pace", "budget", "pushkin_card_only"]
+            properties:
+              user_tag_mask:
+                type: "string"
+                pattern: "^0x[0-9a-fA-F]{16}$"
+                example: "0x0000000000000021"
+              movement_mode:
+                type: "string"
+                enum: ["walk", "transit", "car"]
+                example: "walk"
+              pace:
+                type: "string"
+                enum: ["relaxed", "moderate", "intense"]
+                example: "moderate"
+              pushkin_card_only:
+                type: "boolean"
+                example: false
+              budget:
+                type: "object"
+                required: ["mode"]
+                properties:
+                  mode:
+                    type: "string"
+                    enum: ["none", "advisory", "strict"]
+                    example: "none"
+    response:
+      status: 200
+      content_type: "application/json"
+      body:
+        type: "object"
+        required: ["status", "request_id", "data_mode", "warnings", "computation_time_ms", "routes", "conflicts"]
+        properties:
+          status:
+            type: "string"
+            enum: ["READY", "PARTIAL", "NO_FEASIBLE_ROUTE", "CONFLICT"]
+          request_id:
+            type: "string"
+          data_mode:
+            type: "string"
+            enum: ["live", "prepared", "synthetic"]
+          computation_time_ms:
+            type: "integer"
+            minimum: 0
+          routes:
+            type: "array"
+            items:
+              type: "object"
+              required: ["route_id", "revision", "city", "status", "visits", "steps", "legs"]
+              properties:
+                route_id:
+                  type: "string"
+                  format: "uuid"
+                revision:
+                  type: "integer"
+                status:
+                  type: "string"
+
+  - id: "get_owner_route"
+    summary: "Получение полного расписания, точек посещения и переходов сохранённого маршрута владельца"
+    method: "GET"
+    path: "/api/v1/routes/${TEST_ROUTE_ID}"
+    auth:
+      role: "user"
+      token_variable: "TEST_USER_TOKEN"
+    request:
+      headers:
+        Accept: "application/json"
+        Authorization: "Bearer ${TEST_USER_TOKEN}"
+      path_parameters:
+        route_id: "${TEST_ROUTE_ID}"
+    response:
+      status: 200
+      content_type: "application/json"
+      body:
+        type: "object"
+        required: ["route", "server_time"]
+        properties:
+          server_time:
+            type: "string"
+            format: "date-time"
+          route:
+            type: "object"
+            required: ["route_id", "revision", "status", "city", "timezone", "summary", "visits", "steps", "legs"]
+            properties:
+              route_id:
+                type: "string"
+                format: "uuid"
+              revision:
+                type: "integer"
+              city:
+                type: "string"
+              status:
+                type: "string"
+              summary:
+                type: "object"
+                required: ["total_duration_minutes", "total_transit_minutes", "estimated_cost"]
+
+  - id: "save_owner_route"
+    summary: "Фиксация черновика маршрута в постоянном статусе сохранённого плана"
+    method: "POST"
+    path: "/api/v1/routes/${TEST_ROUTE_ID}/save"
+    auth:
+      role: "user"
+      token_variable: "TEST_USER_TOKEN"
+    request:
+      headers:
+        Accept: "application/json"
+        Authorization: "Bearer ${TEST_USER_TOKEN}"
+        Idempotency-Key: "check-save-001"
+      path_parameters:
+        route_id: "${TEST_ROUTE_ID}"
+    response:
+      status: 200
+      content_type: "application/json"
+      body:
+        type: "object"
+        required: ["route_id", "revision", "saved_at", "status"]
+        properties:
+          route_id:
+            type: "string"
+            format: "uuid"
+          revision:
+            type: "integer"
+          status:
+            type: "string"
+            enum: ["SAVED"]
+          saved_at:
+            type: "string"
+            format: "date-time"
+
+  - id: "create_route_share"
+    summary: "Создание защищённой ссылки для анонимного просмотра маршрута другими пользователями"
+    method: "POST"
+    path: "/api/v1/routes/${TEST_ROUTE_ID}/share"
+    auth:
+      role: "user"
+      token_variable: "TEST_USER_TOKEN"
+    request:
+      headers:
+        Content-Type: "application/json"
+        Accept: "application/json"
+        Authorization: "Bearer ${TEST_USER_TOKEN}"
+        Idempotency-Key: "check-share-001"
+      path_parameters:
+        route_id: "${TEST_ROUTE_ID}"
+    response:
+      status: 200
+      content_type: "application/json"
+      body:
+        type: "object"
+        required: ["share_token", "created_at", "max_deep_link"]
+        properties:
+          share_token:
+            type: "string"
+          created_at:
+            type: "string"
+            format: "date-time"
+          max_deep_link:
+            type: "string"
+
+  - id: "read_shared_route"
+    summary: "Анонимный просмотр расшаренного маршрута без персональных данных автора"
+    method: "GET"
+    path: "/api/v1/routes/shared/${TEST_SHARE_TOKEN}"
+    auth:
+      role: "anonymous"
+    request:
+      headers:
+        Accept: "application/json"
+      path_parameters:
+        share_token: "${TEST_SHARE_TOKEN}"
+    response:
+      status: 200
+      content_type: "application/json"
+      body:
+        type: "object"
+        required: ["share_token", "city", "timezone", "archetype", "status", "data_mode", "summary", "visits", "steps", "legs"]
+        properties:
+          share_token:
+            type: "string"
+          city:
+            type: "string"
+          archetype:
+            type: "string"
+          status:
+            type: "string"
+          data_mode:
+            type: "string"
+            enum: ["live", "prepared", "synthetic"]
+          summary:
+            type: "object"
+            required: ["total_duration_minutes", "total_transit_minutes", "estimated_cost"]
+
+  - id: "search_nearby_lunch"
+    summary: "Поиск кафе и заведений питания поблизости от текущей геопозиции пользователя через геосервис"
+    method: "POST"
+    path: "/api/v1/routes/${TEST_ROUTE_ID}/lunch/search"
+    auth:
+      role: "user"
+      token_variable: "TEST_USER_TOKEN"
+    request:
+      headers:
+        Content-Type: "application/json"
+        Accept: "application/json"
+        Authorization: "Bearer ${TEST_USER_TOKEN}"
+      path_parameters:
+        route_id: "${TEST_ROUTE_ID}"
+      body:
+        type: "object"
+        required: ["location", "radius_meters"]
+        properties:
+          location:
+            type: "object"
+            required: ["lat", "lon"]
+            properties:
+              lat:
+                type: "number"
+                example: 55.7558
+              lon:
+                type: "number"
+                example: 37.6173
+          radius_meters:
+            type: "integer"
+            enum: [300, 500, 800, 1000]
+            example: 500
+    response:
+      status: 200
+      content_type: "application/json"
+      body:
+        type: "object"
+        required: ["venues", "search_center", "radius_meters"]
+        properties:
+          radius_meters:
+            type: "integer"
+          search_center:
+            type: "object"
+            required: ["lat", "lon"]
+            properties:
+              lat:
+                type: "number"
+              lon:
+                type: "number"
+          venues:
+            type: "array"
+            items:
+              type: "object"
+              required: ["external_id", "name", "location"]
+              properties:
+                external_id:
+                  type: "string"
+                name:
+                  type: "string"
+                location:
+                  type: "object"
+                  required: ["lat", "lon"]
+                  properties:
+                    lat:
+                      type: "number"
+                    lon:
+                      type: "number"
