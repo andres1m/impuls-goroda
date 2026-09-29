@@ -195,6 +195,49 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/scenarios/{scenario_id}/draft:
+    parameters:
+      - $ref: '#/components/parameters/ScenarioID'
+    post:
+      tags: [Context]
+      operationId: saveBotScenarioDraft
+      summary: Save incomplete planning input without calculating routes
+      description: |
+        Replaces the owner's draft input and increments the scenario version.
+        Pending extraction is retained separately; saving does not confirm it.
+        A previous refusal outcome is cleared. Completed scenarios cannot be edited.
+        This operation does not use If-Match. Repeated keys replay the original response.
+        Responses use Cache-Control no-store.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveBotScenarioDraftRequest'
+      responses:
+        '200':
+          description: Saved owner draft
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BotScenarioResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '404':
+          $ref: '#/components/responses/ScenarioNotFound'
+        '409':
+          $ref: '#/components/responses/ScenarioConflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/scenarios/{scenario_id}/complete:
     parameters:
       - $ref: '#/components/parameters/ScenarioID'
@@ -1427,6 +1470,15 @@ components:
         data_as_of:
           type: string
           format: date-time
+    SaveBotScenarioDraftRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_version, input]
+      properties:
+        expected_version:
+          $ref: '#/components/schemas/ScenarioVersion'
+        input:
+          $ref: '#/components/schemas/BotScenarioInput'
     CompleteBotScenarioRequest:
       type: object
       additionalProperties: false
