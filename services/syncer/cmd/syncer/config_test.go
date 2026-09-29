@@ -24,7 +24,7 @@ func TestStandConfigLoads(t *testing.T) {
 		t.Fatalf("delivery = %+v", cfg.Delivery)
 	}
 	if cfg.Kafka.RawTopic != "integration.raw" || cfg.Kafka.ConsumerGroup != "syncer-raw" ||
-		cfg.Kafka.RawPartitions != 3 {
+		cfg.Kafka.RawPartitions != 3 || cfg.Kafka.DLQTopic != "dlq.integration.raw" {
 		t.Fatalf("kafka = %+v", cfg.Kafka)
 	}
 }

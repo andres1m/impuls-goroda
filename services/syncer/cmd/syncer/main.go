@@ -19,6 +19,7 @@ import (
 	"github.com/andres1m/impuls-goroda/pkg/telemetry"
 	"github.com/andres1m/impuls-goroda/pkg/temporal"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/delivery"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/ingest"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/kafka"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/repo/postgres"
 	rawtemporal "github.com/andres1m/impuls-goroda/services/syncer/internal/temporal"
@@ -131,7 +132,12 @@ func run(ctx context.Context) error {
 		func() client.Client { return infra.temporal.TemporalClient },
 		infra.temporal.TaskQueue(),
 	)
-	consumer := kafka.NewConsumer(infra.log.Log, infra.cfg.Kafka, starter)
+	deadLetters, err := kafka.NewDeadLetters(infra.cfg.Kafka)
+	if err != nil {
+		return fmt.Errorf("create dead letter writer error: %w", err)
+	}
+	defer deadLetters.Close()
+	consumer := kafka.NewConsumer(infra.log.Log, infra.cfg.Kafka, starter, deadLetters)
 	relay, err := delivery.NewRelay(infra.cfg.Delivery, postgres.NewDeliveries(poolDB{client: infra.pool}),
 		map[string]delivery.Sender{
 			catalogevent.Destination: delivery.NewRedisSender(func() delivery.Publisher {
@@ -140,6 +146,7 @@ func run(ctx context.Context) error {
 				}
 				return infra.redis.Pool
 			}),
+			ingest.DeadLetterDestination: deadLetters,
 		}, infra.log.Log)
 	if err != nil {
 		return fmt.Errorf("create delivery relay error: %w", err)

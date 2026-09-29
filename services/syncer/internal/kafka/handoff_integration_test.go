@@ -57,7 +57,7 @@ func TestHandoffIntegration(t *testing.T) {
 		t.Helper()
 		groupCfg := cfg
 		groupCfg.ConsumerGroup = group
-		consumer := NewConsumer(zap.NewNop(), groupCfg, starter)
+		consumer := NewConsumer(zap.NewNop(), groupCfg, starter, &fakeDeadLetters{})
 		if initErr := consumer.Init(ctx); initErr != nil {
 			t.Fatal(initErr)
 		}

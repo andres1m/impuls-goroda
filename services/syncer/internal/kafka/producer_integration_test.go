@@ -85,3 +85,38 @@ func TestProducerIntegration(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+func TestDeadLettersIntegration(t *testing.T) {
+	cfg := testConfig(kafkaBrokers(t)...)
+	cfg.DLQTopic = "dlq.integration.raw.test-" + randomSuffix(t)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	d, err := NewDeadLetters(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	letter := payloadLetter()
+	if err := d.Write(ctx, letter.Key(), &letter); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := kgo.NewClient(kgo.SeedBrokers(cfg.Brokers...), kgo.ConsumeTopics(cfg.DLQTopic),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	for {
+		fetches := reader.PollFetches(ctx)
+		if ctx.Err() != nil {
+			t.Fatal("dead letter not read back")
+		}
+		for _, record := range fetches.Records() {
+			got, decErr := ingest.DecodeDeadLetter(record.Value)
+			if decErr != nil || string(record.Key) != "perm:node/2" || got.RawIngestID != letter.RawIngestID {
+				t.Fatalf("record %q %+v, %v", record.Key, got, decErr)
+			}
+			return
+		}
+	}
+}

@@ -28,7 +28,7 @@ func tracedConsumer(t *testing.T, starter Starter) *Consumer {
 	otel.SetTracerProvider(sdktrace.NewTracerProvider())
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 	t.Cleanup(func() { otel.SetTracerProvider(previous) })
-	return NewConsumer(zap.NewNop(), testConfig("unused:9092"), starter)
+	return NewConsumer(zap.NewNop(), testConfig("unused:9092"), starter, &fakeDeadLetters{})
 }
 
 func TestHandleRecordWithoutTrace(t *testing.T) {
