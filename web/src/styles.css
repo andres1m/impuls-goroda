@@ -624,3 +624,6 @@ button { cursor: pointer; }
 .panic-wait input { min-height: 48px; width: 100%; box-sizing: border-box; border: 1px solid #d8dee8; border-radius: 14px; padding: 10px 14px; font: inherit; }
 .route-delete-ack { display: flex; align-items: flex-start; gap: 12px; padding: 16px 0; line-height: 1.5; }
 .route-delete-ack input { flex: 0 0 auto; width: 22px; height: 22px; margin: 0; }
+.execution-time-form { display: grid; gap: 14px; width: 100%; }
+.execution-time-form label { display: grid; gap: 8px; }
+.execution-time-form input { width: 100%; min-width: 0; min-height: 48px; padding: 12px; border: 1px solid #d8dce3; border-radius: 12px; font: inherit; box-sizing: border-box; }

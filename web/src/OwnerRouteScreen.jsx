@@ -29,7 +29,7 @@ export default function OwnerRouteScreen({ route: initialRoute, apiBaseUrl, acce
     setBusy(true); setMessage('');
     try {
       if (!command.current) {
-        const attempt = operation === 'execution' ? createExecutionAttempt(route, visitID, status)
+        const attempt = operation === 'execution' ? createExecutionAttempt(route, visitID, status, undefined, acknowledge)
           : operation === 'participation' ? createParticipationAttempt(route, visitID, status)
           : operation === 'pin' ? createPinAttempt(route, visitID, status)
           : operation === 'removal' ? createRemovalAttempt(route, visitID, status, acknowledge)
@@ -100,7 +100,7 @@ export default function OwnerRouteScreen({ route: initialRoute, apiBaseUrl, acce
     {onBack && <button className="scenario-return" disabled={busy || pending || Boolean(proposal)} onClick={onBack}>К вариантам</button>}
     {proposal && <RemovalProposalReview route={route} proposal={proposal} disabled={busy || pending} onApply={() => runCommand('apply')} onReject={() => runCommand('reject')} />}
     <PanicControls route={route} mapApiKey={mapApiKey} disabled={busy || pending || Boolean(proposal)} onPanic={(input) => runCommand('panic', input)} />
-    <RouteScreen route={route} mapApiKey={mapApiKey} actionsDisabled={busy || pending || Boolean(proposal)} onExecution={(visitID, status) => runCommand('execution', visitID, status)} onParticipation={(visitID, action) => runCommand('participation', visitID, action)} onPin={(visitID, kind) => runCommand('pin', visitID, kind)} onRemoval={(visitID, mode, acknowledge) => runCommand('removal', visitID, mode, acknowledge)} />
+    <RouteScreen route={route} mapApiKey={mapApiKey} actionsDisabled={busy || pending || Boolean(proposal)} onExecution={(visitID, status, times) => runCommand('execution', visitID, status, times)} onParticipation={(visitID, action) => runCommand('participation', visitID, action)} onPin={(visitID, kind) => runCommand('pin', visitID, kind)} onRemoval={(visitID, mode, acknowledge) => runCommand('removal', visitID, mode, acknowledge)} />
     <section className="owner-route-actions" aria-label="Сохранение маршрута">
       <button className="scenario-option scenario-primary" disabled={busy || Boolean(proposal) && !pending || route.lifecycle === 'saved' && !pending} onClick={() => runCommand()}>
         {busy ? 'Выполняем…' : command.current?.conflict ? 'Обновить маршрут' : pending ? 'Повторить запрос' : route.lifecycle === 'saved' ? 'Сохранён' : 'Сохранить'}

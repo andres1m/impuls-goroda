@@ -1,5 +1,6 @@
 ﻿import React, { useMemo, useRef, useState } from 'react';
 import Brand from './Brand.jsx';
+import ExecutionControls from './ExecutionControls.jsx';
 import ServerRouteMap from './ServerRouteMap.jsx';
 import { pinHistoryIncomplete } from './routeCommands.js';
 import { archetypeTitles, categoryTitles, projectRoute, travelTitles, verificationTitles } from './routeProjection.js';
@@ -124,10 +125,7 @@ export default function RouteScreen({ route, mapApiKey, shared = false, actionsD
                           </div>
                         </>}
                       </section>}
-                      {executed?.confirmation_kind === 'provider_confirmed' ? <p>Выполнение подтверждено источником.</p> : onExecution && <div className="server-execution-actions" aria-label="Отметка посещения">
-                        <button className="scenario-option" disabled={actionsDisabled || executed?.status === 'completed'} onClick={() => onExecution(step.visit_id, 'completed')}>{executed?.status === 'completed' ? 'Пройдено' : 'Отметить пройденным'}</button>
-                        <button className="scenario-option" disabled={actionsDisabled || executed?.status === 'skipped'} onClick={() => onExecution(step.visit_id, 'skipped')}>{executed?.status === 'skipped' ? 'Пропущено' : 'Пропустить'}</button>
-                      </div>}
+                      {executed?.confirmation_kind === 'provider_confirmed' ? <p>Выполнение подтверждено источником.</p> : onExecution && <ExecutionControls key={`${step.visit_id}-${route.revision}`} visitID={step.visit_id} execution={executed} timezone={timezone} disabled={actionsDisabled} onExecution={onExecution} />}
                     </>}
                     {onRemoval && !['completed', 'skipped'].includes(executed?.status) && <RemovalControls step={step} participation={participation} disabled={actionsDisabled || pinUnavailable} onRemove={onRemoval} />}
                     {!isVisit && onRemoval && pinUnavailable && <p>Пересчёт пока недоступен: у пройденных точек не указано фактическое время.</p>}

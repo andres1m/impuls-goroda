@@ -14,7 +14,7 @@ export function createRouteAttempt(operation, route, key = crypto.randomUUID()) 
   });
 }
 
-export function createExecutionAttempt(route, visitID, status, key = crypto.randomUUID()) {
+export function createExecutionAttempt(route, visitID, status, key = crypto.randomUUID(), times) {
   const base = createRouteAttempt('save', route, key);
   if (!uuid.test(visitID) || !['completed', 'skipped'].includes(status) || !route.plan.steps.some((step) => step.visit_id === visitID && step.kind === 'visit')) {
     throw new RouteRequestError(0, 'INVALID_EXECUTION', false);
@@ -24,6 +24,13 @@ export function createExecutionAttempt(route, visitID, status, key = crypto.rand
   const input = { status, confirmation_kind: 'user_reported' };
   if (current?.actual_started_at) input.actual_started_at = current.actual_started_at;
   if (current?.actual_ended_at) input.actual_ended_at = current.actual_ended_at;
+  if (times && typeof times === 'object') {
+    if (!Number.isFinite(Date.parse(times.actual_started_at)) || !Number.isFinite(Date.parse(times.actual_ended_at)) ||
+        Date.parse(times.actual_ended_at) <= Date.parse(times.actual_started_at)) throw new RouteRequestError(0, 'INVALID_EXECUTION', false);
+    input.actual_started_at = times.actual_started_at;
+    input.actual_ended_at = times.actual_ended_at;
+  }
+  if (status === 'completed' && (!input.actual_started_at || !input.actual_ended_at)) throw new RouteRequestError(0, 'ACTUAL_TIMES_REQUIRED', false);
   return Object.freeze({ ...base, operation: 'execution', visitID, executionStatus: status,
     path: `/api/v1/routes/${base.routeID}/visits/${visitID.toLowerCase()}/execution`, body: JSON.stringify(input),
   });
@@ -74,11 +81,16 @@ export async function sendRouteCommand(apiBaseUrl, accessToken, attempt, fetcher
   }
   if (attempt.operation === 'execution') {
     const value = body.execution;
+    const input = JSON.parse(attempt.body);
     if (!['READY', 'UNCHANGED'].includes(body.status) || !value || typeof value.visit_id !== 'string' || value.visit_id.toLowerCase() !== attempt.visitID.toLowerCase() ||
         !['planned', 'completed', 'skipped'].includes(value.status) || !['user_reported', 'provider_confirmed'].includes(value.confirmation_kind) ||
         !validRevision(value.updated_in_revision) || BigInt(value.updated_in_revision) > BigInt(body.revision) || !Number.isFinite(Date.parse(value.updated_at)) ||
         ['actual_started_at', 'actual_ended_at'].some((field) => value[field] !== undefined && !Number.isFinite(Date.parse(value[field]))) ||
         body.status === 'READY' && (value.status !== attempt.executionStatus || value.confirmation_kind !== 'user_reported')) {
+      throw new RouteRequestError(0, 'INVALID_RESPONSE', true);
+    }
+    if (body.status === 'READY' && ['actual_started_at', 'actual_ended_at'].some((field) =>
+        input[field] === undefined ? value[field] !== undefined : Date.parse(value[field]) !== Date.parse(input[field]))) {
       throw new RouteRequestError(0, 'INVALID_RESPONSE', true);
     }
     return body;
