@@ -24,16 +24,17 @@ type OptimizeResponse struct {
 	Warnings          []Warning    `json:"warnings"`
 }
 type OwnerRoute struct {
-	City          string               `json:"city"`
-	CreatedAt     time.Time            `json:"created_at"`
-	Execution     []OwnerExecution     `json:"execution"`
-	Issues        []RouteIssue         `json:"issues"`
-	Lifecycle     string               `json:"lifecycle"`
-	Participation []OwnerParticipation `json:"participation"`
-	Plan          RoutePlan            `json:"plan"`
-	Revision      string               `json:"revision"`
-	RouteID       string               `json:"route_id"`
-	UpdatedAt     time.Time            `json:"updated_at"`
+	PendingProposal *PendingProposal     `json:"pending_proposal,omitempty"`
+	City            string               `json:"city"`
+	CreatedAt       time.Time            `json:"created_at"`
+	Execution       []OwnerExecution     `json:"execution"`
+	Issues          []RouteIssue         `json:"issues"`
+	Lifecycle       string               `json:"lifecycle"`
+	Participation   []OwnerParticipation `json:"participation"`
+	Plan            RoutePlan            `json:"plan"`
+	Revision        string               `json:"revision"`
+	RouteID         string               `json:"route_id"`
+	UpdatedAt       time.Time            `json:"updated_at"`
 }
 type Conflict struct {
 	Code       string   `json:"code"`

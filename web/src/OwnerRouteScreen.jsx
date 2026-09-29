@@ -13,7 +13,7 @@ export default function OwnerRouteScreen({ route: initialRoute, apiBaseUrl, acce
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState('');
-  const [proposal, setProposal] = useState(null);
+  const [proposal, setProposal] = useState(initialRoute.pending_proposal || null);
   const [shareLink, setShareLink] = useState(null);
   const [deleteReview, setDeleteReview] = useState(false);
   const [deleteAcknowledged, setDeleteAcknowledged] = useState(false);
@@ -73,7 +73,7 @@ export default function OwnerRouteScreen({ route: initialRoute, apiBaseUrl, acce
       if (value.acknowledged && value.attempt.operation === 'save' && updated.lifecycle !== 'saved') throw new Error('Invalid saved route');
       if (value.acknowledged && ['pin', 'apply', 'reject', 'removal', 'panic'].includes(value.attempt.operation) && BigInt(updated.revision) < BigInt(value.result.revision)) throw new Error('Stale route snapshot');
       setRoute(updated); command.current = null; setPending(false); setDeleteReview(false); setDeleteAcknowledged(false);
-      if (value.conflict || ['apply', 'reject'].includes(value.attempt.operation)) setProposal(null);
+      setProposal(updated.pending_proposal || null);
       const providerConfirmed = value.result?.execution?.confirmation_kind === 'provider_confirmed' || value.result?.participation?.evidence === 'provider';
       setMessage(value.conflict ? 'Маршрут обновлён. Проверьте его и повторите нужное действие.' : value.attempt.operation === 'apply' ? 'Изменения применены.' : value.attempt.operation === 'reject' ? 'Предложение отклонено. Маршрут не изменён.' : ['removal', 'panic'].includes(value.attempt.operation) ? 'Маршрут не изменился.' : value.attempt.operation === 'save' ? 'Маршрут сохранён.' : providerConfirmed ? 'Подтверждение источника сохранено.' : 'Отметка сохранена.');
     } catch (error) {

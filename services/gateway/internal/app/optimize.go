@@ -12,6 +12,7 @@ import (
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/optimizerclient"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/repo/postgres"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/routewire"
+	"github.com/jackc/pgx/v5"
 )
 
 type Optimizer interface {
@@ -124,5 +125,14 @@ func (r *Runtime) ReadRoute(ctx context.Context, actor d.UserID, id d.RouteID) (
 	if r.queries == nil {
 		return routewire.OwnerRoute{}, errors.New("gateway queries are not initialized")
 	}
-	return r.queries.ReadOwnerRoute(ctx, id, actor)
+	if r.transactor == nil {
+		return routewire.OwnerRoute{}, errors.New("gateway transactor is not initialized")
+	}
+	var route routewire.OwnerRoute
+	err := r.transactor.WithinTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(q *postgres.Queries) error {
+		var err error
+		route, err = q.ReadOwnerRouteWithProposal(ctx, id, actor)
+		return err
+	})
+	return route, err
 }
