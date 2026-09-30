@@ -13,7 +13,7 @@ function PlanSummary({ title, plan }) {
     {amount !== null && <p>{(amount / 100n).toLocaleString('ru-RU')}{amount % 100n ? `,${String(amount % 100n).padStart(2, '0')}` : ''} ₽{plan.cost.unknown_components?.length ? ' + неизвестные расходы' : ''}</p>}
     <ol>{plan.steps.map((step) => <li key={step.visit_id}>
       <span>{time(step.visit_start_at, plan.timezone)}—{time(step.visit_end_at, plan.timezone)}</span>
-      <strong>{step.kind === 'free_time' ? 'Свободное время' : step.catalog?.title || 'Посещение'}</strong>
+      <strong>{step.kind === 'free_time' ? 'Свободное время' : step.external_venue?.title || step.catalog?.title || 'Посещение'}</strong>
     </li>)}</ol>
   </section>;
 }
@@ -21,8 +21,8 @@ function PlanSummary({ title, plan }) {
 export default function RemovalProposalReview({ route, proposal, disabled, onApply, onReject }) {
   const heading = useRef(null);
   useEffect(() => { heading.current?.focus(); }, [proposal.proposal_id]);
-  const before = new Map(route.plan.steps.map((step) => [step.visit_id, step.catalog?.title || 'Свободное время']));
-  const after = new Map(proposal.candidate.steps.map((step) => [step.visit_id, step.catalog?.title || 'Свободное время']));
+  const before = new Map(route.plan.steps.map((step) => [step.visit_id, step.external_venue?.title || step.catalog?.title || 'Свободное время']));
+  const after = new Map(proposal.candidate.steps.map((step) => [step.visit_id, step.external_venue?.title || step.catalog?.title || 'Свободное время']));
   return <section className="removal-proposal-review" aria-labelledby="removal-proposal-heading">
     <h2 id="removal-proposal-heading" tabIndex={-1} ref={heading}>{proposal.reason === 'cancel' ? 'Маршрут после отмены' : 'Предложение маршрута'}</h2>
     <p>Изменения ещё не применены.</p>

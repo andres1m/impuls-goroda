@@ -25,6 +25,7 @@ import (
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/auth"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/grpcapi"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/httpapi"
+	"github.com/andres1m/impuls-goroda/services/gateway/internal/lunchprovider"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/maxbot"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/optimizerclient"
 	"github.com/labstack/echo/v5"
@@ -254,6 +255,7 @@ func newAuthRuntime(infra *infrastructureComponents) (*app.Runtime, error) {
 			return nil, errors.New("invalid scenario result delivery configuration")
 		}
 	}
+	lunchProvider, _ := lunchprovider.NewClient(os.Getenv("TWO_GIS_API_KEY"))
 	return app.NewRuntime(infra.pool, infra.log.Log, &app.Config{
 		ScenarioResultDeliveryEnabled: scenarioResultDelivery,
 		NotificationDeliveryEnabled:   notificationDelivery,
@@ -261,6 +263,7 @@ func newAuthRuntime(infra *infrastructureComponents) (*app.Runtime, error) {
 		CancellationWorkerEnabled:     cfg.CancellationWorker.Enabled,
 		LifecycleEnabled:              infra.cfg.LifecycleServer != nil && os.Getenv("LIFECYCLE_SHARED_SECRET") != "",
 		Optimizer:                     infra.optimizer,
+		LunchProvider:                 lunchProvider,
 		BotToken:                      cfg.Auth.BotToken,
 		WebhookSecret:                 cfg.Auth.WebhookSecret,
 		InitDataMaxAge:                cfg.Auth.InitDataMaxAge,

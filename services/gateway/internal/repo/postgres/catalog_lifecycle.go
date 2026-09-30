@@ -81,8 +81,10 @@ WHERE city=$1 AND id=$2 AND ($3::uuid IS NULL OR event_id=$3)`, change.City, cha
 	}
 	rows, err := q.db.Query(ctx, `SELECT r.id FROM planning.route r WHERE r.city=$1 AND EXISTS(
 SELECT 1 FROM planning.route_step s JOIN planning.route_visit v ON v.route_id=s.route_id AND v.visit_id=s.visit_id
+LEFT JOIN planning.route_lunch_step lunch ON lunch.route_id=s.route_id AND lunch.revision=s.revision AND lunch.visit_id=s.visit_id
 WHERE s.route_id=r.id AND s.revision=r.current_revision
-AND ($2::uuid IS NULL OR v.session_id=$2) AND ($3::uuid IS NULL OR v.event_id=$3)) ORDER BY r.id FOR UPDATE OF r`, change.City, change.SessionID, change.EventID)
+AND ($2::uuid IS NULL OR CASE WHEN lunch.visit_id IS NULL THEN v.session_id ELSE lunch.session_id END=$2)
+AND ($3::uuid IS NULL OR CASE WHEN lunch.visit_id IS NULL THEN v.event_id ELSE lunch.event_id END=$3)) ORDER BY r.id FOR UPDATE OF r`, change.City, change.SessionID, change.EventID)
 	if err != nil {
 		return err
 	}
@@ -104,10 +106,12 @@ AND ($2::uuid IS NULL OR v.session_id=$2) AND ($3::uuid IS NULL OR v.event_id=$3
 		if current == change.NewStatus &&
 			(current == "available" || current == "registration_required") {
 			if _, err := q.db.Exec(ctx, `UPDATE planning.route_issue i SET state='resolved',resolved_at=$5
-FROM planning.route r,planning.route_step s,planning.route_visit v
-WHERE r.id=$1 AND s.route_id=r.id AND s.revision=r.current_revision AND v.route_id=s.route_id AND v.visit_id=s.visit_id
-AND i.route_id=r.id AND i.visit_id=v.visit_id AND i.issue_type='cancelled' AND i.state<>'resolved'
-AND ($2::uuid IS NULL OR v.session_id=$2) AND ($3::uuid IS NULL OR v.event_id=$3) AND i.catalog_revision<=$4`, route, change.SessionID, change.EventID, catalogRevision, now); err != nil {
+FROM planning.route r JOIN planning.route_step s ON s.route_id=r.id AND s.revision=r.current_revision
+JOIN planning.route_visit v ON v.route_id=s.route_id AND v.visit_id=s.visit_id
+LEFT JOIN planning.route_lunch_step lunch ON lunch.route_id=s.route_id AND lunch.revision=s.revision AND lunch.visit_id=s.visit_id
+WHERE r.id=$1 AND i.route_id=r.id AND i.visit_id=v.visit_id AND i.issue_type='cancelled' AND i.state<>'resolved'
+AND ($2::uuid IS NULL OR CASE WHEN lunch.visit_id IS NULL THEN v.session_id ELSE lunch.session_id END=$2)
+AND ($3::uuid IS NULL OR CASE WHEN lunch.visit_id IS NULL THEN v.event_id ELSE lunch.event_id END=$3) AND i.catalog_revision<=$4`, route, change.SessionID, change.EventID, catalogRevision, now); err != nil {
 				return err
 			}
 		}
@@ -121,9 +125,11 @@ AND ($2::uuid IS NULL OR v.session_id=$2) AND ($3::uuid IS NULL OR v.event_id=$3
 SELECT gen_random_uuid(),r.id,v.visit_id,$4,$5,$6,'open',$7,$8
 FROM planning.route r JOIN planning.route_step s ON s.route_id=r.id AND s.revision=r.current_revision
 JOIN planning.route_visit v ON v.route_id=s.route_id AND v.visit_id=s.visit_id
+LEFT JOIN planning.route_lunch_step lunch ON lunch.route_id=s.route_id AND lunch.revision=s.revision AND lunch.visit_id=s.visit_id
 LEFT JOIN planning.execution e ON e.route_id=v.route_id AND e.visit_id=v.visit_id
 LEFT JOIN planning.participation p ON p.route_id=v.route_id AND p.visit_id=v.visit_id
-WHERE r.id=$1 AND ($2::uuid IS NULL OR v.session_id=$2) AND ($3::uuid IS NULL OR v.event_id=$3)
+WHERE r.id=$1 AND ($2::uuid IS NULL OR CASE WHEN lunch.visit_id IS NULL THEN v.session_id ELSE lunch.session_id END=$2)
+AND ($3::uuid IS NULL OR CASE WHEN lunch.visit_id IS NULL THEN v.event_id ELSE lunch.event_id END=$3)
 AND r.lifecycle_state='saved' AND s.visit_end_at>$8 AND COALESCE(e.status,'planned')='planned'
 AND ($9::text<>'sold_out' OR (s.is_obligation AND COALESCE(p.status,'not_required') NOT IN ('user_reported_confirmed','provider_confirmed')))
 ON CONFLICT DO NOTHING`,

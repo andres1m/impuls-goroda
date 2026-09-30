@@ -165,6 +165,8 @@ type RouteStep struct {
 	ArrivalAt          time.Time             `json:"arrival_at"`
 	Catalog            *CatalogSnapshot      `json:"catalog,omitempty"`
 	Cost               *CostSnapshot         `json:"cost,omitempty"`
+	Lunch              *LunchMetadata        `json:"lunch,omitempty"`
+	ExternalVenue      *ExternalLunchVenue   `json:"external_venue,omitempty"`
 	DepartureAt        time.Time             `json:"departure_at"`
 	Kind               string                `json:"kind"`
 	MinDurationSeconds int64                 `json:"min_duration_seconds"`
@@ -175,6 +177,21 @@ type RouteStep struct {
 	VisitEndAt         time.Time             `json:"visit_end_at"`
 	VisitID            string                `json:"visit_id"`
 	VisitStartAt       time.Time             `json:"visit_start_at"`
+}
+type LunchMetadata struct {
+	AfterVisitID    string `json:"after_visit_id"`
+	DurationSeconds int64  `json:"duration_seconds"`
+}
+type ExternalLunchVenue struct {
+	Provider          string     `json:"provider"`
+	ExternalID        string     `json:"external_id"`
+	Title             string     `json:"title"`
+	Address           string     `json:"address,omitempty"`
+	Position          Coordinate `json:"position"`
+	ObservedAt        time.Time  `json:"observed_at"`
+	Price             Price      `json:"price"`
+	Availability      string     `json:"availability"`
+	HoursVerification string     `json:"hours_verification"`
 }
 type AppliedConstraint struct {
 	Code     string `json:"code"`

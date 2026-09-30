@@ -193,3 +193,91 @@ func TestNewQueriesRejectsNilDatabase(t *testing.T) {
 		t.Fatal("nil database accepted")
 	}
 }
+
+type recordingDB struct {
+	queries []string
+	row     pgx.Row
+}
+
+func (r *recordingDB) Exec(_ context.Context, query string, _ ...any) (pgconn.CommandTag, error) {
+	r.queries = append(r.queries, query)
+	return pgconn.NewCommandTag("INSERT 0 1"), nil
+}
+
+func (r *recordingDB) Query(_ context.Context, query string, _ ...any) (pgx.Rows, error) {
+	r.queries = append(r.queries, query)
+	return nil, errors.New("stop query")
+}
+
+func (r *recordingDB) QueryRow(_ context.Context, query string, _ ...any) pgx.Row {
+	r.queries = append(r.queries, query)
+	return r.row
+}
+
+func TestLunchRevisionStorageQueriesUseRevisionLunchStep(t *testing.T) {
+	db := &recordingDB{row: fakeRow{scan: func(destinations ...any) error {
+		switch len(destinations) {
+		case 1:
+			*destinations[0].(*bool) = false
+		case 2:
+			*destinations[0].(*bool) = true
+			*destinations[1].(*bool) = true
+		}
+		return nil
+	}}}
+	queries, err := NewQueries(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := queries.RouteStorageReadiness(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(db.queries[len(db.queries)-1], "planning.route_lunch_step") {
+		t.Fatalf("readiness query missing route_lunch_step: %s", db.queries[len(db.queries)-1])
+	}
+
+	_, err = queries.Participation(context.Background(), domain.RouteID{1}, domain.VisitID{2}, 1)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("error = %v, want ErrNotFound", err)
+	}
+	if !strings.Contains(db.queries[len(db.queries)-1], "LEFT JOIN planning.route_lunch_step lunch") ||
+		!strings.Contains(db.queries[len(db.queries)-1], "lunch.venue_kind = 'catalog'") {
+		t.Fatalf("currentVisit query missing revision lunch check: %s", db.queries[len(db.queries)-1])
+	}
+
+	db.queries = nil
+	now := time.Date(2026, 9, 30, 10, 0, 0, 0, time.UTC)
+	if _, err := queries.CloneVisitRevision(
+		context.Background(),
+		domain.RouteID{1},
+		1,
+		domain.VisitID{2},
+		domain.MutationExecution,
+		nil,
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	copiedLunch := false
+	for _, query := range db.queries {
+		if strings.Contains(query, "INSERT INTO planning.route_lunch_step") &&
+			strings.Contains(query, "FROM planning.route_lunch_step") {
+			copiedLunch = true
+		}
+	}
+	if !copiedLunch {
+		t.Fatalf("CloneVisitRevision did not copy planning.route_lunch_step: %v", db.queries)
+	}
+
+	db.queries = nil
+	_, _, _ = queries.CurrentCancellationVisits(context.Background(), CancellationJob{
+		RouteID: domain.RouteID{1},
+		OwnerID: domain.UserID{2},
+	})
+	if len(db.queries) != 1 ||
+		!strings.Contains(db.queries[0], "LEFT JOIN planning.route_lunch_step lunch") ||
+		!strings.Contains(db.queries[0], "CASE WHEN lunch.visit_id IS NULL THEN v.session_id ELSE lunch.session_id END") {
+		t.Fatalf("CurrentCancellationVisits missing revision lunch join: %v", db.queries)
+	}
+}

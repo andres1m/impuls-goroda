@@ -16,10 +16,14 @@ const ownerRouteSQL = `SELECT jsonb_build_object(
 'constraints',v.constraints,'catalog_revision',v.catalog_revision::text,'result',v.result_status,'warnings',v.warnings,'conflicts','[]'::jsonb,'cost',v.cost_summary,
 'geometry',COALESCE((SELECT jsonb_agg(jsonb_build_object('longitude',point->0,'latitude',point->1) ORDER BY n)
 FROM jsonb_array_elements(v.geometry_geojson->'coordinates') WITH ORDINALITY AS points(point,n)),'[]'::jsonb),
-'steps',COALESCE((SELECT jsonb_agg(jsonb_build_object('visit_id',s.visit_id::text,'kind',visit.visit_kind,'position',s.position,
+'steps',COALESCE((SELECT jsonb_agg(jsonb_build_object('visit_id',s.visit_id::text,'kind',CASE WHEN lunch.venue_kind='external' THEN 'external_lunch' WHEN lunch.venue_kind='free_time' THEN 'free_time' WHEN lunch.venue_kind='catalog' THEN 'visit' ELSE visit.visit_kind END,'position',s.position,
 'arrival_at',s.arrival_at,'visit_start_at',s.visit_start_at,'visit_end_at',s.visit_end_at,'departure_at',s.departure_at,'min_duration_seconds',s.min_duration_s,
-'pinned',s.is_pinned,'obligation',s.is_obligation,'participation',s.participation_snapshot,'catalog',s.catalog_snapshot,'cost',s.cost_snapshot,'applied_constraints',s.applied_constraints) ORDER BY s.position)
-FROM planning.route_step s JOIN planning.route_visit visit ON visit.route_id=s.route_id AND visit.visit_id=s.visit_id WHERE s.route_id=r.id AND s.revision=r.current_revision),'[]'::jsonb),
+'pinned',s.is_pinned,'obligation',s.is_obligation,'participation',s.participation_snapshot,'catalog',s.catalog_snapshot,'cost',s.cost_snapshot,'applied_constraints',s.applied_constraints,
+'lunch',CASE WHEN lunch.visit_id IS NULL THEN NULL ELSE jsonb_build_object('after_visit_id',lunch.after_visit_id::text,'duration_seconds',lunch.duration_seconds) END,
+'external_venue',lunch.external_snapshot) ORDER BY s.position)
+FROM planning.route_step s JOIN planning.route_visit visit ON visit.route_id=s.route_id AND visit.visit_id=s.visit_id
+LEFT JOIN planning.route_lunch_step lunch ON lunch.route_id=s.route_id AND lunch.revision=s.revision AND lunch.visit_id=s.visit_id
+WHERE s.route_id=r.id AND s.revision=r.current_revision),'[]'::jsonb),
 'legs',COALESCE((SELECT jsonb_agg(jsonb_build_object('position',l.position,'from_kind',l.from_kind,'to_kind',l.to_kind,'from_visit_id',l.from_visit_id::text,'to_visit_id',l.to_visit_id::text,
 'departure_at',l.departure_at,'arrival_at',l.arrival_at,'mode',l.mode,'distance_meters',l.distance_m,'verification',l.verification_status,'evidence',l.evidence,'cost',l.cost_snapshot,
 'geometry',COALESCE((SELECT jsonb_agg(jsonb_build_object('longitude',point->0,'latitude',point->1) ORDER BY n)

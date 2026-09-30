@@ -129,7 +129,7 @@ cp .env.example .env
 | `MAX_BOT_TOKEN` | Токен авторизации бота в платформе MAX | Токен от организаторов |
 | `MAX_BOT_USERNAME` | Юзернейм бота в MAX для генерации deep links | `ImpulsGorodaBot` |
 | `MAX_INIT_DATA_SECRET` | Секретный ключ для валидации HMAC `initData` | Секрет платформы MAX |
-| `TWO_GIS_API_KEY` | Ключ доступа к тайлам и поиску 2ГИС | Ключ API 2ГИС |
+| `TWO_GIS_API_KEY` | Серверный ключ 2ГИС для Places/Catalog API (поиск и проверка кафе, построение улиц) | Ключ с доступом к соответствующим HTTP API; отдельно от `twoGisApiKey` для MapGL в `web/public/config.json` |
 | `POSTGRES_USER` | Пользователь БД | `impuls_admin` |
 | `POSTGRES_PASSWORD` | Пароль администратора БД | Задаётся в `.env` |
 | `POSTGRES_DB` | Имя базы данных | `impuls_goroda` |

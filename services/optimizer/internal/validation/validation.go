@@ -323,7 +323,7 @@ func (c *checker) cost() {
 		if step.Kind != domain.StepVisit {
 			continue
 		}
-		if hasLunchConstraint(step.AppliedConstraints) {
+		if step.Lunch != nil || hasLunchConstraint(step.AppliedConstraints) {
 			var mealTotals costTotals
 			c.checkStepCost(&step.VisitID, step, &mealTotals, false, true)
 		} else {

@@ -373,6 +373,15 @@ func (m *planDecoder) step(value *pb.RouteStep) d.RouteStep {
 		cost := m.cost(value.Cost)
 		out.Cost = &cost
 	}
+	if value.Lunch != nil {
+		id := decodedID[d.VisitID](m, value.Lunch.AfterVisitId, true)
+		if id != nil {
+			out.Lunch = &d.LunchMetadata{AfterVisitID: *id, DurationSeconds: value.Lunch.DurationSeconds}
+		}
+	}
+	if value.ExternalVenue != nil {
+		out.ExternalVenue = m.externalVenue(value.ExternalVenue)
+	}
 	if value.Participation == nil {
 		m.err = ErrInvalidResult
 	} else {

@@ -129,6 +129,16 @@ func projectStep(step d.RouteStep) w.RouteStep {
 		value := cost(*step.Cost)
 		out.Cost = &value
 	}
+	if step.Lunch != nil {
+		out.Lunch = &w.LunchMetadata{AfterVisitID: idText([16]byte(step.Lunch.AfterVisitID)), DurationSeconds: step.Lunch.DurationSeconds}
+	}
+	if step.ExternalVenue != nil {
+		venue := step.ExternalVenue
+		out.ExternalVenue = &w.ExternalLunchVenue{Provider: venue.Provider, ExternalID: venue.ExternalID, Title: venue.Title,
+			Address: venue.Address, Position: w.Coordinate{Latitude: venue.Position.Latitude, Longitude: venue.Position.Longitude},
+			ObservedAt: venue.ObservedAt, Price: w.Price{Status: string(venue.Price.Status), Currency: venue.Price.Currency},
+			Availability: string(venue.Availability), HoursVerification: string(venue.HoursVerification)}
+	}
 	for _, constraint := range step.AppliedConstraints {
 		out.AppliedConstraints = append(out.AppliedConstraints, w.AppliedConstraint{Code: constraint.Code,
 			Strength: string(constraint.Strength), Outcome: string(constraint.Outcome), Message: constraint.Message})

@@ -70,7 +70,7 @@ func (c *Client) Organization(ctx context.Context, externalID string) (Organizat
 		return failure("busy", true)
 	}
 	endpoint := url.URL{Scheme: "https", Host: "catalog.api.2gis.com", Path: "/3.0/items/byid"}
-	endpoint.RawQuery = url.Values{"id": {externalID}, "key": {c.key}, "fields": {"items.point"}, "locale": {"ru_RU"}}.Encode()
+	endpoint.RawQuery = url.Values{"id": {externalID}, "key": {c.key}, "fields": {"items.point,items.rubrics"}, "locale": {"ru_RU"}}.Encode()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
 		return failure("unavailable", true)
@@ -112,6 +112,9 @@ func (c *Client) Organization(ctx context.Context, externalID string) (Organizat
 					Latitude  *float64 `json:"lat"`
 					Longitude *float64 `json:"lon"`
 				} `json:"point"`
+				Rubrics []struct {
+					ID string `json:"id"`
+				} `json:"rubrics"`
 			} `json:"items"`
 		} `json:"result"`
 	}
@@ -132,8 +135,17 @@ func (c *Client) Organization(ctx context.Context, externalID string) (Organizat
 		return failure("unavailable", true)
 	}
 	item := payload.Result.Items[0]
+	food := false
+	for _, rubric := range item.Rubrics {
+		if rubric.ID == "161" { // 2GIS cafe rubric, verified against the byid result.
+			food = true
+		}
+	}
 	if item.ID != externalID || item.Type != "branch" || !validText(item.Name, 500, false) || !validText(item.Address, 1000, true) || item.Point == nil || item.Point.Latitude == nil || item.Point.Longitude == nil {
 		return failure("unavailable", true)
+	}
+	if !food {
+		return failure("not_food", false)
 	}
 	position := d.Coordinate{Latitude: *item.Point.Latitude, Longitude: *item.Point.Longitude}
 	if position.Validate() != nil {

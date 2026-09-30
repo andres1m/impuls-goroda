@@ -85,6 +85,22 @@ ORDER BY p.created_at DESC,p.id DESC LIMIT 1`, encodeUUID([16]byte(routeID)), en
 			return routewire.OwnerRoute{}, changeErr
 		}
 		proposal, err = routewire.PendingPanicToWire(record.ID, record.BaseRevision, record.CatalogRevision, record.Candidate.Plan, changes, record.CreatedAt, record.EffectiveStart)
+	case "lunch":
+		record, readErr := q.ReadLunchProposal(ctx, routeID, owner, d.ProposalID(proposalID))
+		if readErr != nil {
+			return routewire.OwnerRoute{}, readErr
+		}
+		if record.State != d.ProposalPending || record.BaseRevision != state.Access.Revision || record.Candidate.City != state.City {
+			return routewire.OwnerRoute{}, routewire.ErrInvalidResult
+		}
+		if err := routewire.ValidateLunchCandidate(state.Plan, record.Candidate.Plan, state.History, record.Candidate.Intent, record.Candidate.Changes); err != nil {
+			return routewire.OwnerRoute{}, err
+		}
+		changes, changeErr := routewire.ProposalChangesToWire(record.Candidate.Changes)
+		if changeErr != nil {
+			return routewire.OwnerRoute{}, changeErr
+		}
+		proposal, err = routewire.PendingLunchToWire(record.ID, record.BaseRevision, record.CatalogRevision, record.Candidate.Plan, changes, record.CreatedAt)
 	default:
 		return routewire.OwnerRoute{}, routewire.ErrInvalidResult
 	}

@@ -81,6 +81,20 @@ func DecodeStoredPlanWithResume(raw []byte, resume *d.RouteResume) (d.RoutePlanS
 			return d.RoutePlanSnapshot{}, ErrInvalidResult
 		}
 		step := d.RouteStep{VisitID: *id, Kind: d.VisitKind(value.Kind), Position: decode.position(value.Position), ArrivalAt: value.ArrivalAt, VisitStartAt: value.VisitStartAt, VisitEndAt: value.VisitEndAt, DepartureAt: value.DepartureAt, MinDurationSeconds: value.MinDurationSeconds, Pinned: value.Pinned, Obligation: value.Obligation, Participation: d.ParticipationSnapshot{Status: d.ParticipationStatus(value.Participation.Status), Evidence: d.EvidenceSource(value.Participation.Evidence)}}
+		if value.Lunch != nil {
+			anchor := storedID[d.VisitID](&m, &value.Lunch.AfterVisitID, true)
+			if anchor != nil {
+				step.Lunch = &d.LunchMetadata{AfterVisitID: *anchor, DurationSeconds: value.Lunch.DurationSeconds}
+			}
+		}
+		if value.ExternalVenue != nil {
+			venue := value.ExternalVenue
+			step.ExternalVenue = &d.ExternalVenueSnapshot{Provider: venue.Provider, ExternalID: venue.ExternalID, Title: venue.Title, Address: venue.Address,
+				Position: decode.coordinate(venue.Position), ObservedAt: venue.ObservedAt,
+				Price: d.Price{Status: d.PriceStatus(venue.Price.Status), Currency: venue.Price.Currency,
+					LowerMinor: decode.minor(venue.Price.LowerMinor), UpperMinor: decode.minor(venue.Price.UpperMinor)},
+				Availability: d.AvailabilityStatus(venue.Availability), HoursVerification: d.VerificationStatus(venue.HoursVerification)}
+		}
 		if value.Catalog != nil {
 			c := value.Catalog
 			mask, err := strconv.ParseUint(strings.TrimPrefix(c.InterestMask, "0x"), 16, 64)

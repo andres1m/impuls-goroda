@@ -64,7 +64,7 @@ func (c *RouteChange) Validate() error {
 		return err
 	}
 	switch c.Kind {
-	case ChangeKept, ChangeRemoved, ChangeReplaced, ChangeTimeShifted, ChangeParticipationAction:
+	case ChangeKept, ChangeRemoved, ChangeReplaced, ChangeTimeShifted, ChangeParticipationAction, ChangeAdded:
 		if c.Scope != ScopeVisit {
 			return errors.New("visit change requires visit scope")
 		}
@@ -123,6 +123,10 @@ func (c *RouteChange) validateVisits() error {
 		if c.BeforeVisitID == nil {
 			return errors.New("kept change requires the previous visit")
 		}
+	case ChangeAdded:
+		if c.BeforeVisitID != nil || c.AfterVisitID == nil {
+			return errors.New("added change requires only the new visit")
+		}
 	case ChangeTimeShifted, ChangeCostChanged, ChangeParticipationAction, ChangeVerificationChanged:
 	}
 	return nil
@@ -143,7 +147,7 @@ func (c *RouteChange) validateDetails() error {
 		}
 	case ChangeVerificationChanged:
 		return validateVerificationChangeDetails(c.Details)
-	case ChangeKept, ChangeRemoved, ChangeReplaced:
+	case ChangeKept, ChangeRemoved, ChangeReplaced, ChangeAdded:
 		if c.Details != nil {
 			return errors.New("route change kind does not carry details")
 		}

@@ -54,6 +54,12 @@ func PlanToWire(plan d.RoutePlanSnapshot) (RoutePlan, error) {
 			cost := costWire(*value.Cost)
 			step.Cost = &cost
 		}
+		if value.Lunch != nil {
+			step.Lunch = &LunchMetadata{AfterVisitID: uuid.UUID(value.Lunch.AfterVisitID).String(), DurationSeconds: value.Lunch.DurationSeconds}
+		}
+		if value.ExternalVenue != nil {
+			step.ExternalVenue = externalVenueWire(*value.ExternalVenue)
+		}
 		for _, constraint := range value.AppliedConstraints {
 			step.AppliedConstraints = append(step.AppliedConstraints, AppliedConstraint{Code: constraint.Code, Strength: string(constraint.Strength), Outcome: string(constraint.Outcome), Message: constraint.Message})
 		}

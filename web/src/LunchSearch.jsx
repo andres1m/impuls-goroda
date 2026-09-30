@@ -162,11 +162,11 @@ export default function LunchSearch({ routeID, city, plan, apiBaseUrl, accessTok
       {message && <p className="scenario-error" role="alert">{message}</p>}
       {phase === 'ready' && results.candidates.length === 0 && <p role="status">В этом радиусе ничего не найдено. Попробуйте увеличить радиус.</p>}
       {phase === 'ready' && results.candidates.length > 0 && <>
-        <p className="lunch-search-note">Кафе можно посмотреть на карте. В расписание оно пока не добавляется; цены и часы работы уточните в заведении.</p>
+        <p className="lunch-search-note">Выберите кафе для предложения обеда в маршруте. Цены, часы работы и наличие мест уточните в заведении.</p>
         <ul className="lunch-search-list">{results.candidates.map((item) => {
           const link = externalLegLink({ mode: 'walk', verification: 'unknown' }, [[results.position.latitude, results.position.longitude], [item.position.latitude, item.position.longitude]]);
           return <li key={item.external_id}>
-            <button type="button" className="lunch-search-place" disabled={disabled} onClick={() => choose(item)}><span className="lunch-search-place-main"><strong>{item.title}</strong><small>{item.address || 'Адрес не указан'} · {item.distance_meters} м по прямой</small></span><span className="lunch-search-place-action">Показать на карте</span></button>
+            <button type="button" className="lunch-search-place" disabled={disabled} onClick={() => choose(item)}><span className="lunch-search-place-main"><strong>{item.title}</strong><small>{item.address || 'Адрес не указан'} · {item.distance_meters} м по прямой</small></span><span className="lunch-search-place-action">Выбрать кафе</span></button>
             <a className="lunch-search-directions" href={link} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" onClick={openExternalNavigation}>Как дойти в 2ГИС</a>
           </li>;
         })}</ul>

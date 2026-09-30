@@ -885,3 +885,10 @@ button { cursor: pointer; }
 .owner-panic-panel { bottom: auto; max-height: calc(100dvh - 48px - env(safe-area-inset-bottom)); }
 @media (max-width: 540px) { .owner-fixed-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); } .owner-page .workspace-map-canvas { min-height: 390px; } }
 .panic-controls form.owner-panic-panel { width: auto; }
+
+.lunch-editor { margin-top: 16px; }
+.lunch-editor h2 { margin-top: 0; }
+.lunch-editor-venue { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.lunch-editor-venue .scenario-option { width: auto; margin: 0; }
+.lunch-editor .removal-acknowledgement { display: flex; align-items: center; }
+.lunch-editor .removal-acknowledgement input { width: auto; min-height: auto; }

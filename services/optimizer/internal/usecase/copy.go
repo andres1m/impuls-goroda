@@ -39,6 +39,18 @@ func (p *Planner) CopyRoute(ctx context.Context, input *domain.CopyRequest) (dom
 			expected = append(expected, step.Catalog)
 		}
 	}
+	for i := range base.Steps {
+		step := &base.Steps[i]
+		if step.Lunch != nil {
+			fresh, ok := ids[step.Lunch.AfterVisitID]
+			if !ok {
+				return domain.CopyResult{}, ErrInvalidRequest
+			}
+			metadata := *step.Lunch
+			metadata.AfterVisitID = fresh
+			step.Lunch = &metadata
+		}
+	}
 	for i := range base.Legs {
 		leg := &base.Legs[i]
 		if leg.FromVisitID != nil {

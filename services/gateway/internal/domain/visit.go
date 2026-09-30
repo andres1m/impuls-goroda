@@ -8,8 +8,10 @@ import (
 type VisitKind string
 
 const (
-	VisitPlace    VisitKind = "visit"
-	VisitFreeTime VisitKind = "free_time"
+	VisitPlace         VisitKind = "visit"
+	VisitFreeTime      VisitKind = "free_time"
+	VisitExternalLunch VisitKind = "external_lunch"
+	VisitLunchIdentity VisitKind = "lunch"
 )
 
 type RouteVisit struct {
@@ -47,7 +49,7 @@ func (v *RouteVisit) Validate() error {
 
 func (v *RouteVisit) validateKind() error {
 	switch v.Kind {
-	case VisitFreeTime:
+	case VisitFreeTime, VisitExternalLunch, VisitLunchIdentity:
 		if v.hasAnyCatalogRef() {
 			return errors.New("free time cannot reference catalog entities")
 		}

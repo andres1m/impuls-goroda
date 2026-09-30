@@ -103,7 +103,7 @@ export default function RouteScreen({ route, mapApiKey, apiBaseUrl = '', toolbar
           <ol className="workspace-timeline">
             {projection.steps.map((step) => {
               const isVisit = step.kind === 'visit';
-              const isLunch = step.applied_constraints?.some((item) => item.code === 'LUNCH_WINDOW');
+              const isLunch = Boolean(step.lunch) || step.applied_constraints?.some((item) => item.code === 'LUNCH_WINDOW');
               const opensLunch = !shared && !isVisit && isLunch && Boolean(onLunch);
               const visit = projection.visits.find((item) => item.id === step.visit_id);
               const executed = projection.execution.get(step.visit_id);
@@ -118,7 +118,7 @@ export default function RouteScreen({ route, mapApiKey, apiBaseUrl = '', toolbar
                   <button className={isVisit ? `workspace-visit${selected ? ' is-active' : ''}${visit?.completed ? ' is-completed' : ''}${cancelled ? ' is-cancelled' : ''}` : `workspace-lunch-card server-free-time${isLunch ? '' : ' server-pause'}`} aria-expanded={opensLunch ? undefined : selected} disabled={opensLunch && lunchSearchDisabled} onClick={() => opensLunch ? onLunch() : setSelectedID(selected ? null : step.visit_id)}>
                     <span className="workspace-visit-time">{localTime(step.visit_start_at, timezone)}</span>
                     <span className="workspace-visit-main"><small>{isVisit && <span className="workspace-visit-marker" aria-hidden="true">{visit.completed ? '✓' : visit.number}</span>}{isLunch ? 'Обед' : isVisit ? categoryTitles[step.catalog?.category] || 'Посещение' : 'Пауза'} · до {localTime(step.visit_end_at, timezone)}</small>
-                      <strong>{isVisit ? visit.title : isLunch ? 'Время на обед' : 'Свободное время'}</strong>
+                      <strong>{isVisit ? visit.title : isLunch ? step.external_venue?.title || 'Время на обед' : 'Свободное время'}</strong>
                       {opensLunch && <em>Найти кафе рядом со мной</em>}
                       {cancelled && <em className="server-cancellation-label">Отменено</em>}
                       {visit?.completed ? <em>Пройдено{executed.confirmation_kind === 'user_reported' ? ' · по вашей отметке' : ' · подтверждено источником'}</em> : executed?.status === 'skipped' ? <em>Пропущено</em> : step.obligation ? <em>Обязательное посещение</em> : step.pinned ? <em>Закреплено</em> : null}
@@ -160,7 +160,7 @@ export default function RouteScreen({ route, mapApiKey, apiBaseUrl = '', toolbar
                       </section>}
                       {executed?.confirmation_kind === 'provider_confirmed' ? <p>Выполнение подтверждено источником.</p> : onExecution && <ExecutionControls key={`${step.visit_id}-${route.revision}`} visitID={step.visit_id} execution={executed} timezone={timezone} disabled={actionsDisabled} onExecution={onExecution} />}
                     </>}
-                    {onRemoval && !['completed', 'skipped'].includes(executed?.status) && <RemovalControls step={step} participation={participation} disabled={actionsDisabled || pinUnavailable} onRemove={onRemoval} />}
+                    {onRemoval && !isLunch && !['completed', 'skipped'].includes(executed?.status) && <RemovalControls step={step} participation={participation} disabled={actionsDisabled || pinUnavailable} onRemove={onRemoval} />}
                     {!isVisit && onRemoval && pinUnavailable && <p>Пересчёт пока недоступен: у пройденных точек не указано фактическое время.</p>}
                     {step.applied_constraints?.map((item, index) => <p key={`${item.code}-${index}`}>{userMessage(item)}</p>)}
                   </div>}

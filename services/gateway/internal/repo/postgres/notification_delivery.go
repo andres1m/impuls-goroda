@@ -92,7 +92,8 @@ AND NOT COALESCE(m.stopped,false) AND NOT COALESCE(m.muted,false)
 AND EXISTS(SELECT 1 FROM planning.route_issue i
 JOIN planning.route_step s ON s.route_id=i.route_id AND s.revision=r.current_revision AND s.visit_id=i.visit_id
 JOIN planning.route_visit v ON v.route_id=s.route_id AND v.visit_id=s.visit_id
-JOIN catalog.session c ON c.city=v.city AND c.id=v.session_id AND c.availability_status='cancelled'
+LEFT JOIN planning.route_lunch_step lunch ON lunch.route_id=s.route_id AND lunch.revision=s.revision AND lunch.visit_id=s.visit_id
+JOIN catalog.session c ON c.city=v.city AND c.id=CASE WHEN lunch.visit_id IS NULL THEN v.session_id ELSE lunch.session_id END AND c.availability_status='cancelled'
 LEFT JOIN planning.execution e ON e.route_id=s.route_id AND e.visit_id=s.visit_id
 WHERE i.route_id=r.id AND i.source_change_id=$3 AND i.issue_type='cancelled' AND i.state<>'resolved' AND COALESCE(e.status,'planned')='planned')
 FROM planning.route r JOIN identity.user_account u ON u.id=r.owner_id

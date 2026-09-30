@@ -7,12 +7,15 @@ import (
 	"time"
 
 	"github.com/andres1m/impuls-goroda/services/optimizer/internal/domain"
+	"github.com/andres1m/impuls-goroda/services/optimizer/internal/pricing"
 )
 
 // RepairStep is one step of a planned route: a visit, or a pause when Candidate is nil.
 type RepairStep struct {
 	Candidate *domain.Candidate
 	Pause     time.Duration
+	Venue     *domain.Coordinate
+	Meal      bool
 	// The step does not start before this, so a plan that still works keeps its times.
 	NotBefore time.Time
 }
@@ -23,6 +26,8 @@ type RepairStop struct {
 	Visit      *domain.SearchVisit
 	PauseStart time.Time
 	PauseEnd   time.Time
+	Transit    *domain.TransitEstimate
+	ArrivalAt  time.Time
 }
 
 type Repair struct {
@@ -86,6 +91,14 @@ func validateRepairProblem(p *Problem) error {
 
 func (r *searchRun) repairStep(b *domain.Branch, i int, step RepairStep, out *Repair) (*domain.Branch, *Anchor) {
 	if step.Candidate == nil {
+		if step.Venue != nil {
+			if next, leg, arrival, ok := r.venuePause(b, step); ok {
+				out.Stops = append(out.Stops, RepairStop{Step: i, PauseStart: next.Now.Add(-step.Pause), PauseEnd: next.Now, Transit: &leg, ArrivalAt: arrival})
+				return next, nil
+			}
+			out.Dropped = append(out.Dropped, i)
+			return b, nil
+		}
 		if next, ok := r.pause(b, step); ok {
 			out.Stops = append(
 				out.Stops,
@@ -116,6 +129,30 @@ func (r *searchRun) repairStep(b *domain.Branch, i int, step RepairStep, out *Re
 	return b, nil
 }
 
+func (r *searchRun) venuePause(b *domain.Branch, step RepairStep) (*domain.Branch, domain.TransitEstimate, time.Time, bool) {
+	leg, ok := r.transit.Estimate(b.Position, *step.Venue, b.Now, r.problem.Modes)
+	if !ok {
+		return nil, domain.TransitEstimate{}, time.Time{}, false
+	}
+	arrival := b.Now.Add(leg.Duration)
+	start := later(arrival, step.NotBefore)
+	end := start.Add(step.Pause)
+	if step.Pause <= 0 || end.After(r.problem.End) {
+		return nil, domain.TransitEstimate{}, time.Time{}, false
+	}
+	next := b.Clone()
+	next.Position = *step.Venue
+	next.Now = end
+	if r.problem.Destination != nil {
+		finish, ok := r.transit.Estimate(next.Position, *r.problem.Destination, end, r.problem.Modes)
+		if !ok || end.Add(finish.Duration).After(r.problem.End) {
+			return nil, domain.TransitEstimate{}, time.Time{}, false
+		}
+		next.Finish = &finish
+	}
+	return next, leg, arrival, r.anchorsReachable(next)
+}
+
 // keep places the step's visit next, at its usual length or else at its minimum.
 func (r *searchRun) keep(b *domain.Branch, step RepairStep, anchor bool) (*domain.Branch, bool) {
 	c := step.Candidate
@@ -137,6 +174,11 @@ func (r *searchRun) keep(b *domain.Branch, step RepairStep, anchor bool) (*domai
 		placeFrom = later(arrival, step.NotBefore.Add(-c.Window.ArrivalBuffer))
 	}
 	quote, allowed := r.problem.Pricing.Quote(c)
+	if step.Meal {
+		zero := int64(0)
+		quote = pricing.Quote{Price: domain.Price{Status: domain.PriceFree, Currency: r.problem.Pricing.Currency, LowerMinor: &zero, UpperMinor: &zero}}
+		allowed = true
+	}
 	if !allowed || !r.problem.Pricing.Fits(b.KnownCost, quote) {
 		return nil, false
 	}

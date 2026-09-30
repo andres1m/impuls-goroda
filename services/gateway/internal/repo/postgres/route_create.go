@@ -91,17 +91,21 @@ VALUES ($1,1,'draft',$2,$3,$4,$5,ST_GeomFromGeoJSON($6::jsonb),ST_GeomFromGeoJSO
 		wire := plan.Steps[i]
 		visit := encodeUUID([16]byte(step.VisitID))
 		var place, entrance, event, session, offer any
-		if step.Catalog != nil {
+		if step.Catalog != nil && step.Lunch == nil {
 			place = optionalRouteID(step.Catalog.PlaceID)
 			entrance = optionalRouteID(step.Catalog.EntranceID)
 			event = optionalRouteID(step.Catalog.EventID)
 			session = optionalRouteID(step.Catalog.SessionID)
 		}
-		if step.Cost != nil {
+		if step.Cost != nil && step.Lunch == nil {
 			offer = optionalRouteID(step.Cost.PriceOfferID)
 		}
+		identityKind := string(step.Kind)
+		if step.Lunch != nil {
+			identityKind = "lunch"
+		}
 		_, err = q.db.Exec(ctx, `INSERT INTO planning.route_visit (route_id,visit_id,visit_kind,city,place_id,entrance_id,event_id,session_id,price_offer_id,created_in_revision,created_at)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,1,$10)`, route, visit, string(step.Kind), city, place, entrance, event, session, offer, now)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,1,$10)`, route, visit, identityKind, city, place, entrance, event, session, offer, now)
 		if err != nil {
 			return d.RouteID{}, err
 		}
@@ -139,6 +143,9 @@ VALUES ($1,$2,'planned','user_reported',1,$3)`, route, visit, now)
 		if err != nil {
 			return d.RouteID{}, err
 		}
+	}
+	if err := q.insertLunchSteps(ctx, route, 1, city, snapshot, plan); err != nil {
+		return d.RouteID{}, err
 	}
 	for i, leg := range plan.Legs {
 		geometry, err := geometryJSON(leg.Geometry)

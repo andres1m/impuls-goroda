@@ -110,7 +110,7 @@ AND p.eligibility_age_min IS NULL AND p.eligibility_age_max IS NULL
 AND (p.valid_until IS NULL OR p.valid_until>=s.starts_at)
 AND (NOT $10 OR p.price_status='unknown' OR p.amount_max=0 OR 'pushkin_card'=ANY(p.benefit_programs))
 AND (NOT $11 OR p.benefit_programs && $12::text[]))`,
-				optionalRouteID(cost.PriceOfferID), city, optionalRouteID(catalog.SessionID), string(cost.Price.Status), cost.Price.LowerMinor, cost.Price.UpperMinor, cost.Price.Currency, cost.Audience, audiences, plan.Constraints.PushkinCardOnly, cost.ProgramAmount != nil, plan.Constraints.BenefitPrograms).Scan(&valid); err != nil {
+				optionalRouteID(cost.PriceOfferID), city, optionalRouteID(catalog.SessionID), string(cost.Price.Status), cost.Price.LowerMinor, cost.Price.UpperMinor, cost.Price.Currency, cost.Audience, audiences, plan.Constraints.PushkinCardOnly && step.Lunch == nil, cost.ProgramAmount != nil, plan.Constraints.BenefitPrograms).Scan(&valid); err != nil {
 				return err
 			}
 			if !valid {

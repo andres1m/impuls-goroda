@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -160,6 +161,24 @@ func (r *RecomputeRequest) Validate() error {
 	}
 	if r.Trigger == nil {
 		return errors.New("recompute trigger is required")
+	}
+	if lunch, ok := r.Trigger.(LunchTrigger); ok {
+		for _, execution := range r.History {
+			if execution.Status != ExecutionCompleted {
+				continue
+			}
+			for _, stop := range lunch.Stops {
+				if stop.VisitID != execution.VisitID {
+					continue
+				}
+				for i := range r.Base.Steps {
+					s := &r.Base.Steps[i]
+					if s.VisitID == stop.VisitID && (s.Lunch == nil || s.Lunch.AfterVisitID != stop.AfterVisitID || s.Lunch.Duration != stop.Duration || !reflect.DeepEqual(s.ExternalVenue, stop.External) || (s.Kind == StepVisit) != (stop.CatalogVisitID != nil)) {
+						return errors.New("completed lunch cannot be changed")
+					}
+				}
+			}
+		}
 	}
 	return r.Trigger.validate(&r.Base)
 }

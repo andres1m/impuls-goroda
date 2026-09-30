@@ -23,7 +23,9 @@ func (q *Queries) currentVisit(
 	err := q.db.QueryRow(ctx, `SELECT EXISTS (
     SELECT 1 FROM planning.route_step s
     JOIN planning.route_visit v ON v.route_id = s.route_id AND v.visit_id = s.visit_id
-    WHERE s.route_id = $1 AND s.revision = $2 AND s.visit_id = $3 AND v.visit_kind = 'visit'
+    LEFT JOIN planning.route_lunch_step lunch ON lunch.route_id = s.route_id AND lunch.revision = s.revision AND lunch.visit_id = s.visit_id
+    WHERE s.route_id = $1 AND s.revision = $2 AND s.visit_id = $3
+      AND CASE WHEN lunch.visit_id IS NULL THEN v.visit_kind = 'visit' ELSE lunch.venue_kind = 'catalog' END
 )`, encodeUUID([16]byte(routeID)), int64(revision), encodeUUID([16]byte(visitID))).Scan(&exists)
 	if err != nil {
 		return fmt.Errorf("find current visit: %w", err)
@@ -242,6 +244,15 @@ FROM planning.route_step WHERE route_id = $1 AND revision = $5`,
 		id, int64(next), encodeUUID([16]byte(visitID)), snapshot, int64(previous))
 	if err != nil {
 		return 0, fmt.Errorf("copy route steps: %w", err)
+	}
+	_, err = q.db.Exec(ctx, `INSERT INTO planning.route_lunch_step (
+    route_id, revision, visit_id, after_visit_id, duration_seconds, venue_kind,
+    city, place_id, entrance_id, event_id, session_id, price_offer_id, external_snapshot
+) SELECT route_id, $2, visit_id, after_visit_id, duration_seconds, venue_kind,
+    city, place_id, entrance_id, event_id, session_id, price_offer_id, external_snapshot
+FROM planning.route_lunch_step WHERE route_id = $1 AND revision = $3`, id, int64(next), int64(previous))
+	if err != nil {
+		return 0, fmt.Errorf("copy route lunch steps: %w", err)
 	}
 	_, err = q.db.Exec(ctx, `INSERT INTO planning.route_leg (
     route_id, revision, position, from_kind, to_kind, from_visit_id, to_visit_id,

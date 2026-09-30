@@ -114,6 +114,9 @@ FROM planning.route_revision WHERE route_id=$1 AND revision=$9`, route, int64(ne
 			return 0, err
 		}
 	}
+	if err := q.insertLunchSteps(ctx, route, next, city, snapshot, plan); err != nil {
+		return 0, err
+	}
 	for i, leg := range plan.Legs {
 		geometry, err := geometryJSON(leg.Geometry)
 		if err != nil {
@@ -149,7 +152,11 @@ WHERE id=$1 AND owner_id=$4 AND city=$5 AND current_revision=$6`, route, int64(n
 	if _, err := q.db.Exec(ctx, `UPDATE planning.route_issue i SET state='resolved',resolved_at=$5
 WHERE i.route_id=$1 AND i.issue_type='cancelled' AND i.state<>'resolved' AND i.catalog_revision<=$4
 AND EXISTS (SELECT 1 FROM planning.route_step s WHERE s.route_id=i.route_id AND s.revision=$2 AND s.visit_id=i.visit_id)
-AND NOT EXISTS (SELECT 1 FROM planning.route_step s WHERE s.route_id=i.route_id AND s.revision=$3 AND s.visit_id=i.visit_id)`, route, int64(access.Revision), int64(next), int64(snapshot.CatalogRevision), now); err != nil {
+AND NOT EXISTS (
+SELECT 1 FROM planning.route_step s
+LEFT JOIN planning.route_lunch_step lunch ON lunch.route_id=s.route_id AND lunch.revision=s.revision AND lunch.visit_id=s.visit_id
+WHERE s.route_id=i.route_id AND s.revision=$3 AND s.visit_id=i.visit_id
+AND (lunch.visit_id IS NULL OR lunch.venue_kind='catalog'))`, route, int64(access.Revision), int64(next), int64(snapshot.CatalogRevision), now); err != nil {
 		return 0, err
 	}
 	return next, nil
@@ -193,15 +200,19 @@ func samePinTime(before, after *time.Time) bool {
 func (q *Queries) insertPinStep(ctx context.Context, route any, revision d.RouteRevisionNumber, city string, step d.RouteStep, wire routewire.RouteStep, existing bool, now time.Time) error {
 	visit := encodeUUID([16]byte(step.VisitID))
 	var place, entrance, event, session, offer any
-	if step.Catalog != nil {
+	if step.Catalog != nil && step.Lunch == nil {
 		place, entrance, event, session = optionalRouteID(step.Catalog.PlaceID), optionalRouteID(step.Catalog.EntranceID), optionalRouteID(step.Catalog.EventID), optionalRouteID(step.Catalog.SessionID)
 	}
-	if step.Cost != nil {
+	if step.Cost != nil && step.Lunch == nil {
 		offer = optionalRouteID(step.Cost.PriceOfferID)
+	}
+	identityKind := string(step.Kind)
+	if step.Lunch != nil {
+		identityKind = "lunch"
 	}
 	inserted, err := q.db.Exec(ctx, `INSERT INTO planning.route_visit
 (route_id,visit_id,visit_kind,city,place_id,entrance_id,event_id,session_id,price_offer_id,created_in_revision,created_at)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (route_id,visit_id) DO NOTHING`, route, visit, string(step.Kind), city, place, entrance, event, session, offer, int64(revision), now)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (route_id,visit_id) DO NOTHING`, route, visit, identityKind, city, place, entrance, event, session, offer, int64(revision), now)
 	if err != nil {
 		return err
 	}
@@ -210,11 +221,11 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (route_id,visit_id) DO N
 	}
 	if inserted.RowsAffected() == 0 {
 		var matches bool
-		if err := q.db.QueryRow(ctx, `SELECT v.visit_kind=$3 AND v.city=$4 AND v.place_id IS NOT DISTINCT FROM $5::uuid
+		if err := q.db.QueryRow(ctx, `SELECT ($10::boolean OR (v.visit_kind=$3 AND v.place_id IS NOT DISTINCT FROM $5::uuid
 AND v.event_id IS NOT DISTINCT FROM $6::uuid AND v.session_id IS NOT DISTINCT FROM $7::uuid
-AND p.status=$8 AND p.evidence_source=$9
+)) AND v.city=$4 AND p.status=$8 AND p.evidence_source=$9
 FROM planning.route_visit v JOIN planning.participation p ON p.route_id=v.route_id AND p.visit_id=v.visit_id
-WHERE v.route_id=$1 AND v.visit_id=$2`, route, visit, string(step.Kind), city, place, event, session, string(step.Participation.Status), string(step.Participation.Evidence)).Scan(&matches); err != nil {
+WHERE v.route_id=$1 AND v.visit_id=$2`, route, visit, identityKind, city, place, event, session, string(step.Participation.Status), string(step.Participation.Evidence), step.Lunch != nil).Scan(&matches); err != nil {
 			return err
 		}
 		if !matches {

@@ -207,6 +207,11 @@ func (s *RoutePlanSnapshot) validateSteps() (map[VisitID]struct{}, error) {
 		}
 		visits[step.VisitID] = struct{}{}
 		stepPositions[step.Position] = struct{}{}
+		if step.Lunch != nil {
+			if _, exists := visits[step.Lunch.AfterVisitID]; !exists {
+				return nil, errors.New("lunch anchor must precede lunch")
+			}
+		}
 		if step.Cost != nil && step.Cost.Price.Currency != s.Cost.KnownPersonal.Currency {
 			return nil, errors.New("step and route cost currencies must match")
 		}
@@ -357,6 +362,16 @@ func (c *RouteConstraints) clone() RouteConstraints {
 
 func (s *RouteStep) clone() RouteStep {
 	clone := *s
+	if s.Lunch != nil {
+		lunch := *s.Lunch
+		clone.Lunch = &lunch
+	}
+	if s.ExternalVenue != nil {
+		venue := *s.ExternalVenue
+		venue.Price.LowerMinor = cloneInt64(s.ExternalVenue.Price.LowerMinor)
+		venue.Price.UpperMinor = cloneInt64(s.ExternalVenue.Price.UpperMinor)
+		clone.ExternalVenue = &venue
+	}
 	if s.Catalog != nil {
 		catalog := s.Catalog.clone()
 		clone.Catalog = &catalog

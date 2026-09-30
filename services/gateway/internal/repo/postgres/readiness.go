@@ -13,6 +13,7 @@ func (q *Queries) RouteStorageReadiness(ctx context.Context) (RouteStorageReadin
 ('identity.user_account', false, false), ('identity.auth_session', false, false),
 ('planning.route', true, true), ('planning.route_revision', true, false),
 ('planning.route_visit', true, false), ('planning.route_step', true, false),
+('planning.route_lunch_step', true, false),
 ('planning.route_leg', true, false), ('planning.participation', true, true),
 ('planning.execution', true, true), ('planning.route_issue', true, true),
 ('planning.route_proposal', true, true), ('planning.route_share', true, true),

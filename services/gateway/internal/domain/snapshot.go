@@ -164,6 +164,8 @@ type RouteStep struct {
 	Participation      ParticipationSnapshot
 	Catalog            *CatalogSnapshot
 	Cost               *CostSnapshot
+	Lunch              *LunchMetadata
+	ExternalVenue      *ExternalVenueSnapshot
 	AppliedConstraints []AppliedConstraint
 }
 
@@ -186,12 +188,16 @@ func (s *RouteStep) validateKindAndTiming() error {
 	}
 	switch s.Kind {
 	case VisitFreeTime:
-		if s.Catalog != nil || s.Cost != nil {
+		if s.Catalog != nil || s.Cost != nil || s.ExternalVenue != nil {
 			return errors.New("free time step must not have catalog or cost snapshot")
 		}
 	case VisitPlace:
-		if s.MinDurationSeconds == 0 || s.Catalog == nil || s.Cost == nil {
+		if s.MinDurationSeconds == 0 || s.Catalog == nil || s.Cost == nil || s.ExternalVenue != nil {
 			return errors.New("visit step requires duration, catalog and cost snapshots")
+		}
+	case VisitExternalLunch:
+		if s.Catalog != nil || s.Cost == nil || s.ExternalVenue == nil || s.Lunch == nil {
+			return errors.New("external lunch requires lunch, venue and cost snapshots")
 		}
 	default:
 		return errors.New("invalid route step kind")
@@ -207,6 +213,16 @@ func (s *RouteStep) validateKindAndTiming() error {
 }
 
 func (s *RouteStep) validateSnapshots() error {
+	if s.Lunch != nil {
+		if err := s.Lunch.Validate(); err != nil || s.Lunch.AfterVisitID == s.VisitID {
+			return errors.New("invalid lunch placement")
+		}
+	}
+	if s.ExternalVenue != nil {
+		if err := s.ExternalVenue.Validate(); err != nil {
+			return err
+		}
+	}
 	if s.Catalog != nil {
 		if err := s.Catalog.Validate(); err != nil {
 			return err

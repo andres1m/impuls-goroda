@@ -48,6 +48,11 @@ func (w *rework) arrange(
 		}
 		if stop.Visit == nil {
 			e.step.ArrivalAt, e.step.VisitStartAt, e.step.VisitEndAt, e.step.DepartureAt = stop.PauseStart, stop.PauseStart, stop.PauseEnd, stop.PauseEnd
+			if stop.Transit != nil {
+				e.transit = stop.Transit
+				e.location = e.step.ExternalVenue.Position
+				e.step.ArrivalAt = stop.ArrivalAt
+			}
 		} else {
 			v := stop.Visit
 			transit := v.Transit
@@ -155,7 +160,7 @@ func reconnectGap(
 	reconnected := false
 	for i := next; i < len(updated); i++ {
 		e := &updated[i]
-		if e.candidate == nil {
+		if e.candidate == nil && e.step.ExternalVenue == nil {
 			if departure.After(e.step.VisitStartAt) {
 				return entries, finish, false
 			}
@@ -233,6 +238,9 @@ func (w *rework) buildGapFillers(
 }
 
 func arrivalDeadline(e *entry) time.Time {
+	if e.candidate == nil {
+		return e.step.VisitStartAt
+	}
 	w := e.candidate.Window
 	if w.Kind == domain.WindowFixed && w.LateEntryAllowed != nil && *w.LateEntryAllowed &&
 		e.step.VisitStartAt.After(w.Start) {
@@ -258,7 +266,7 @@ func (w *rework) historyOverBudget(policy *pricing.Policy) bool {
 	var spent int64
 	for i := range w.history {
 		s := &w.history[i]
-		if s.Cost == nil {
+		if s.Cost == nil || isLunch(s) {
 			continue
 		}
 		if top, known := s.Cost.Price.UpperBound(); known {
@@ -280,7 +288,7 @@ func (w *rework) leftover(policy *pricing.Policy, entries []entry) pricing.Polic
 	limit := *out.Budget.Limit
 	for i := range w.history {
 		s := &w.history[i]
-		if s.Cost == nil {
+		if s.Cost == nil || isLunch(s) {
 			continue
 		}
 		if top, known := s.Cost.Price.UpperBound(); known {
@@ -289,7 +297,7 @@ func (w *rework) leftover(policy *pricing.Policy, entries []entry) pricing.Polic
 	}
 	for i := range entries {
 		e := &entries[i]
-		if e.candidate == nil {
+		if e.candidate == nil || isLunch(&e.step) {
 			continue
 		}
 		if q, ok := out.Quote(e.candidate); ok {
@@ -323,15 +331,22 @@ func (w *rework) plan(
 	}
 	departure, from, snapshots := w.appendHistoryToPlan(&plan, &in)
 	departure = later(w.start, departure)
-	var visits []*domain.Candidate
+	var costs []domain.CostSnapshot
 	for i := range entries {
 		if entries[i].candidate != nil {
-			visits = append(visits, entries[i].candidate)
+			p := *policy
+			if isLunch(&entries[i].step) {
+				p.Budget = domain.Budget{Mode: domain.BudgetNone}
+				p.PushkinCardOnly = false
+				p.AcceptUnknownPrice = true
+				p.Programs = nil
+			}
+			priced, _, err := p.Cost([]*domain.Candidate{entries[i].candidate})
+			if err != nil {
+				return domain.Plan{}, validation.Input{}, err
+			}
+			costs = append(costs, priced[0])
 		}
-	}
-	costs, _, err := policy.Cost(visits)
-	if err != nil {
-		return domain.Plan{}, validation.Input{}, err
 	}
 	departure, from, here, entrySnaps := w.appendEntriesToPlan(
 		&plan,
@@ -368,7 +383,7 @@ func (w *rework) plan(
 	ticketSnapshots := make([]domain.CostSnapshot, 0, len(snapshots))
 	for i := range plan.Steps {
 		step := &plan.Steps[i]
-		meal := slices.ContainsFunc(step.AppliedConstraints, func(c domain.AppliedConstraint) bool {
+		meal := step.Lunch != nil || slices.ContainsFunc(step.AppliedConstraints, func(c domain.AppliedConstraint) bool {
 			return c.Code == lunchWindowCode
 		})
 		if step.Kind == domain.StepVisit && step.Cost != nil && !meal {
@@ -381,6 +396,16 @@ func (w *rework) plan(
 	}
 	plan.Cost = summary
 	w.finalizeRecomputedPlan(&plan, &constraints, ticketSnapshots, degraded)
+	for i := range plan.Steps {
+		s := &plan.Steps[i]
+		if s.ExternalVenue != nil {
+			id := s.VisitID
+			if s.ExternalVenue.Price.Status == domain.PriceUnknown {
+				plan.Warnings = append(plan.Warnings, domain.Warning{Code: "LUNCH_PRICE_UNKNOWN", Scope: domain.ScopeVisit, VisitID: &id, Message: "The external lunch price is unknown"})
+			}
+			plan.Warnings = append(plan.Warnings, domain.Warning{Code: "LUNCH_AVAILABILITY_UNKNOWN", Scope: domain.ScopeVisit, VisitID: &id, Message: "The external venue's opening hours and availability are unverified"})
+		}
+	}
 	return plan, in, nil
 }
 
@@ -458,12 +483,14 @@ func (w *rework) appendEntriesToPlan(
 					policy.Currency,
 				),
 			)
-			step.Cost = &costs[k]
-			snapshots = append(snapshots, costs[k])
-			k++
-			in.Candidates[id] = *e.candidate
-			if step.Obligation {
-				w.markObligation(plan, &step)
+			if e.candidate != nil {
+				step.Cost = &costs[k]
+				snapshots = append(snapshots, costs[k])
+				k++
+				in.Candidates[id] = *e.candidate
+				if step.Obligation {
+					w.markObligation(plan, &step)
+				}
 			}
 		}
 		plan.Steps = append(plan.Steps, step)

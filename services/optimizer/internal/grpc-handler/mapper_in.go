@@ -282,6 +282,44 @@ func triggerFromProto(r *reader, in *pb.RecomputeRequest) domain.Trigger {
 			VisitID: requiredID[domain.VisitID](r, "pin.visit_id", p.GetVisitId()),
 			Kind:    enumValue(r, "pin.kind", pinKinds, p.GetKind()),
 		}
+	case *pb.RecomputeRequest_Lunch:
+		l := t.Lunch
+		if l == nil {
+			r.fail("lunch", reasonRequired)
+			return nil
+		}
+		out := domain.LunchTrigger{SchemaVersion: l.GetSchemaVersion()}
+		if out.SchemaVersion != 1 {
+			r.fail("lunch.schema_version", reasonUnsupported)
+		}
+		if len(l.GetStops()) > 8 {
+			r.fail("lunch.stops", "must contain at most 8 stops")
+		}
+		for i, stop := range l.GetStops() {
+			f := index("lunch.stops", i)
+			if stop == nil {
+				r.fail(f, reasonRequired)
+				continue
+			}
+			s := domain.LunchStop{VisitID: requiredID[domain.VisitID](r, join(f, "visit_id"), stop.GetVisitId()), AfterVisitID: requiredID[domain.VisitID](r, join(f, "after_visit_id"), stop.GetAfterVisitId()), Duration: seconds(r, join(f, "duration_seconds"), stop.GetDurationSeconds())}
+			switch v := stop.GetVenue().(type) {
+			case *pb.LunchStop_External:
+				if v.External == nil {
+					r.fail(join(f, "external"), reasonRequired)
+					break
+				}
+				e := v.External
+				s.External = &domain.ExternalVenueSnapshot{Provider: e.GetProvider(), ExternalID: e.GetExternalId(), Title: e.GetTitle(), Position: requiredCoordinate(r, join(f, "external.position"), e.GetPosition()), Address: e.GetAddress(), ObservedAt: requiredTime(r, join(f, "external.observed_at"), e.GetObservedAt()), Price: priceFromProto(r, join(f, "external.price"), e.GetPrice()), Availability: "unknown", HoursVerification: enumValue(r, join(f, "external.hours_verification"), verificationStatuses, e.GetHoursVerification())}
+				if e.GetAvailability() != pb.ExternalVenueAvailability_EXTERNAL_VENUE_AVAILABILITY_UNKNOWN {
+					r.fail(join(f, "external.availability"), reasonUnsupported)
+				}
+			case *pb.LunchStop_CatalogVisitId:
+				id := requiredID[domain.VisitID](r, join(f, "catalog_visit_id"), v.CatalogVisitId)
+				s.CatalogVisitID = &id
+			}
+			out.Stops = append(out.Stops, s)
+		}
+		return out
 	default:
 		r.fail("trigger", reasonRequired)
 		return nil
@@ -486,6 +524,15 @@ func stepFromProto(r *reader, field string, s *pb.RouteStep) domain.Step {
 		Pinned:       s.GetPinned(),
 		Obligation:   s.GetObligation(),
 		Catalog:      catalogFromProto(r, join(field, "catalog"), s.GetCatalog()),
+	}
+	if l := s.GetLunch(); l != nil {
+		out.Lunch = &domain.LunchMetadata{AfterVisitID: requiredID[domain.VisitID](r, join(field, "lunch.after_visit_id"), l.GetAfterVisitId()), Duration: seconds(r, join(field, "lunch.duration_seconds"), l.GetDurationSeconds())}
+	}
+	if e := s.GetExternalVenue(); e != nil {
+		out.ExternalVenue = &domain.ExternalVenueSnapshot{Provider: e.GetProvider(), ExternalID: e.GetExternalId(), Title: e.GetTitle(), Position: requiredCoordinate(r, join(field, "external_venue.position"), e.GetPosition()), Address: e.GetAddress(), ObservedAt: requiredTime(r, join(field, "external_venue.observed_at"), e.GetObservedAt()), Price: priceFromProto(r, join(field, "external_venue.price"), e.GetPrice()), Availability: "unknown", HoursVerification: enumValue(r, join(field, "external_venue.hours_verification"), verificationStatuses, e.GetHoursVerification())}
+		if e.GetAvailability() != pb.ExternalVenueAvailability_EXTERNAL_VENUE_AVAILABILITY_UNKNOWN {
+			r.fail(join(field, "external_venue.availability"), reasonUnsupported)
+		}
 	}
 	if p := s.GetParticipation(); p == nil {
 		r.fail(join(field, "participation"), reasonRequired)

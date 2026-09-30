@@ -11,6 +11,7 @@ import (
 	"github.com/andres1m/impuls-goroda/pkg/svc"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/auth"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/domain"
+	"github.com/andres1m/impuls-goroda/services/gateway/internal/lunchprovider"
 	"github.com/andres1m/impuls-goroda/services/gateway/internal/repo/postgres"
 	"go.uber.org/zap"
 )
@@ -22,6 +23,7 @@ type Config struct {
 	ScenarioResultDeliveryEnabled bool
 	MAXDeliveryEventsEnabled      bool
 	Optimizer                     Optimizer
+	LunchProvider                 *lunchprovider.Client
 	BotToken                      string
 	WebhookSecret                 string
 	InitDataMaxAge                time.Duration

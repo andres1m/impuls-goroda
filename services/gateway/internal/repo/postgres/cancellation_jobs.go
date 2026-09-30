@@ -82,7 +82,8 @@ func (q *Queries) CurrentCancellationVisits(ctx context.Context, job Cancellatio
 JOIN planning.route r ON r.id=i.route_id AND r.owner_id=$2
 JOIN planning.route_step s ON s.route_id=r.id AND s.revision=r.current_revision AND s.visit_id=i.visit_id
 JOIN planning.route_visit v ON v.route_id=s.route_id AND v.visit_id=s.visit_id
-JOIN catalog.session c ON c.city=v.city AND c.id=v.session_id
+LEFT JOIN planning.route_lunch_step lunch ON lunch.route_id=s.route_id AND lunch.revision=s.revision AND lunch.visit_id=s.visit_id
+JOIN catalog.session c ON c.city=v.city AND c.id=CASE WHEN lunch.visit_id IS NULL THEN v.session_id ELSE lunch.session_id END
 LEFT JOIN planning.participation p ON p.route_id=v.route_id AND p.visit_id=v.visit_id
 LEFT JOIN planning.execution e ON e.route_id=v.route_id AND e.visit_id=v.visit_id
 WHERE i.route_id=$1 AND i.issue_type='cancelled' AND i.state<>'resolved' AND COALESCE(e.status,'planned')='planned'

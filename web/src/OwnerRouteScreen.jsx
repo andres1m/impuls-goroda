@@ -5,6 +5,8 @@ import PanicControls from './PanicControls.jsx';
 import ShareControls from './ShareControls.jsx';
 import NotificationControls from './NotificationControls.jsx';
 import LunchSearch from './LunchSearch.jsx';
+import LunchEditor from './LunchEditor.jsx';
+import { createLunchAttempt, sendLunchCommand } from './lunchCommands.js';
 import { localDateTime, scenarioLunchWindow } from './scenarioForm.js';
 import { loadScenario, createScenario, createDraftAttempt, saveScenarioDraft, createCompletionAttempt, completeScenario } from './scenario.js';
 import { archetypeTitles } from './routeProjection.js';
@@ -29,6 +31,7 @@ export default function OwnerRouteScreen({ route: initialRoute, apiBaseUrl, acce
   const [deleted, setDeleted] = useState(false);
   const [lunchRequest, setLunchRequest] = useState(0);
   const [lunchPreview, setLunchPreview] = useState(null);
+  const [selectedLunch, setSelectedLunch] = useState(null);
   const [panicRequest, setPanicRequest] = useState(0);
   const [variants, setVariants] = useState([]);
   const [variantsOpen, setVariantsOpen] = useState(true);
@@ -38,11 +41,11 @@ export default function OwnerRouteScreen({ route: initialRoute, apiBaseUrl, acce
   const command = useRef(null);
   const request = useRef(null);
   useEffect(() => () => request.current?.abort(), []);
-  useEffect(() => { setLunchPreview(null); }, [route.route_id, route.revision]);
+  useEffect(() => { setLunchPreview(null); setSelectedLunch(null); }, [route.route_id, route.revision]);
 
   function chooseLunch(value) {
-    setLunchPreview(value);
-    requestAnimationFrame(() => document.querySelector('.workspace-map-column')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+    setLunchPreview(value); setSelectedLunch(value);
+    requestAnimationFrame(() => document.querySelector('.lunch-editor')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
   }
 
   useEffect(() => {
@@ -162,7 +165,8 @@ export default function OwnerRouteScreen({ route: initialRoute, apiBaseUrl, acce
     setBusy(true); setMessage('');
     try {
       if (!command.current) {
-        const attempt = operation === 'execution' ? createExecutionAttempt(route, visitID, status, undefined, acknowledge)
+        const attempt = operation === 'lunch' ? createLunchAttempt(route, visitID)
+          : operation === 'execution' ? createExecutionAttempt(route, visitID, status, undefined, acknowledge)
           : operation === 'participation' ? createParticipationAttempt(route, visitID, status)
           : operation === 'pin' ? createPinAttempt(route, visitID, status)
           : operation === 'removal' ? createRemovalAttempt(route, visitID, status, acknowledge)
@@ -175,7 +179,8 @@ export default function OwnerRouteScreen({ route: initialRoute, apiBaseUrl, acce
       }
       const value = command.current;
       if (!value.acknowledged && !value.conflict) {
-        const send = ['create', 'revoke'].includes(value.attempt.operation) ? sendShareCommand
+        const send = value.attempt.operation === 'lunch' ? sendLunchCommand
+          : ['create', 'revoke'].includes(value.attempt.operation) ? sendShareCommand
           : ['removal', 'panic', 'apply', 'reject'].includes(value.attempt.operation) ? sendProposalCommand : sendRouteCommand;
         const result = await send(apiBaseUrl, accessToken, value.attempt, fetch, controller.signal);
         if (controller.signal.aborted) return;
@@ -197,6 +202,13 @@ export default function OwnerRouteScreen({ route: initialRoute, apiBaseUrl, acce
         setMessage(value.attempt.operation === 'create' ? 'Ссылка готова.' : 'Ссылка отозвана. Созданные по ней копии сохранятся.');
         return;
       }
+      if (value.attempt.operation === 'lunch' && value.result?.status === 'PROPOSED' && !value.conflict) {
+        const updated = await loadOwnerRoute(apiBaseUrl, accessToken, value.attempt.routeID, fetch, controller.signal);
+        if (controller.signal.aborted) return;
+        if (updated.revision !== value.attempt.revision || updated.pending_proposal?.proposal_id !== value.result.proposal.proposal_id) throw new Error('Stale lunch proposal snapshot');
+        setRoute(updated); setProposal(updated.pending_proposal); command.current = null; setPending(false);
+        return;
+      }
       if (['removal', 'panic'].includes(value.attempt.operation) && value.result?.status === 'PROPOSED' && !value.conflict) {
         setProposal(value.result.proposal); command.current = null; setPending(false);
         return;
@@ -204,11 +216,11 @@ export default function OwnerRouteScreen({ route: initialRoute, apiBaseUrl, acce
       const updated = await loadOwnerRoute(apiBaseUrl, accessToken, value.attempt.routeID, fetch, controller.signal);
       if (controller.signal.aborted) return;
       if (value.acknowledged && value.attempt.operation === 'save' && updated.lifecycle !== 'saved') throw new Error('Invalid saved route');
-      if (value.acknowledged && ['pin', 'apply', 'reject', 'removal', 'panic'].includes(value.attempt.operation) && BigInt(updated.revision) < BigInt(value.result.revision)) throw new Error('Stale route snapshot');
+      if (value.acknowledged && ['pin', 'apply', 'reject', 'removal', 'panic', 'lunch'].includes(value.attempt.operation) && BigInt(updated.revision) < BigInt(value.result.revision)) throw new Error('Stale route snapshot');
       setRoute(updated); command.current = null; setPending(false); setDeleteReview(false); setDeleteAcknowledged(false);
       setProposal(updated.pending_proposal || null);
       const providerConfirmed = value.result?.execution?.confirmation_kind === 'provider_confirmed' || value.result?.participation?.evidence === 'provider';
-      setMessage(value.conflict ? 'Маршрут обновлён. Проверьте его и повторите нужное действие.' : value.attempt.operation === 'apply' ? 'Изменения применены.' : value.attempt.operation === 'reject' ? 'Предложение отклонено. Маршрут не изменён.' : ['removal', 'panic'].includes(value.attempt.operation) ? 'Маршрут не изменился.' : value.attempt.operation === 'save' ? 'Маршрут сохранён.' : providerConfirmed ? 'Подтверждение источника сохранено.' : 'Отметка сохранена.');
+      setMessage(value.conflict ? 'Маршрут обновлён. Проверьте его и повторите нужное действие.' : value.attempt.operation === 'apply' ? 'Изменения применены.' : value.attempt.operation === 'reject' ? 'Предложение отклонено. Маршрут не изменён.' : ['removal', 'panic', 'lunch'].includes(value.attempt.operation) ? 'Маршрут не изменился.' : value.attempt.operation === 'save' ? 'Маршрут сохранён.' : providerConfirmed ? 'Подтверждение источника сохранено.' : 'Отметка сохранена.');
     } catch (error) {
       if (controller.signal.aborted) return;
       if (error.code === 'REVISION_CONFLICT') {
@@ -230,13 +242,14 @@ export default function OwnerRouteScreen({ route: initialRoute, apiBaseUrl, acce
   if (deleted) return <main className="entry-page"><section className="entry-state" role="status"><h1>Маршрут удалён</h1><p>Билеты и регистрации не отменены. Независимые копии маршрута сохранятся.</p>{onBack && <button className="scenario-option" onClick={onBack}>{backLabel}</button>}</section></main>;
 
   return <div className="owner-page">
-    <RouteScreen route={route} mapApiKey={mapApiKey} apiBaseUrl={apiBaseUrl} lunchPreview={lunchPreview} onClearLunch={() => setLunchPreview(null)}
+    <RouteScreen route={route} mapApiKey={mapApiKey} apiBaseUrl={apiBaseUrl} lunchPreview={lunchPreview} onClearLunch={() => { setLunchPreview(null); setSelectedLunch(null); }}
       toolbar={<><nav className="owner-toolbar">{onBack && <button disabled={busy || pending || Boolean(proposal)} onClick={onBack}>{backLabel}</button>}<button disabled={busy || pending || deleteReview} onClick={refreshRoute}>{refreshing ? 'Обновляем…' : 'Обновить'}</button></nav>
         {proposal && <RemovalProposalReview route={route} proposal={proposal} disabled={busy || pending} onApply={() => runCommand('apply')} onReject={() => runCommand('reject')} />}
         <PanicControls openRequest={panicRequest} hideLauncher route={route} mapApiKey={mapApiKey} disabled={busy || pending || Boolean(proposal)} onPanic={(input) => runCommand('panic', input)} /></>}
       variantTabs={variantsOpen && <section className="owner-variants" aria-label="Варианты маршрута">{variants.map((value) => <button key={value.route_id} aria-pressed={route.route_id === value.route_id} disabled={busy || pending || Boolean(proposal)} onClick={() => chooseVariant(value.route_id)}>{archetypeTitles[value.plan.archetype_id] || 'Вариант маршрута'}</button>)}<button disabled={busy || pending || Boolean(proposal)} onClick={() => rebuild()}>{rebuilding.current ? 'Повторить расчёт' : 'Другие варианты'}</button></section>}
       actionsDisabled={busy || pending || Boolean(proposal)} lunchSearchDisabled={busy || pending} onLunch={() => setLunchRequest((value) => value + 1)} onExecution={(visitID, status, times) => runCommand('execution', visitID, status, times)} onParticipation={(visitID, action) => runCommand('participation', visitID, action)} onPin={(visitID, kind) => runCommand('pin', visitID, kind)} onRemoval={(visitID, mode, acknowledge) => runCommand('removal', visitID, mode, acknowledge)} />
     <LunchSearch hideLauncher key={`lunch-${route.route_id}`} openRequest={lunchRequest} routeID={route.route_id} city={route.city} plan={route.plan} apiBaseUrl={apiBaseUrl} accessToken={accessToken} mapApiKey={mapApiKey} disabled={busy || pending} onChoose={chooseLunch} onSchedule={rebuild} />
+    <LunchEditor route={route} selected={selectedLunch} disabled={busy || Boolean(proposal)} pending={pending} onClear={() => { setSelectedLunch(null); setLunchPreview(null); }} onSubmit={(input) => runCommand('lunch', input)} />
     <section className="owner-fixed-actions" aria-label="Действия маршрута">
       <button className="scenario-option" disabled={busy || pending || Boolean(proposal)} onClick={() => { setVariantsOpen(true); document.querySelector('.owner-variants')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>Варианты</button>
       <button className="scenario-option" disabled={busy || pending} onClick={() => setLunchRequest((value) => value + 1)}>Обед</button>

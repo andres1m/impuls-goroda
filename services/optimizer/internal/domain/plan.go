@@ -145,6 +145,8 @@ const (
 type Step struct {
 	VisitID            VisitID
 	Kind               StepKind
+	Lunch              *LunchMetadata
+	ExternalVenue      *ExternalVenueSnapshot
 	Position           int
 	ArrivalAt          time.Time
 	VisitStartAt       time.Time
@@ -173,6 +175,9 @@ func (s *Step) Validate() error {
 	if s.VisitEndAt.Sub(s.VisitStartAt) < s.MinDuration {
 		return errors.New("step is shorter than its minimum duration")
 	}
+	if s.Lunch != nil && s.VisitEndAt.Sub(s.VisitStartAt) != s.Lunch.Duration {
+		return errors.New("lunch interval must match its duration")
+	}
 	if err := s.validateKind(); err != nil {
 		return err
 	}
@@ -188,8 +193,16 @@ func (s *Step) Validate() error {
 }
 
 func (s *Step) validateKind() error {
+	if s.Lunch != nil {
+		if err := s.Lunch.Validate(); err != nil {
+			return err
+		}
+	}
 	switch s.Kind {
 	case StepVisit:
+		if s.ExternalVenue != nil {
+			return errors.New("catalog visit cannot have an external venue")
+		}
 		if s.Catalog == nil || s.Cost == nil || s.MinDuration == 0 {
 			return errors.New("visit step requires catalog, cost and minimum duration")
 		}
@@ -198,10 +211,18 @@ func (s *Step) validateKind() error {
 		}
 		return s.Cost.Validate()
 	case StepFreeTime:
+		if s.ExternalVenue != nil {
+			return errors.New("free time cannot have an external venue")
+		}
 		if s.Catalog != nil || s.Cost != nil {
 			return errors.New("free time step must not have catalog or cost")
 		}
 		return nil
+	case StepExternalLunch:
+		if s.Lunch == nil || s.ExternalVenue == nil || s.Catalog != nil || s.Cost != nil || s.Pinned || s.Obligation {
+			return errors.New("external lunch requires metadata and venue without catalog, ticket cost or commitment")
+		}
+		return s.ExternalVenue.Validate()
 	default:
 		return errors.New("invalid step kind")
 	}
@@ -475,6 +496,11 @@ func (p *Plan) validateSteps() error {
 		}
 		if _, duplicate := visits[step.VisitID]; duplicate {
 			return errors.New("plan contains a duplicate visit")
+		}
+		if step.Lunch != nil {
+			if _, ok := visits[step.Lunch.AfterVisitID]; !ok {
+				return errors.New("lunch anchor must precede its stop")
+			}
 		}
 		visits[step.VisitID] = struct{}{}
 		// Legs already keep steps ordered and after the plan start; without a

@@ -193,6 +193,12 @@ func (e *planEncoder) plan(value d.RoutePlanSnapshot) *pb.RoutePlan {
 	}
 	for _, value := range value.Steps {
 		step := &pb.RouteStep{VisitId: rawID(&value.VisitID), Kind: pb.VisitKind(e.enum(string(value.Kind), pb.VisitKind_value, "VISIT_KIND_")), Position: e.position(value.Position), ArrivalAt: e.instant(value.ArrivalAt), VisitStartAt: e.instant(value.VisitStartAt), VisitEndAt: e.instant(value.VisitEndAt), DepartureAt: e.instant(value.DepartureAt), MinDurationSeconds: value.MinDurationSeconds, Pinned: value.Pinned, Obligation: value.Obligation, Catalog: e.catalog(value.Catalog), Cost: e.cost(value.Cost), Participation: &pb.ParticipationSnapshot{Status: pb.ParticipationStatus(e.enum(string(value.Participation.Status), pb.ParticipationStatus_value, "PARTICIPATION_STATUS_")), Evidence: pb.ParticipationEvidence(e.enum(string(value.Participation.Evidence), pb.ParticipationEvidence_value, "PARTICIPATION_EVIDENCE_"))}}
+		if value.Lunch != nil {
+			step.Lunch = &pb.LunchMetadata{AfterVisitId: rawID(&value.Lunch.AfterVisitID), DurationSeconds: value.Lunch.DurationSeconds}
+		}
+		if value.ExternalVenue != nil {
+			step.ExternalVenue = e.externalVenue(value.ExternalVenue)
+		}
 		for _, constraint := range value.AppliedConstraints {
 			step.AppliedConstraints = append(step.AppliedConstraints, &pb.AppliedConstraint{Code: constraint.Code, Strength: pb.ConstraintStrength(e.enum(string(constraint.Strength), pb.ConstraintStrength_value, "CONSTRAINT_STRENGTH_")), Outcome: pb.ConstraintOutcome(e.enum(string(constraint.Outcome), pb.ConstraintOutcome_value, "CONSTRAINT_OUTCOME_")), Message: constraint.Message})
 		}

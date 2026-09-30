@@ -36,6 +36,9 @@ func (r *LunchSearchRouter) organization(c *echo.Context) error {
 				return malformedCommandHeader()
 			case "not_found":
 				failure.Status, failure.Code = http.StatusNotFound, "LUNCH_ORGANIZATION_NOT_FOUND"
+			case "not_food":
+				failure.Status, failure.Code = http.StatusUnprocessableEntity, "LUNCH_VENUE_NOT_FOOD"
+				failure.Message = "The organization is not a verified cafe"
 			case "access_denied":
 				failure.Code = "LUNCH_DETAILS_ACCESS_DENIED"
 			case "busy":

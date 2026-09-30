@@ -70,6 +70,12 @@ func (r *Runtime) resolveRouteProposal(ctx context.Context, target RouteCommand,
 			} else {
 				revision, err = q.RejectPanicProposal(ctx, target.RouteID, target.ActorID, target.ExpectedRevision, proposalID, r.clock().UTC())
 			}
+		case "lunch":
+			if apply {
+				revision, err = q.ApplyLunchProposal(ctx, target.RouteID, target.ActorID, target.ExpectedRevision, proposalID, r.clock().UTC())
+			} else {
+				revision, err = q.RejectLunchProposal(ctx, target.RouteID, target.ActorID, target.ExpectedRevision, proposalID, r.clock().UTC())
+			}
 		default:
 			return command.Result{}, routewire.ErrInvalidResult
 		}

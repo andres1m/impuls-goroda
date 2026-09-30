@@ -26,6 +26,7 @@ const (
 	RejectRouteProposal      Operation = "rejectRouteProposal"
 	SetVisitPin              Operation = "setVisitPin"
 	ProposeVisitRemoval      Operation = "proposeVisitRemoval"
+	ProposeLunchChange       Operation = "proposeLunchChange"
 	UpdateVisitParticipation Operation = "updateVisitParticipation"
 	UpdateVisitExecution     Operation = "updateVisitExecution"
 	CreateRouteShare         Operation = "createRouteShare"
@@ -65,7 +66,7 @@ func (e *Envelope) Validate() error {
 func (o Operation) Valid() bool {
 	switch o {
 	case CreateScenario, SelectScenarioRoute, OptimizeRoutes, CompleteBotScenario, SaveBotScenarioDraft, SaveRoute, ProposePanicReroute, ApplyRouteProposal,
-		RejectRouteProposal, SetVisitPin, ProposeVisitRemoval, UpdateVisitParticipation,
+		RejectRouteProposal, SetVisitPin, ProposeVisitRemoval, ProposeLunchChange, UpdateVisitParticipation,
 		UpdateVisitExecution, CreateRouteShare, RevokeRouteShare, CopySharedRoute, DeleteRoute, SetRouteNotifications:
 		return true
 	default:

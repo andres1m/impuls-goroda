@@ -311,6 +311,12 @@ func stepToProto(s *domain.Step) *pb.RouteStep {
 			Evidence: participationEvidences.toProto[s.Participation.Evidence],
 		},
 	}
+	if s.Lunch != nil {
+		out.Lunch = &pb.LunchMetadata{AfterVisitId: idBytes(s.Lunch.AfterVisitID), DurationSeconds: int64(s.Lunch.Duration / time.Second)}
+	}
+	if e := s.ExternalVenue; e != nil {
+		out.ExternalVenue = &pb.ExternalVenueSnapshot{Provider: e.Provider, ExternalId: e.ExternalID, Title: e.Title, Position: coordinateToProto(e.Position), Address: e.Address, ObservedAt: timestamppb.New(e.ObservedAt), Price: &pb.Price{Status: priceStatuses.toProto[e.Price.Status], Currency: e.Price.Currency, LowerMinor: e.Price.LowerMinor, UpperMinor: e.Price.UpperMinor}, Availability: pb.ExternalVenueAvailability_EXTERNAL_VENUE_AVAILABILITY_UNKNOWN, HoursVerification: verificationStatuses.toProto[e.HoursVerification]}
+	}
 	if s.Catalog != nil {
 		out.Catalog = catalogToProto(s.Catalog)
 	}

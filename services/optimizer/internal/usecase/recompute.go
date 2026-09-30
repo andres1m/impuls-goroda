@@ -174,6 +174,11 @@ func (p *Planner) executeRecompute(
 	if res, conflict := w.repairConflict(repair); conflict {
 		return done(res)
 	}
+	for _, dropped := range repair.Dropped {
+		if isLunch(&w.future[order[dropped]].step) {
+			return done(domain.RecomputeResult{Status: domain.RecomputeConflict, Conflicts: []domain.Conflict{{Code: "LUNCH_UNREACHABLE", Message: "The selected lunch cannot fit with travel and the remaining commitments"}}})
+		}
+	}
 	entries, finish, err := w.arrange(
 		ctx,
 		s,
@@ -338,6 +343,68 @@ func (w *rework) applyTrigger(newID func() domain.VisitID) {
 		w.applyRemovalTrigger(t, newID)
 	case domain.PinTrigger:
 		w.applyPinTrigger(t)
+	case domain.LunchTrigger:
+		w.applyLunchTrigger(t)
+	}
+}
+
+func (w *rework) applyLunchTrigger(t domain.LunchTrigger) {
+	original := map[domain.VisitID]domain.Step{}
+	for _, a := range w.future {
+		original[a.step.VisitID] = a.step
+	}
+	w.future = slices.DeleteFunc(w.future, func(a ahead) bool {
+		return a.step.Lunch != nil || (isLunch(&a.step) && slices.ContainsFunc(t.Stops, func(s domain.LunchStop) bool { return s.VisitID == a.step.VisitID }))
+	})
+	for _, stop := range t.Stops {
+		if slices.ContainsFunc(w.history, func(s domain.Step) bool { return s.VisitID == stop.VisitID }) {
+			continue
+		}
+		step, found := original[stop.VisitID]
+		if !found {
+			step = domain.Step{VisitID: stop.VisitID, Participation: domain.Participation{Status: domain.ParticipationNotRequired, Evidence: domain.EvidenceNone}}
+		}
+		step.Lunch = &domain.LunchMetadata{AfterVisitID: stop.AfterVisitID, Duration: stop.Duration}
+		step.MinDuration = stop.Duration
+		step.Pinned = false
+		step.Obligation = false
+		step.ExternalVenue = nil
+		step.Catalog = nil
+		step.Cost = nil
+		switch {
+		case stop.External != nil:
+			step.Kind = domain.StepExternalLunch
+			venue := *stop.External
+			step.ExternalVenue = &venue
+		case stop.CatalogVisitID != nil:
+			if old, ok := original[*stop.CatalogVisitID]; ok {
+				step = old
+				step.Lunch = &domain.LunchMetadata{AfterVisitID: stop.AfterVisitID, Duration: stop.Duration}
+				step.MinDuration = stop.Duration
+			}
+		default:
+			step.Kind = domain.StepFreeTime
+		}
+		step.AppliedConstraints = slices.DeleteFunc(slices.Clone(step.AppliedConstraints), func(c domain.AppliedConstraint) bool { return c.Code == lunchWindowCode })
+		anchor := slices.IndexFunc(w.future, func(a ahead) bool { return a.step.VisitID == stop.AfterVisitID })
+		insert := anchor + 1
+		for insert < len(w.future) && w.future[insert].step.Lunch != nil && w.future[insert].step.Lunch.AfterVisitID == stop.AfterVisitID {
+			insert++
+		}
+		if anchor < 0 && !slices.ContainsFunc(w.history, func(s domain.Step) bool { return s.VisitID == stop.AfterVisitID }) {
+			w.conflicts = append(w.conflicts, domain.Conflict{Code: "LUNCH_ANCHOR_MISSING", Message: "The lunch anchor is no longer in the route"})
+			continue
+		}
+		w.future = slices.Insert(w.future, insert, ahead{step: step})
+		if !found {
+			id := step.VisitID
+			w.changes = append(w.changes, domain.RouteChange{Kind: domain.ChangeAdded, Scope: domain.ScopeVisit, AfterVisitID: &id, Message: "A lunch was added after its selected stop"})
+		}
+	}
+	for id, old := range original {
+		if old.Lunch != nil && !slices.ContainsFunc(t.Stops, func(s domain.LunchStop) bool { return s.VisitID == id }) {
+			w.remove(id, "The lunch was removed at the user's request")
+		}
 	}
 }
 
@@ -461,11 +528,15 @@ func (w *rework) resolve(catalog []domain.Candidate) {
 			w.remove(a.step.VisitID, "The place no longer states its opening hours")
 		case catalog[j].Session != nil && catalog[j].Session.Availability == domain.AvailabilityCancelled:
 			w.cancel(i)
-		case !a.step.Obligation && !w.committed(&a.step) && len(admissible(catalog[j:j+1], &w.req.Constraints)) == 0:
+		case !isLunch(&a.step) && !a.step.Obligation && !w.committed(&a.step) && len(admissible(catalog[j:j+1], &w.req.Constraints)) == 0:
 			a.gap = true
 			w.remove(a.step.VisitID, "The visit is no longer available under the route constraints")
 		default:
 			c := catalog[j]
+			if a.step.Lunch != nil {
+				c.Window.MinDuration = a.step.Lunch.Duration
+				c.Window.RecommendedDuration = a.step.Lunch.Duration
+			}
 			a.candidate = &c
 		}
 	}
@@ -473,6 +544,9 @@ func (w *rework) resolve(catalog []domain.Candidate) {
 
 // isLunch is true for the step that holds the route's lunch; only lunch may rest on assumed hours.
 func isLunch(s *domain.Step) bool {
+	if s.Lunch != nil {
+		return true
+	}
 	return slices.ContainsFunc(
 		s.AppliedConstraints,
 		func(c domain.AppliedConstraint) bool { return c.Code == lunchWindowCode },
@@ -605,9 +679,17 @@ func (w *rework) repairSteps() (steps []solver.RepairStep, order []int) {
 		}
 		order = append(order, i)
 		step := solver.RepairStep{Candidate: a.candidate}
-		if a.step.Kind == domain.StepFreeTime {
+		step.Meal = isLunch(&a.step)
+		if a.step.Kind == domain.StepFreeTime || a.step.Kind == domain.StepExternalLunch {
 			step.Pause = a.step.VisitEndAt.Sub(a.step.VisitStartAt)
+			if a.step.Lunch != nil {
+				step.Pause = a.step.Lunch.Duration
+			}
 			step.NotBefore = a.step.VisitStartAt
+			if a.step.ExternalVenue != nil {
+				pos := a.step.ExternalVenue.Position
+				step.Venue = &pos
+			}
 		} else if !delayed {
 			step.NotBefore = a.step.VisitStartAt
 		}
@@ -628,6 +710,11 @@ func (w *rework) points(req *domain.RecomputeRequest, catalog []domain.Candidate
 	}
 	for i := range catalog {
 		out = append(out, catalog[i].Place.Location)
+	}
+	for i := range w.future {
+		if e := w.future[i].step.ExternalVenue; e != nil {
+			out = append(out, e.Position)
+		}
 	}
 	slices.SortFunc(out, func(a, b domain.Coordinate) int {
 		if c := cmp.Compare(a.Longitude, b.Longitude); c != 0 {
@@ -693,7 +780,9 @@ func stepTimingOrMetaChanged(old, step *domain.Step) bool {
 		!old.DepartureAt.Equal(step.DepartureAt) ||
 		old.Pinned != step.Pinned ||
 		old.Obligation != step.Obligation ||
-		!reflect.DeepEqual(old.Catalog, step.Catalog)
+		!reflect.DeepEqual(old.Catalog, step.Catalog) ||
+		!reflect.DeepEqual(old.Lunch, step.Lunch) ||
+		!reflect.DeepEqual(old.ExternalVenue, step.ExternalVenue)
 }
 
 func (w *rework) recordLegChanges(plan *domain.Plan) {

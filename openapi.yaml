@@ -1437,6 +1437,7 @@ components:
         - type: object
           additionalProperties: false
           required: [catalog_visit_id]
+          description: Reuse the catalog venue of this same existing gastro lunch when updating it; ordinary visits cannot be converted into lunch venues.
           properties:
             catalog_visit_id:
               $ref: '#/components/schemas/UUID'
