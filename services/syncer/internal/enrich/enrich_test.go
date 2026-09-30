@@ -71,9 +71,24 @@ func TestRunEnrichesInBatchesAndPublishesEachBatch(t *testing.T) {
 func TestRunSkipsEntitiesWhoseHashMatches(t *testing.T) {
 	c := place("a", true)
 	c.StoredHash = Hash(Input(&c))
+	c.StoredModel = "fake/model"
 	s := &fakeStore{candidates: []Candidate{c}}
 	m := &fakeModel{answer: func(int, ai.Prompt) (string, error) { t.Fatal("model called"); return "", nil }}
 	if got := run(t, s, m, 10); got.Entities != 1 || got.Enriched != 0 || m.calls != 0 || len(s.published) != 0 {
+		t.Fatalf("summary %+v calls %d", got, m.calls)
+	}
+}
+
+func TestRunEnrichesAgainWhenTheModelChanged(t *testing.T) {
+	c := place("a", true)
+	c.StoredHash = Hash(Input(&c))
+	c.StoredModel = "older/model"
+	s := &fakeStore{candidates: []Candidate{c}, changes: true}
+	m := &fakeModel{answer: func(int, ai.Prompt) (string, error) {
+		return `[{"n":1,"tags":["gastro_coffee"]}]`, nil
+	}}
+	got := run(t, s, m, 10)
+	if got.Enriched != 1 || m.calls != 1 || len(s.published) != 1 {
 		t.Fatalf("summary %+v calls %d", got, m.calls)
 	}
 }

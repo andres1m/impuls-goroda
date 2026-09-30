@@ -17,3 +17,10 @@ func TestParseRematerializeArgs(t *testing.T) {
 		}
 	}
 }
+
+func TestSourceCityUsageNamesTheCommand(t *testing.T) {
+	_, _, err := parseSourceCityArgs("replay", nil)
+	if err == nil || err.Error() != "usage: syncer replay <kudago|mkrf_events|osm> <moscow|perm>" {
+		t.Fatalf("got %v", err)
+	}
+}

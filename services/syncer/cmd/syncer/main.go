@@ -87,6 +87,8 @@ func runSubcommand(ctx context.Context, command string, args []string) bool {
 		err = runEnrich(ctx, args)
 	case "rematerialize":
 		err = runRematerialize(ctx, args)
+	case "replay":
+		err = runReplay(ctx, args)
 	case "boundary":
 		err = runBoundary(ctx, args)
 	case "healthcheck":
