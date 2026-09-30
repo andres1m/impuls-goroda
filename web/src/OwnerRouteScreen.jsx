@@ -211,7 +211,7 @@ export default function OwnerRouteScreen({ route: initialRoute, apiBaseUrl, acce
       }
       if (['removal', 'panic'].includes(value.attempt.operation) && value.result?.status === 'PROPOSED' && !value.conflict) {
         setProposal(value.result.proposal); command.current = null; setPending(false);
-        return;
+        return value.result;
       }
       const updated = await loadOwnerRoute(apiBaseUrl, accessToken, value.attempt.routeID, fetch, controller.signal);
       if (controller.signal.aborted) return;

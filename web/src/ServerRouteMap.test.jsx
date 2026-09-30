@@ -75,8 +75,8 @@ test('a leg that moved is requested again', async () => {
 });
 
 test('a failed request is not remembered, so the retry asks again', async () => {
-  const limited = { ok: false, status: 503, json: async () => ({ code: 'DIRECTIONS_RATE_LIMITED' }) };
-  await withFetch([limited], async (calls) => {
+  const unavailable = { ok: false, status: 503, json: async () => ({ code: 'DIRECTIONS_UNAVAILABLE' }) };
+  await withFetch([unavailable], async (calls) => {
     const { rerender } = render(createElement(ServerRouteMap, { ...props, projection: projection([58.03, 56.31]) }));
     await screen.findByText(/Путь не загрузился/);
     rerender(createElement(ServerRouteMap, { ...props, projection: projection([58.03, 56.31]) }));
