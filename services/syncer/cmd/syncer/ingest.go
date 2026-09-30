@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/andres1m/impuls-goroda/pkg/config"
 	"github.com/andres1m/impuls-goroda/pkg/telemetry"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/adapter/kudago"
@@ -87,6 +89,16 @@ func runIngest(ctx context.Context, args []string) (retErr error) {
 	defer func() {
 		retErr = errors.Join(retErr, database.Stop(context.Background()))
 	}()
+
+	release, locked, err := postgres.NewSchedule(func() *pgxpool.Pool { return database.Pool }).
+		TryLock(ctx, adapter.Source().Key, city)
+	if err != nil {
+		return err
+	}
+	if !locked {
+		return fmt.Errorf("ingest of %s %s is already running", adapter.Source().Key, city)
+	}
+	defer release()
 
 	service := ingest.NewService(postgres.NewLanding(database.Pool), producer, time.Now)
 	result, err := service.Ingest(ctx, adapter, city)

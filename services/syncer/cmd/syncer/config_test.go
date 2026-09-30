@@ -27,4 +27,7 @@ func TestStandConfigLoads(t *testing.T) {
 		cfg.Kafka.RawPartitions != 3 || cfg.Kafka.DLQTopic != "dlq.integration.raw" {
 		t.Fatalf("kafka = %+v", cfg.Kafka)
 	}
+	if jobs, err := cfg.Schedule.Parse(); err != nil || len(jobs) != 0 {
+		t.Fatalf("the stand collects nothing on a timetable by default: %+v, %v", jobs, err)
+	}
 }

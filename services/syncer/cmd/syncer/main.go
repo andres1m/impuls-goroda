@@ -24,6 +24,7 @@ import (
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/ingest"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/kafka"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/repo/postgres"
+	"github.com/andres1m/impuls-goroda/services/syncer/internal/schedule"
 	rawtemporal "github.com/andres1m/impuls-goroda/services/syncer/internal/temporal"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/temporal/activity"
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/temporal/workflow"
@@ -50,6 +51,7 @@ type appConfig struct {
 	Kafka         kafka.Config      `yaml:"kafka"`
 	Delivery      delivery.Config   `yaml:"delivery"`
 	GatewayClient config.GRPCClient `yaml:"gateway-client"`
+	Schedule      schedule.Config   `yaml:"schedule"`
 }
 
 type infrastructureComponents struct {
@@ -89,6 +91,8 @@ func runSubcommand(ctx context.Context, command string, args []string) bool {
 		err = runRematerialize(ctx, args)
 	case "replay":
 		err = runReplay(ctx, args)
+	case "coverage":
+		err = runCoverage(ctx, args)
 	case "boundary":
 		err = runBoundary(ctx, args)
 	case "healthcheck":
@@ -189,7 +193,12 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("create delivery relay error: %w", err)
 	}
 
-	if err := svc.Run(ctx, infra.log.Log, []svc.Service{
+	scheduler, closeScheduler, err := newIngestScheduler(infra)
+	if err != nil {
+		return fmt.Errorf("create ingest scheduler error: %w", err)
+	}
+	defer closeScheduler()
+	services := []svc.Service{
 		infra.log,
 		telemetry.New("syncer", infra.cfg.Telemetry, infra.log.Log),
 		infra.pool,
@@ -199,7 +208,11 @@ func run(ctx context.Context) error {
 		consumer,
 		relay,
 		opsServer,
-	}); err != nil {
+	}
+	if scheduler != nil {
+		services = append(services, scheduler)
+	}
+	if err := svc.Run(ctx, infra.log.Log, services); err != nil {
 		return fmt.Errorf("run service error: %w", err)
 	}
 

@@ -52,6 +52,14 @@ delivery:
   backoff-min: 1s
   backoff-max: 1m
 
+# Live sources collected on a timetable (kudago, osm). Nothing is collected unless listed: intervals depend on
+# what each source allows. `every` is at least 1m.
+#schedule:
+#  jobs:
+#    - source: kudago
+#      city: moscow
+#      every: 6h
+
 ops-server:
   port: 9090
   read-timeout: 5s
