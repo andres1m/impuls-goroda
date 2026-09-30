@@ -255,7 +255,7 @@ func checkRoutingStatus(statusCode int) error {
 		}
 	case http.StatusTooManyRequests:
 		return &Error{
-			Status:    http.StatusServiceUnavailable,
+			Status:    http.StatusTooManyRequests,
 			Code:      "DIRECTIONS_RATE_LIMITED",
 			Message:   "Directions provider rate limit reached",
 			Retryable: true,
