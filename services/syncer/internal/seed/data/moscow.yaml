@@ -108,6 +108,709 @@ places:
     tags: [excursions]
     lat: 55.7430633
     lon: 37.6249757
+  - key: alexandrovsky-garden
+    kind: public_space
+    title: Александровский сад
+    category: walk
+    tags: [city_walk, excursions]
+    lat: 55.7516318
+    lon: 37.6137972
+    opening_rules: *always
+  - key: patriarshy-ponds
+    kind: public_space
+    title: Патриаршие пруды
+    category: walk
+    tags: [city_walk]
+    lat: 55.7640253
+    lon: 37.5922601
+    opening_rules: *always
+  - key: pushkinsky-square
+    kind: public_space
+    title: Пушкинский сквер
+    category: walk
+    tags: [city_walk]
+    lat: 55.7655963
+    lon: 37.6059538
+    opening_rules: *always
+  - key: neskuchny-garden
+    kind: public_space
+    title: Нескучный сад
+    category: walk
+    tags: [city_walk, running_park]
+    lat: 55.7175455
+    lon: 37.5875861
+    opening_rules: *always
+  - key: lefortovo-park
+    kind: public_space
+    title: Лефортовский парк
+    category: walk
+    tags: [city_walk, running_park]
+    lat: 55.7652566
+    lon: 37.6913375
+    opening_rules: *always
+  - key: izmailovsky-park
+    kind: public_space
+    title: Измайловский парк
+    category: walk
+    tags: [city_walk, running_park, street_workout]
+    lat: 55.7819888
+    lon: 37.7948011
+    opening_rules: *always
+  - key: timiryazevsky-park
+    kind: public_space
+    title: Тимирязевский парк
+    category: walk
+    tags: [city_walk, running_park]
+    lat: 55.8209873
+    lon: 37.5473065
+    opening_rules: *always
+  - key: gogolevsky-boulevard
+    kind: public_space
+    title: Гоголевский бульвар
+    category: walk
+    tags: [city_walk]
+    lat: 55.7479175
+    lon: 37.6006591
+    opening_rules: *always
+  - key: arbat-street
+    kind: public_space
+    title: Улица Арбат
+    category: tourism
+    tags: [excursions, city_walk]
+    lat: 55.7498445
+    lon: 37.592659
+    opening_rules: *always
+  - key: kuznetsky-most
+    kind: public_space
+    title: Улица Кузнецкий Мост
+    category: tourism
+    tags: [excursions, city_walk]
+    lat: 55.7619408
+    lon: 37.6218328
+    opening_rules: *always
+  - key: triumfalnaya-square
+    kind: public_space
+    title: Триумфальная площадь
+    category: tourism
+    tags: [excursions]
+    lat: 55.7692401
+    lon: 37.5961613
+    opening_rules: *always
+  - key: bauman-garden
+    kind: public_space
+    title: Сад имени Н. Э. Баумана
+    category: walk
+    tags: [city_walk]
+    lat: 55.7675667
+    lon: 37.6596555
+    opening_rules: *always
+  - key: morozovsky-garden
+    kind: public_space
+    title: Морозовский сад
+    category: walk
+    tags: [city_walk]
+    lat: 55.7555478
+    lon: 37.6438885
+    opening_rules: *always
+  - key: olympic-village-park
+    kind: public_space
+    title: Парк Олимпийской деревни
+    category: walk
+    tags: [city_walk, running_park]
+    lat: 55.6799307
+    lon: 37.4769862
+    opening_rules: *always
+  - key: kuzminki-park
+    kind: public_space
+    title: Парк «Кузьминки-Люблино»
+    category: walk
+    tags: [city_walk, running_park, street_workout]
+    lat: 55.6778645
+    lon: 37.7962774
+    opening_rules: *always
+  - key: serebryany-bor
+    kind: public_space
+    title: Хорошёвский Серебряный Бор
+    category: walk
+    tags: [city_walk, running_park]
+    lat: 55.7830778
+    lon: 37.423592
+    opening_rules: *always
+  - key: khodynka-field
+    kind: public_space
+    title: Ходынское поле
+    category: walk
+    tags: [city_walk, running_park]
+    lat: 55.7870245
+    lon: 37.5300624
+    opening_rules: *always
+  - key: krylatskie-hills
+    kind: public_space
+    title: Крылатские холмы
+    category: walk
+    tags: [running_park, street_workout]
+    lat: 55.7589379
+    lon: 37.4230262
+    opening_rules: *always
+  - key: lianozovsky-park
+    kind: public_space
+    title: Лианозовский парк
+    category: walk
+    tags: [city_walk]
+    lat: 55.90066
+    lon: 37.5708719
+    opening_rules: *always
+  - key: druzhby-park
+    kind: public_space
+    title: Парк Дружбы
+    category: walk
+    tags: [city_walk, running_park]
+    lat: 55.8530692
+    lon: 37.4840061
+    opening_rules: *always
+  - key: perovsky-park
+    kind: public_space
+    title: Перовский парк
+    category: walk
+    tags: [city_walk]
+    lat: 55.7417581
+    lon: 37.774557
+    opening_rules: *always
+  - key: samotechny-boulevard
+    kind: public_space
+    title: Самотёчный бульвар
+    category: walk
+    tags: [city_walk]
+    lat: 55.7758276
+    lon: 37.6192431
+    opening_rules: *always
+  - key: sportploshchadka-ekho
+    kind: venue
+    title: Спортплощадка «Эхо»
+    category: sport
+    tags: [street_workout, running_park]
+    lat: 55.7432246
+    lon: 37.5506585
+    opening_rules: &hours-sport
+      weekly:
+        mon: [["07:00", "22:00"]]
+        tue: [["07:00", "22:00"]]
+        wed: [["07:00", "22:00"]]
+        thu: [["07:00", "22:00"]]
+        fri: [["07:00", "22:00"]]
+        sat: [["08:00", "21:00"]]
+        sun: [["08:00", "20:00"]]
+      source_text: пн–пт 07:00–22:00, сб 08:00–21:00, вс 08:00–20:00
+  - key: kontsertnyy-klub-barkas
+    kind: venue
+    title: Концертный клуб «Баркас»
+    category: culture
+    tags: [performing_arts]
+    lat: 55.7605097
+    lon: 37.6901939
+  - key: lektoriy-khmel
+    kind: venue
+    title: Лекторий «Хмель»
+    category: culture
+    tags: [lectures_workshops, science_tech]
+    lat: 55.7760065
+    lon: 37.7072377
+  - key: tsentr-pomoshchi-biryuza
+    kind: venue
+    title: Центр помощи «Бирюза»
+    category: volunteer
+    tags: [social_volunteer]
+    lat: 55.8044183
+    lon: 37.6100599
+  - key: studiya-rastyazhki-veterok
+    kind: venue
+    title: Студия растяжки «Ветерок»
+    category: sport
+    tags: [city_walk]
+    lat: 55.781896
+    lon: 37.601707
+    opening_rules: *hours-sport
+  - key: malaya-stsena-kuvshin
+    kind: venue
+    title: Малая сцена «Кувшин»
+    category: culture
+    tags: [performing_arts]
+    lat: 55.7285607
+    lon: 37.7330248
+  - key: chaynyy-klub-zenit-dva
+    kind: venue
+    title: Чайный клуб «Зенит-Два»
+    category: gastro
+    tags: [gastro_coffee]
+    lat: 55.735464
+    lon: 37.6982514
+    opening_rules: &hours-cafe
+      weekly:
+        mon: [["08:00", "22:00"]]
+        tue: [["08:00", "22:00"]]
+        wed: [["08:00", "22:00"]]
+        thu: [["08:00", "22:00"]]
+        fri: [["08:00", "22:00"]]
+        sat: [["09:00", "23:00"]]
+        sun: [["09:00", "23:00"]]
+      source_text: пн–пт 08:00–22:00, сб–вс 09:00–23:00
+  - key: teatralnaya-studiya-yarus
+    kind: venue
+    title: Театральная студия «Ярус»
+    category: culture
+    tags: [performing_arts]
+    lat: 55.7568237
+    lon: 37.7782434
+  - key: kulinarnaya-shkola-farvater
+    kind: venue
+    title: Кулинарная школа «Фарватер»
+    category: gastro
+    tags: [gastro_coffee]
+    lat: 55.7374776
+    lon: 37.5032529
+    opening_rules: &hours-school
+      weekly:
+        mon: [["10:00", "21:00"]]
+        tue: [["10:00", "21:00"]]
+        wed: [["10:00", "21:00"]]
+        thu: [["10:00", "21:00"]]
+        fri: [["10:00", "21:00"]]
+        sat: [["10:00", "18:00"]]
+        sun: [["10:00", "16:00"]]
+      source_text: пн–пт 10:00–21:00, сб 10:00–18:00, вс 10:00–16:00
+  - key: klub-gorodskikh-progulok-monogramma
+    kind: venue
+    title: Клуб городских прогулок «Монограмма»
+    category: walk
+    tags: [city_walk]
+    lat: 55.7998028
+    lon: 37.7284777
+  - key: kraevedcheskiy-klub-elochka
+    kind: venue
+    title: Краеведческий клуб «Ёлочка»
+    category: tourism
+    tags: [excursions]
+    lat: 55.8006366
+    lon: 37.4798572
+  - key: vystavochnyy-zal-svetlyachok
+    kind: venue
+    title: Выставочный зал «Светлячок»
+    category: culture
+    tags: [classical_art]
+    lat: 55.7153092
+    lon: 37.7255604
+  - key: prosvetitelskiy-tsentr-tsokolnyy
+    kind: venue
+    title: Просветительский центр «Цокольный»
+    category: culture
+    tags: [lectures_workshops, science_tech]
+    lat: 55.690679
+    lon: 37.5909558
+  - key: studiya-yogi-navolok
+    kind: venue
+    title: Студия йоги «Наволок»
+    category: sport
+    tags: [city_walk]
+    lat: 55.7125052
+    lon: 37.6586134
+    opening_rules: *hours-sport
+  - key: galereya-mansarda
+    kind: venue
+    title: Галерея «Мансарда»
+    category: culture
+    tags: [contemporary_art]
+    lat: 55.808236
+    lon: 37.5125822
+  - key: chaynaya-pikhta
+    kind: venue
+    title: Чайная «Пихта»
+    category: gastro
+    tags: [gastro_coffee]
+    lat: 55.8055096
+    lon: 37.4701669
+    opening_rules: *hours-cafe
+  - key: veloklub-mayachok
+    kind: venue
+    title: Велоклуб «Маячок»
+    category: sport
+    tags: [running_park]
+    lat: 55.7116431
+    lon: 37.6323652
+    opening_rules: *hours-sport
+  - key: sportploshchadka-dymka
+    kind: venue
+    title: Спортплощадка «Дымка»
+    category: sport
+    tags: [street_workout, running_park]
+    lat: 55.7713148
+    lon: 37.6049265
+    opening_rules: *hours-sport
+  - key: priyut-dlya-zhivotnykh-zazerkale
+    kind: venue
+    title: Приют для животных «Зазеркалье»
+    category: volunteer
+    tags: [social_volunteer]
+    lat: 55.8193604
+    lon: 37.637963
+  - key: art-galereya-lazur
+    kind: venue
+    title: Арт-галерея «Лазурь»
+    category: culture
+    tags: [contemporary_art]
+    lat: 55.7930268
+    lon: 37.5535179
+  - key: skalodrom-guash
+    kind: venue
+    title: Скалодром «Гуашь»
+    category: sport
+    tags: [street_workout]
+    lat: 55.7936045
+    lon: 37.6192731
+    opening_rules: *hours-sport
+  - key: klub-gorodskikh-progulok-timyan
+    kind: venue
+    title: Клуб городских прогулок «Тимьян»
+    category: walk
+    tags: [city_walk]
+    lat: 55.7142885
+    lon: 37.7601447
+  - key: kinoklub-dirizhabl
+    kind: venue
+    title: Киноклуб «Дирижабль»
+    category: culture
+    tags: [cinema]
+    lat: 55.7132176
+    lon: 37.5112319
+  - key: syrnaya-lavka-piligrim
+    kind: venue
+    title: Сырная лавка «Пилигрим»
+    category: gastro
+    tags: [gastro_coffee]
+    lat: 55.6771705
+    lon: 37.5167951
+    opening_rules: *hours-cafe
+  - key: kinozal-sapfir
+    kind: venue
+    title: Кинозал «Сапфир»
+    category: culture
+    tags: [cinema]
+    lat: 55.7010664
+    lon: 37.7587146
+  - key: peshiy-klub-viola
+    kind: venue
+    title: Пеший клуб «Виола»
+    category: tourism
+    tags: [excursions]
+    lat: 55.666688
+    lon: 37.6174149
+  - key: art-galereya-gerbariy
+    kind: venue
+    title: Арт-галерея «Гербарий»
+    category: culture
+    tags: [contemporary_art]
+    lat: 55.7238291
+    lon: 37.7385368
+  - key: klub-progulok-chernovik
+    kind: venue
+    title: Клуб прогулок «Черновик»
+    category: walk
+    tags: [city_walk]
+    lat: 55.7471093
+    lon: 37.5337332
+  - key: chitalnya-loskut
+    kind: venue
+    title: Читальня «Лоскут»
+    category: volunteer
+    tags: [social_volunteer]
+    lat: 55.8052053
+    lon: 37.6361306
+  - key: kontsertnyy-klub-avrora-tri
+    kind: venue
+    title: Концертный клуб «Аврора-Три»
+    category: culture
+    tags: [performing_arts]
+    lat: 55.7623757
+    lon: 37.5793889
+  - key: studiya-tantsev-nebosvod
+    kind: venue
+    title: Студия танцев «Небосвод»
+    category: sport
+    tags: [performing_arts]
+    lat: 55.7042783
+    lon: 37.7502958
+    opening_rules: *hours-sport
+  - key: masterskaya-yula
+    kind: venue
+    title: Мастерская «Юла»
+    category: culture
+    tags: [lectures_workshops, contemporary_art]
+    lat: 55.7912957
+    lon: 37.5700244
+  - key: klub-progulok-baken
+    kind: venue
+    title: Клуб прогулок «Бакен»
+    category: walk
+    tags: [city_walk]
+    lat: 55.7922818
+    lon: 37.5113811
+  - key: shokoladnaya-masterskaya-flyuger
+    kind: venue
+    title: Шоколадная мастерская «Флюгер»
+    category: gastro
+    tags: [gastro_coffee]
+    lat: 55.7376281
+    lon: 37.6281488
+    opening_rules: *hours-school
+  - key: pekarnya-elan
+    kind: venue
+    title: Пекарня «Елань»
+    category: gastro
+    tags: [gastro_coffee]
+    lat: 55.765217
+    lon: 37.5609991
+    opening_rules: &hours-bakery
+      weekly:
+        mon: [["07:00", "20:00"]]
+        tue: [["07:00", "20:00"]]
+        wed: [["07:00", "20:00"]]
+        thu: [["07:00", "20:00"]]
+        fri: [["07:00", "20:00"]]
+        sat: [["08:00", "20:00"]]
+        sun: [["08:00", "18:00"]]
+      source_text: пн–пт 07:00–20:00, сб 08:00–20:00, вс 08:00–18:00
+  - key: art-prostranstvo-iris
+    kind: venue
+    title: Арт-пространство «Ирис»
+    category: culture
+    tags: [contemporary_art]
+    lat: 55.6806412
+    lon: 37.6081126
+  - key: klub-progulok-veranda
+    kind: venue
+    title: Клуб прогулок «Веранда»
+    category: walk
+    tags: [city_walk]
+    lat: 55.6592382
+    lon: 37.464175
+  - key: teatralnaya-studiya-yantar
+    kind: venue
+    title: Театральная студия «Янтарь»
+    category: culture
+    tags: [performing_arts]
+    lat: 55.7626688
+    lon: 37.4931336
+  - key: prosvetitelskiy-tsentr-landysh
+    kind: venue
+    title: Просветительский центр «Ландыш»
+    category: culture
+    tags: [lectures_workshops, science_tech]
+    lat: 55.7358752
+    lon: 37.6794917
+  - key: kofeynya-obzharshchik-shishki
+    kind: venue
+    title: Кофейня-обжарщик «Шишки»
+    category: gastro
+    tags: [gastro_coffee]
+    lat: 55.7371324
+    lon: 37.5644065
+    opening_rules: *hours-cafe
+  - key: tochka-sbora-ekskursiy-sumerki
+    kind: venue
+    title: Точка сбора экскурсий «Сумерки»
+    category: tourism
+    tags: [excursions]
+    lat: 55.6643496
+    lon: 37.5326918
+  - key: eko-tsentr-dyuna
+    kind: venue
+    title: Эко-центр «Дюна»
+    category: volunteer
+    tags: [eco_volunteer]
+    lat: 55.7960923
+    lon: 37.7450501
+  - key: klub-progulok-ottenok
+    kind: venue
+    title: Клуб прогулок «Оттенок»
+    category: walk
+    tags: [city_walk]
+    lat: 55.6956471
+    lon: 37.7594604
+  - key: katok-tsikoriy
+    kind: venue
+    title: Каток «Цикорий»
+    category: sport
+    tags: [running_park]
+    lat: 55.7402131
+    lon: 37.6382754
+    opening_rules: *hours-sport
+  - key: klub-gorodskikh-progulok-galka
+    kind: venue
+    title: Клуб городских прогулок «Галька»
+    category: walk
+    tags: [city_walk]
+    lat: 55.8037118
+    lon: 37.5644334
+  - key: ekskursionnoe-byuro-yasen
+    kind: venue
+    title: Экскурсионное бюро «Ясень»
+    category: tourism
+    tags: [excursions]
+    lat: 55.6909883
+    lon: 37.580803
+  - key: kofeynya-mindal
+    kind: venue
+    title: Кофейня «Миндаль»
+    category: gastro
+    tags: [gastro_coffee]
+    lat: 55.6750515
+    lon: 37.6244791
+    opening_rules: *hours-cafe
+  - key: ekskursionnoe-byuro-klenovyy
+    kind: venue
+    title: Экскурсионное бюро «Кленовый»
+    category: tourism
+    tags: [excursions]
+    lat: 55.6703246
+    lon: 37.6492675
+  - key: ekskursionnoe-byuro-tetrad
+    kind: venue
+    title: Экскурсионное бюро «Тетрадь»
+    category: tourism
+    tags: [excursions]
+    lat: 55.8244548
+    lon: 37.579768
+  - key: molodezhnyy-tsentr-garnitur
+    kind: venue
+    title: Молодёжный центр «Гарнитур»
+    category: volunteer
+    tags: [eco_volunteer, social_volunteer]
+    lat: 55.7012507
+    lon: 37.6169769
+  - key: zal-talnik
+    kind: venue
+    title: Зал «Тальник»
+    category: culture
+    tags: [classical_art]
+    lat: 55.8216175
+    lon: 37.6916442
+  - key: klub-gorodskikh-progulok-tandem
+    kind: venue
+    title: Клуб городских прогулок «Тандем»
+    category: walk
+    tags: [city_walk]
+    lat: 55.7838557
+    lon: 37.6335908
+  - key: teatr-studiya-mayskiy
+    kind: venue
+    title: Театр-студия «Майский»
+    category: culture
+    tags: [performing_arts]
+    lat: 55.701047
+    lon: 37.4591701
+  - key: muzykalnaya-gostinaya-kedr
+    kind: venue
+    title: Музыкальная гостиная «Кедр»
+    category: culture
+    tags: [performing_arts]
+    lat: 55.7538811
+    lon: 37.6350128
+  - key: masterskaya-briz
+    kind: venue
+    title: Мастерская «Бриз»
+    category: culture
+    tags: [lectures_workshops, contemporary_art]
+    lat: 55.8106666
+    lon: 37.604242
+  - key: galereya-izluchina
+    kind: venue
+    title: Галерея «Излучина»
+    category: culture
+    tags: [contemporary_art]
+    lat: 55.8380905
+    lon: 37.515008
+  - key: galereya-vorsinka
+    kind: venue
+    title: Галерея «Ворсинка»
+    category: culture
+    tags: [contemporary_art]
+    lat: 55.7717558
+    lon: 37.6251166
+  - key: tvorcheskaya-masterskaya-flag-dva
+    kind: venue
+    title: Творческая мастерская «Флаг-Два»
+    category: culture
+    tags: [lectures_workshops, contemporary_art]
+    lat: 55.7897
+    lon: 37.4875286
+  - key: gastromarket-vitrazh
+    kind: venue
+    title: Гастромаркет «Витраж»
+    category: gastro
+    tags: [gastro_coffee, city_walk]
+    lat: 55.7244901
+    lon: 37.5569942
+    opening_rules: &hours-market
+      weekly:
+        mon: [["11:00", "23:00"]]
+        tue: [["11:00", "23:00"]]
+        wed: [["11:00", "23:00"]]
+        thu: [["11:00", "23:00"]]
+        fri: [["11:00", "23:00"]]
+        sat: [["11:00", "24:00"]]
+        sun: [["11:00", "22:00"]]
+      source_text: пн–пт 11:00–23:00, сб 11:00–24:00, вс 11:00–22:00
+  - key: khlebnaya-lavka-prichal
+    kind: venue
+    title: Хлебная лавка «Причал»
+    category: gastro
+    tags: [gastro_coffee]
+    lat: 55.7027952
+    lon: 37.5280423
+    opening_rules: *hours-bakery
+  - key: vorkaut-ploshchadka-niva
+    kind: venue
+    title: Воркаут-площадка «Нива»
+    category: sport
+    tags: [street_workout, running_park]
+    lat: 55.7822209
+    lon: 37.7150358
+    opening_rules: *hours-sport
+  - key: lektoriy-ladya
+    kind: venue
+    title: Лекторий «Ладья»
+    category: culture
+    tags: [lectures_workshops, science_tech]
+    lat: 55.8102253
+    lon: 37.6827996
+  - key: vystavochnyy-zal-fonarik
+    kind: venue
+    title: Выставочный зал «Фонарик»
+    category: culture
+    tags: [classical_art]
+    lat: 55.7537192
+    lon: 37.6633161
+  - key: klub-puteshestvennikov-shkhuna
+    kind: venue
+    title: Клуб путешественников «Шхуна»
+    category: tourism
+    tags: [excursions]
+    lat: 55.7879011
+    lon: 37.6006082
+  - key: kofeynya-otzvuk
+    kind: venue
+    title: Кофейня «Отзвук»
+    category: gastro
+    tags: [gastro_coffee]
+    lat: 55.6910199
+    lon: 37.5020011
+    opening_rules: *hours-cafe
+  - key: kinozal-ezhevika
+    kind: venue
+    title: Кинозал «Ежевика»
+    category: culture
+    tags: [cinema]
+    lat: 55.7746294
+    lon: 37.6518828
 events:
   - key: light-exhibition
     place: sintez-art
@@ -374,3 +1077,2028 @@ events:
             status: fixed
             amount: [500]
             tariff_label: Пенсионный
+  - key: utrennie-5-km
+    place: sportploshchadka-ekho
+    title: Пробежка «Утренние 5 км»
+    category: sport
+    tags: [running_park]
+    organizer: Спортплощадка «Эхо»
+    sessions:
+      - key: morning
+        slot: fixed
+        start: "08:00"
+        end: "09:00"
+        min_duration: 1h
+        access: free
+        availability: available
+  - key: vorkaut-osnovy-sily
+    place: sportploshchadka-ekho
+    title: "Тренировка «Воркаут: основы силы»"
+    category: sport
+    tags: [street_workout]
+    organizer: Спортплощадка «Эхо»
+    sessions:
+      - key: evening
+        days: [0, 2, 4, 6]
+        slot: fixed
+        start: "18:30"
+        end: "19:30"
+        min_duration: 1h
+        access: free
+        availability: available
+  - key: elektronnaya-noch
+    place: kontsertnyy-klub-barkas
+    title: Концерт «Электронная ночь»
+    category: culture
+    tags: [performing_arts]
+    organizer: Концертный клуб «Баркас»
+    age_min: 18
+    sessions:
+      - key: evening
+        days: [1, 3, 5]
+        slot: fixed
+        start: "20:00"
+        end: "22:00"
+        min_duration: 2h
+        buffer: 15m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: range
+            amount: [500, 900]
+          - audience: student
+            status: fixed
+            amount: [400]
+            tariff_label: Студенческий
+  - key: ekonomika-povsednevnosti
+    place: lektoriy-khmel
+    title: Лекция «Экономика повседневности»
+    category: culture
+    tags: [lectures_workshops, science_tech]
+    organizer: Лекторий «Хмель»
+    sessions:
+      - key: evening
+        days: [0, 2, 3, 5]
+        slot: fixed
+        start: "18:30"
+        end: "20:00"
+        min_duration: 90m
+        buffer: 15m
+        late_entry: false
+        access: free
+        availability: available
+  - key: obedy-dlya-pozhilykh
+    place: tsentr-pomoshchi-biryuza
+    title: Смена «Обеды для пожилых»
+    category: volunteer
+    tags: [social_volunteer]
+    organizer: Центр помощи «Бирюза»
+    sessions:
+      - key: shift
+        days: [1, 3]
+        slot: fixed
+        start: "11:00"
+        end: "15:00"
+        min_duration: 4h
+        buffer: 15m
+        access: registration
+        registration_closes_before: 48h
+        availability: registration_required
+  - key: sortirovka-odezhdy
+    place: tsentr-pomoshchi-biryuza
+    title: Смена «Сортировка одежды»
+    category: volunteer
+    tags: [social_volunteer]
+    organizer: Центр помощи «Бирюза»
+    sessions:
+      - key: shift
+        days: [2, 4, 6]
+        slot: fixed
+        start: "15:00"
+        end: "18:00"
+        min_duration: 3h
+        buffer: 15m
+        access: registration
+        registration_closes_before: 24h
+        availability: registration_required
+  - key: rastyazhka-i-dykhanie
+    place: studiya-rastyazhki-veterok
+    title: Занятие «Растяжка и дыхание»
+    category: sport
+    tags: [city_walk]
+    organizer: Студия растяжки «Ветерок»
+    sessions:
+      - key: evening
+        days: [1, 3]
+        slot: fixed
+        start: "20:00"
+        end: "21:00"
+        min_duration: 1h
+        buffer: 5m
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [500]
+  - key: pigmalion-sovremennoe-prochtenie
+    place: malaya-stsena-kuvshin
+    title: Спектакль «Пигмалион. Современное прочтение»
+    category: culture
+    tags: [performing_arts]
+    organizer: Малая сцена «Кувшин»
+    sessions:
+      - key: evening
+        days: [1, 2, 4, 6]
+        slot: fixed
+        start: "18:30"
+        end: "20:30"
+        min_duration: 2h
+        buffer: 20m
+        late_entry: false
+        access: ticket
+        availability: unknown
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1400]
+            benefit_programs: [pushkin_card]
+  - key: chaynaya-tseremoniya-dlya-nachinayushchi
+    place: chaynyy-klub-zenit-dva
+    title: Чайная церемония для начинающих
+    category: gastro
+    tags: [gastro_coffee]
+    organizer: Чайный клуб «Зенит-Два»
+    sessions:
+      - key: session
+        days: [5, 6]
+        slot: fixed
+        start: "16:00"
+        end: "17:30"
+        min_duration: 90m
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [900]
+  - key: chayka-chitka
+    place: teatralnaya-studiya-yarus
+    title: Спектакль «Чайка. Читка»
+    category: culture
+    tags: [performing_arts]
+    organizer: Театральная студия «Ярус»
+    age_min: 18
+    sessions:
+      - key: evening
+        days: [0, 2, 4, 6]
+        slot: fixed
+        start: "19:00"
+        end: "21:00"
+        min_duration: 2h
+        buffer: 20m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [900]
+            benefit_programs: [pushkin_card]
+  - key: malenkiy-prints
+    place: teatralnaya-studiya-yarus
+    title: Детский спектакль «Маленький принц»
+    category: culture
+    tags: [performing_arts]
+    organizer: Театральная студия «Ярус»
+    sessions:
+      - key: morning
+        days: [5, 6]
+        slot: fixed
+        start: "11:00"
+        end: "12:00"
+        min_duration: 1h
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: child
+            status: fixed
+            amount: [300]
+            tariff_label: Детский
+            eligibility_age: [3, 10]
+  - key: pasta-s-nulya
+    place: kulinarnaya-shkola-farvater
+    title: Мастер-класс «Паста с нуля»
+    category: gastro
+    tags: [gastro_coffee]
+    organizer: Кулинарная школа «Фарватер»
+    sessions:
+      - key: class
+        days: [5, 6]
+        slot: fixed
+        start: "17:00"
+        end: "19:00"
+        min_duration: 2h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1500]
+  - key: domashnie-pelmeni
+    place: kulinarnaya-shkola-farvater
+    title: Мастер-класс «Домашние пельмени»
+    category: gastro
+    tags: [gastro_coffee]
+    organizer: Кулинарная школа «Фарватер»
+    sessions:
+      - key: class
+        days: [4, 5, 6]
+        slot: fixed
+        start: "12:00"
+        end: "14:30"
+        min_duration: 2h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1800]
+  - key: nochnaya-naberezhnaya
+    place: klub-gorodskikh-progulok-monogramma
+    title: Прогулка «Ночная набережная»
+    category: walk
+    tags: [city_walk]
+    organizer: Клуб городских прогулок «Монограмма»
+    sessions:
+      - key: stroll
+        days: [1, 3, 5]
+        slot: fixed
+        start: "20:00"
+        end: "22:00"
+        min_duration: 2h
+        buffer: 10m
+        access: registration
+        registration_closes_before: 24h
+        availability: registration_required
+  - key: ptitsy-goroda
+    place: klub-gorodskikh-progulok-monogramma
+    title: Прогулка «Птицы города»
+    category: walk
+    tags: [city_walk]
+    organizer: Клуб городских прогулок «Монограмма»
+    sessions:
+      - key: stroll
+        days: [0, 2, 3, 5]
+        slot: fixed
+        start: "07:00"
+        end: "08:30"
+        min_duration: 90m
+        access: free
+        availability: available
+  - key: moskva-glazami-arkhitektorov
+    place: kraevedcheskiy-klub-elochka
+    title: Экскурсия «Москва глазами архитекторов»
+    category: tourism
+    tags: [excursions]
+    organizer: Краеведческий клуб «Ёлочка»
+    sessions:
+      - key: tour
+        slot: fixed
+        start: "10:00"
+        end: "12:00"
+        min_duration: 2h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: range
+            amount: [800, 1500]
+          - audience: senior
+            status: fixed
+            amount: [500]
+            tariff_label: Пенсионный
+          - audience: student
+            status: fixed
+            amount: [600]
+            tariff_label: Студенческий
+  - key: dom-na-naberezhnoy-i-okrestnosti
+    place: kraevedcheskiy-klub-elochka
+    title: Экскурсия «Дом на набережной и окрестности»
+    category: tourism
+    tags: [excursions, classical_art]
+    organizer: Краеведческий клуб «Ёлочка»
+    sessions:
+      - key: tour
+        days: [4, 5]
+        slot: fixed
+        start: "15:00"
+        end: "17:30"
+        min_duration: 150m
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1200]
+          - audience: child
+            status: fixed
+            amount: [400]
+            tariff_label: Детский
+            eligibility_age: [6, 13]
+      - key: tour-sold-out
+        days: [6]
+        slot: fixed
+        start: "15:00"
+        end: "17:30"
+        min_duration: 150m
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: sold_out
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1200]
+          - audience: child
+            status: fixed
+            amount: [400]
+            tariff_label: Детский
+            eligibility_age: [6, 13]
+  - key: kostyum-i-epokha
+    place: vystavochnyy-zal-svetlyachok
+    title: Выставка «Костюм и эпоха»
+    category: culture
+    tags: [classical_art]
+    organizer: Выставочный зал «Светлячок»
+    sessions:
+      - key: daily
+        days: [0, 1, 2, 3, 4]
+        slot: window
+        start: "10:00"
+        end: "19:00"
+        min_duration: 1h
+        recommended_duration: 90m
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [500]
+            benefit_programs: [pushkin_card]
+  - key: vvedenie-v-astronomiyu
+    place: prosvetitelskiy-tsentr-tsokolnyy
+    title: Лекция «Введение в астрономию»
+    category: culture
+    tags: [lectures_workshops, science_tech]
+    organizer: Просветительский центр «Цокольный»
+    sessions:
+      - key: evening
+        days: [0, 2, 4, 6]
+        slot: fixed
+        start: "17:30"
+        end: "19:00"
+        min_duration: 90m
+        buffer: 15m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [250]
+          - audience: student
+            status: fixed
+            amount: [150]
+            tariff_label: Студенческий
+  - key: yoga-dlya-nachinayushchikh
+    place: studiya-yogi-navolok
+    title: Занятие «Йога для начинающих»
+    category: sport
+    tags: [city_walk]
+    organizer: Студия йоги «Наволок»
+    sessions:
+      - key: evening
+        days: [0, 2, 4, 6]
+        slot: fixed
+        start: "08:30"
+        end: "09:30"
+        min_duration: 1h
+        buffer: 5m
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [600]
+  - key: myagkaya-geometriya
+    place: galereya-mansarda
+    title: Выставка «Мягкая геометрия»
+    category: culture
+    tags: [contemporary_art]
+    organizer: Галерея «Мансарда»
+    sessions:
+      - key: daily
+        slot: window
+        start: "10:00"
+        end: "18:00"
+        min_duration: 1h
+        recommended_duration: 90m
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [600]
+          - audience: child
+            status: fixed
+            amount: [300]
+            tariff_label: Детский
+            eligibility_age: [3, 13]
+  - key: chay-puer-i-ulun
+    place: chaynaya-pikhta
+    title: Дегустация «Чай пуэр и улун»
+    category: gastro
+    tags: [gastro_coffee]
+    organizer: Чайная «Пихта»
+    sessions:
+      - key: session
+        days: [4, 5, 6]
+        slot: fixed
+        start: "16:00"
+        end: "17:30"
+        min_duration: 90m
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [700]
+  - key: vecherniy-velokrug
+    place: veloklub-mayachok
+    title: Заезд «Вечерний велокруг»
+    category: sport
+    tags: [running_park]
+    organizer: Велоклуб «Маячок»
+    sessions:
+      - key: evening
+        days: [2, 5]
+        slot: fixed
+        start: "19:00"
+        end: "21:00"
+        min_duration: 1h
+        access: free
+        availability: available
+  - key: intervaly-na-stadione
+    place: sportploshchadka-dymka
+    title: Пробежка «Интервалы на стадионе»
+    category: sport
+    tags: [running_park]
+    organizer: Спортплощадка «Дымка»
+    sessions:
+      - key: morning
+        days: [1, 3]
+        slot: fixed
+        start: "19:00"
+        end: "20:00"
+        min_duration: 1h
+        access: free
+        availability: available
+  - key: krugovaya-dlya-vsekh
+    place: sportploshchadka-dymka
+    title: Тренировка «Круговая для всех»
+    category: sport
+    tags: [street_workout]
+    organizer: Спортплощадка «Дымка»
+    sessions:
+      - key: evening
+        days: [0, 2, 4]
+        slot: fixed
+        start: "19:30"
+        end: "20:30"
+        min_duration: 1h
+        access: free
+        availability: available
+  - key: futbol-vo-dvore
+    place: sportploshchadka-dymka
+    title: Игра «Футбол во дворе»
+    category: sport
+    tags: [running_park]
+    organizer: Спортплощадка «Дымка»
+    sessions:
+      - key: evening
+        days: [5, 6]
+        slot: fixed
+        start: "17:00"
+        end: "18:30"
+        min_duration: 1h
+        access: free
+        availability: available
+  - key: vygul-sobak
+    place: priyut-dlya-zhivotnykh-zazerkale
+    title: Смена «Выгул собак»
+    category: volunteer
+    tags: [social_volunteer]
+    organizer: Приют для животных «Зазеркалье»
+    sessions:
+      - key: shift
+        days: [0, 2, 4, 5]
+        slot: fixed
+        start: "09:00"
+        end: "12:00"
+        min_duration: 3h
+        buffer: 15m
+        access: registration
+        registration_closes_before: 24h
+        availability: registration_required
+  - key: uborka-volerov
+    place: priyut-dlya-zhivotnykh-zazerkale
+    title: Смена «Уборка вольеров»
+    category: volunteer
+    tags: [social_volunteer]
+    organizer: Приют для животных «Зазеркалье»
+    sessions:
+      - key: shift
+        days: [6]
+        slot: fixed
+        start: "10:00"
+        end: "14:00"
+        min_duration: 4h
+        buffer: 15m
+        access: registration
+        registration_closes_before: 24h
+        availability: sold_out
+  - key: arkhiv-veshchey
+    place: art-galereya-lazur
+    title: Выставка «Архив вещей»
+    category: culture
+    tags: [contemporary_art]
+    organizer: Арт-галерея «Лазурь»
+    sessions:
+      - key: daily
+        days: [0, 2, 4, 6]
+        slot: window
+        start: "11:00"
+        end: "20:00"
+        min_duration: 1h
+        recommended_duration: 90m
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [350]
+            benefit_programs: [pushkin_card]
+          - audience: child
+            status: fixed
+            amount: [175]
+            tariff_label: Детский
+            eligibility_age: [3, 13]
+  - key: skalolazanie-dlya-novichkov
+    place: skalodrom-guash
+    title: Занятие «Скалолазание для новичков»
+    category: sport
+    tags: [street_workout]
+    organizer: Скалодром «Гуашь»
+    sessions:
+      - key: evening
+        days: [0, 2, 4]
+        slot: fixed
+        start: "19:00"
+        end: "20:30"
+        min_duration: 1h
+        buffer: 5m
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [900]
+  - key: s-kolyaskoy-po-parku
+    place: klub-gorodskikh-progulok-timyan
+    title: Прогулка «С коляской по парку»
+    category: walk
+    tags: [city_walk]
+    organizer: Клуб городских прогулок «Тимьян»
+    sessions:
+      - key: stroll
+        days: [1, 3, 5]
+        slot: fixed
+        start: "12:00"
+        end: "13:30"
+        min_duration: 90m
+        access: free
+        availability: available
+  - key: festival-animatsii
+    place: kinoklub-dirizhabl
+    title: Кинопоказ «Фестиваль анимации»
+    category: culture
+    tags: [cinema]
+    organizer: Киноклуб «Дирижабль»
+    sessions:
+      - key: show
+        days: [6]
+        slot: fixed
+        start: "12:00"
+        end: "13:30"
+        min_duration: 90m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: child
+            status: fixed
+            amount: [250]
+            tariff_label: Детский
+            eligibility_age: [3, 12]
+      - key: show-cancelled
+        days: [5]
+        slot: fixed
+        start: "12:00"
+        end: "13:30"
+        min_duration: 90m
+        late_entry: false
+        access: ticket
+        availability: cancelled
+        cancellation_reason: Технические работы в зале
+        prices:
+          - audience: child
+            status: fixed
+            amount: [250]
+            tariff_label: Детский
+            eligibility_age: [3, 12]
+  - key: syry-i-vino
+    place: syrnaya-lavka-piligrim
+    title: Дегустация «Сыры и вино»
+    category: gastro
+    tags: [gastro_coffee]
+    organizer: Сырная лавка «Пилигрим»
+    age_min: 18
+    sessions:
+      - key: session
+        days: [4, 5, 6]
+        slot: fixed
+        start: "19:00"
+        end: "21:00"
+        min_duration: 2h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1800]
+  - key: dokumentalnyy-vecher
+    place: kinozal-sapfir
+    title: Кинопоказ «Документальный вечер»
+    category: culture
+    tags: [cinema]
+    organizer: Кинозал «Сапфир»
+    sessions:
+      - key: show
+        days: [0, 2, 4, 6]
+        slot: fixed
+        start: "21:00"
+        end: "23:00"
+        min_duration: 2h
+        late_entry: false
+        access: ticket
+        availability: unknown
+        prices:
+          - audience: general
+            status: unknown
+          - audience: student
+            status: fixed
+            amount: [250]
+            tariff_label: Студенческий
+  - key: zaryade-i-ego-sosedi
+    place: peshiy-klub-viola
+    title: Экскурсия «Зарядье и его соседи»
+    category: tourism
+    tags: [excursions]
+    organizer: Пеший клуб «Виола»
+    sessions:
+      - key: tour
+        slot: fixed
+        start: "10:00"
+        end: "12:00"
+        min_duration: 2h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: range
+            amount: [800, 1500]
+          - audience: senior
+            status: fixed
+            amount: [500]
+            tariff_label: Пенсионный
+          - audience: student
+            status: fixed
+            amount: [600]
+            tariff_label: Студенческий
+  - key: moskva-vechernyaya
+    place: peshiy-klub-viola
+    title: Экскурсия «Москва вечерняя»
+    category: tourism
+    tags: [excursions, classical_art]
+    organizer: Пеший клуб «Виола»
+    sessions:
+      - key: tour
+        days: [4, 5, 6]
+        slot: fixed
+        start: "15:00"
+        end: "17:30"
+        min_duration: 150m
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [900]
+          - audience: child
+            status: fixed
+            amount: [400]
+            tariff_label: Детский
+            eligibility_age: [6, 13]
+  - key: tsvet-zimy
+    place: art-galereya-gerbariy
+    title: Выставка «Цвет зимы»
+    category: culture
+    tags: [contemporary_art]
+    organizer: Арт-галерея «Гербарий»
+    sessions:
+      - key: daily
+        days: [0, 1, 2, 3, 4]
+        slot: window
+        start: "10:00"
+        end: "19:00"
+        min_duration: 1h
+        recommended_duration: 90m
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [500]
+            benefit_programs: [pushkin_card]
+  - key: progulka-s-fotografom
+    place: klub-progulok-chernovik
+    title: Прогулка «Прогулка с фотографом»
+    category: walk
+    tags: [city_walk]
+    organizer: Клуб прогулок «Черновик»
+    sessions:
+      - key: stroll
+        days: [5, 6]
+        slot: fixed
+        start: "10:00"
+        end: "11:30"
+        min_duration: 90m
+        buffer: 10m
+        access: registration
+        registration_closes_before: 24h
+        availability: registration_required
+  - key: chtenie-vslukh-detyam
+    place: chitalnya-loskut
+    title: Смена «Чтение вслух детям»
+    category: volunteer
+    tags: [social_volunteer]
+    organizer: Читальня «Лоскут»
+    sessions:
+      - key: shift
+        days: [3, 5]
+        slot: fixed
+        start: "16:00"
+        end: "18:00"
+        min_duration: 2h
+        buffer: 15m
+        access: registration
+        registration_closes_before: 24h
+        availability: registration_required
+  - key: dzhazovyy-vecher
+    place: kontsertnyy-klub-avrora-tri
+    title: Концерт «Джазовый вечер»
+    category: culture
+    tags: [performing_arts]
+    organizer: Концертный клуб «Аврора-Три»
+    sessions:
+      - key: evening
+        days: [4, 5, 6]
+        slot: fixed
+        start: "20:00"
+        end: "22:00"
+        min_duration: 2h
+        buffer: 15m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [800]
+  - key: tantsy-dlya-nachinayushchikh
+    place: studiya-tantsev-nebosvod
+    title: Занятие «Танцы для начинающих»
+    category: sport
+    tags: [performing_arts]
+    organizer: Студия танцев «Небосвод»
+    sessions:
+      - key: evening
+        days: [3, 5]
+        slot: fixed
+        start: "19:30"
+        end: "20:30"
+        min_duration: 1h
+        buffer: 5m
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [700]
+      - key: evening-cancelled
+        days: [1]
+        slot: fixed
+        start: "19:30"
+        end: "20:30"
+        min_duration: 1h
+        buffer: 5m
+        access: ticket
+        availability: cancelled
+        cancellation_reason: Болезнь ведущего
+        prices:
+          - audience: general
+            status: fixed
+            amount: [700]
+  - key: akvarel-dlya-nachinayushchikh
+    place: masterskaya-yula
+    title: Мастер-класс «Акварель для начинающих»
+    category: culture
+    tags: [lectures_workshops, contemporary_art]
+    organizer: Мастерская «Юла»
+    sessions:
+      - key: weekend
+        days: [4, 5, 6]
+        slot: fixed
+        start: "12:00"
+        end: "14:00"
+        min_duration: 2h
+        buffer: 10m
+        late_entry: true
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [900]
+  - key: po-bulvaram
+    place: klub-progulok-baken
+    title: Прогулка «По бульварам»
+    category: walk
+    tags: [city_walk, excursions]
+    organizer: Клуб прогулок «Бакен»
+    sessions:
+      - key: stroll
+        days: [4, 5, 6]
+        slot: fixed
+        start: "09:00"
+        end: "10:30"
+        min_duration: 90m
+        access: free
+        availability: available
+  - key: utro-v-parke
+    place: klub-progulok-baken
+    title: Прогулка «Утро в парке»
+    category: walk
+    tags: [city_walk, running_park]
+    organizer: Клуб прогулок «Бакен»
+    sessions:
+      - key: stroll
+        days: [5, 6]
+        slot: fixed
+        start: "10:00"
+        end: "11:30"
+        min_duration: 90m
+        access: free
+        availability: available
+  - key: shokoladnye-konfety
+    place: shokoladnaya-masterskaya-flyuger
+    title: Мастер-класс «Шоколадные конфеты»
+    category: gastro
+    tags: [gastro_coffee]
+    organizer: Шоколадная мастерская «Флюгер»
+    sessions:
+      - key: class
+        days: [5, 6]
+        slot: fixed
+        start: "14:00"
+        end: "16:00"
+        min_duration: 2h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1500]
+  - key: shokolad-i-spetsii
+    place: shokoladnaya-masterskaya-flyuger
+    title: Дегустация «Шоколад и специи»
+    category: gastro
+    tags: [gastro_coffee]
+    organizer: Шоколадная мастерская «Флюгер»
+    sessions:
+      - key: session
+        days: [5, 6]
+        slot: fixed
+        start: "18:00"
+        end: "19:00"
+        min_duration: 1h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [900]
+  - key: rzhanoy-khleb-na-zakvaske
+    place: pekarnya-elan
+    title: Мастер-класс «Ржаной хлеб на закваске»
+    category: gastro
+    tags: [gastro_coffee]
+    organizer: Пекарня «Елань»
+    sessions:
+      - key: class
+        days: [5, 6]
+        slot: fixed
+        start: "10:00"
+        end: "12:30"
+        min_duration: 2h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: unknown
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1600]
+  - key: gorod-v-detalyakh
+    place: art-prostranstvo-iris
+    title: Выставка «Город в деталях»
+    category: culture
+    tags: [contemporary_art]
+    organizer: Арт-пространство «Ирис»
+    sessions:
+      - key: daily
+        slot: window
+        start: "11:00"
+        end: "20:00"
+        min_duration: 1h
+        recommended_duration: 90m
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [400]
+          - audience: child
+            status: fixed
+            amount: [200]
+            tariff_label: Детский
+            eligibility_age: [3, 13]
+          - audience: student
+            status: fixed
+            amount: [300]
+            tariff_label: Студенческий
+  - key: dvorami-khamovnikov
+    place: klub-progulok-veranda
+    title: Прогулка «Дворами Хамовников»
+    category: walk
+    tags: [city_walk, excursions]
+    organizer: Клуб прогулок «Веранда»
+    sessions:
+      - key: stroll
+        days: [0, 1, 2, 3, 4]
+        slot: fixed
+        start: "11:00"
+        end: "13:00"
+        min_duration: 2h
+        buffer: 10m
+        access: registration
+        registration_closes_before: 12h
+        availability: registration_required
+  - key: stendap-vecher
+    place: teatralnaya-studiya-yantar
+    title: Спектакль «Стендап-вечер»
+    category: culture
+    tags: [performing_arts]
+    organizer: Театральная студия «Янтарь»
+    age_min: 18
+    sessions:
+      - key: evening
+        days: [2, 3, 5]
+        slot: fixed
+        start: "19:00"
+        end: "21:00"
+        min_duration: 2h
+        buffer: 20m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1000]
+      - key: evening-cancelled
+        days: [0]
+        slot: fixed
+        start: "19:00"
+        end: "21:00"
+        min_duration: 2h
+        buffer: 20m
+        late_entry: false
+        access: ticket
+        availability: cancelled
+        cancellation_reason: Изменение расписания площадки
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1000]
+  - key: kukolnaya-skazka
+    place: teatralnaya-studiya-yantar
+    title: Детский спектакль «Кукольная сказка»
+    category: culture
+    tags: [performing_arts]
+    organizer: Театральная студия «Янтарь»
+    sessions:
+      - key: morning
+        days: [5, 6]
+        slot: fixed
+        start: "11:00"
+        end: "12:00"
+        min_duration: 1h
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: child
+            status: fixed
+            amount: [350]
+            tariff_label: Детский
+            eligibility_age: [3, 10]
+  - key: muzyka-i-matematika
+    place: prosvetitelskiy-tsentr-landysh
+    title: Лекция «Музыка и математика»
+    category: culture
+    tags: [lectures_workshops, science_tech]
+    organizer: Просветительский центр «Ландыш»
+    sessions:
+      - key: evening
+        days: [1, 3, 5]
+        slot: fixed
+        start: "18:00"
+        end: "19:30"
+        min_duration: 90m
+        buffer: 15m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [400]
+          - audience: student
+            status: fixed
+            amount: [150]
+            tariff_label: Студенческий
+  - key: kofe-odnogo-regiona
+    place: kofeynya-obzharshchik-shishki
+    title: Каппинг «Кофе одного региона»
+    category: gastro
+    tags: [gastro_coffee]
+    organizer: Кофейня-обжарщик «Шишки»
+    sessions:
+      - key: session
+        days: [5, 6]
+        slot: fixed
+        start: "12:00"
+        end: "13:00"
+        min_duration: 1h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [900]
+  - key: stalinskie-vysotki
+    place: tochka-sbora-ekskursiy-sumerki
+    title: Экскурсия «Сталинские высотки»
+    category: tourism
+    tags: [excursions]
+    organizer: Точка сбора экскурсий «Сумерки»
+    sessions:
+      - key: tour
+        days: [0, 1, 2, 3, 4]
+        slot: fixed
+        start: "10:00"
+        end: "12:00"
+        min_duration: 2h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: unknown
+          - audience: senior
+            status: fixed
+            amount: [500]
+            tariff_label: Пенсионный
+          - audience: student
+            status: fixed
+            amount: [600]
+            tariff_label: Студенческий
+  - key: kitay-gorod-torgovye-ryady
+    place: tochka-sbora-ekskursiy-sumerki
+    title: "Экскурсия «Китай-город: торговые ряды»"
+    category: tourism
+    tags: [excursions, classical_art]
+    organizer: Точка сбора экскурсий «Сумерки»
+    sessions:
+      - key: tour
+        days: [0, 2, 3, 5]
+        slot: fixed
+        start: "15:00"
+        end: "17:30"
+        min_duration: 150m
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1200]
+          - audience: child
+            status: fixed
+            amount: [400]
+            tariff_label: Детский
+            eligibility_age: [6, 13]
+  - key: vysadka-derevev
+    place: eko-tsentr-dyuna
+    title: Смена «Высадка деревьев»
+    category: volunteer
+    tags: [eco_volunteer]
+    organizer: Эко-центр «Дюна»
+    sessions:
+      - key: shift
+        days: [5, 6]
+        slot: fixed
+        start: "10:00"
+        end: "13:00"
+        min_duration: 3h
+        buffer: 15m
+        access: registration
+        registration_closes_before: 48h
+        availability: registration_required
+  - key: razdelnyy-sbor
+    place: eko-tsentr-dyuna
+    title: Смена «Раздельный сбор»
+    category: volunteer
+    tags: [eco_volunteer]
+    organizer: Эко-центр «Дюна»
+    sessions:
+      - key: shift
+        days: [6]
+        slot: fixed
+        start: "12:00"
+        end: "15:00"
+        min_duration: 3h
+        buffer: 15m
+        access: registration
+        registration_closes_before: 24h
+        availability: registration_required
+  - key: skandinavskaya-khodba
+    place: klub-progulok-ottenok
+    title: Прогулка «Скандинавская ходьба»
+    category: walk
+    tags: [city_walk, running_park]
+    organizer: Клуб прогулок «Оттенок»
+    sessions:
+      - key: stroll
+        days: [0, 2, 3, 5]
+        slot: fixed
+        start: "09:30"
+        end: "11:00"
+        min_duration: 90m
+        access: free
+        availability: available
+  - key: vecherniy-katok
+    place: katok-tsikoriy
+    title: Сеанс «Вечерний каток»
+    category: sport
+    tags: [running_park]
+    organizer: Каток «Цикорий»
+    sessions:
+      - key: evening
+        days: [4, 5, 6]
+        slot: fixed
+        start: "20:00"
+        end: "21:30"
+        min_duration: 1h
+        buffer: 5m
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [450]
+      - key: evening-cancelled
+        days: [3]
+        slot: fixed
+        start: "20:00"
+        end: "21:30"
+        min_duration: 1h
+        buffer: 5m
+        access: ticket
+        availability: cancelled
+        cancellation_reason: Непогода
+        prices:
+          - audience: general
+            status: fixed
+            amount: [450]
+  - key: tikhaya-moskva
+    place: klub-gorodskikh-progulok-galka
+    title: Прогулка «Тихая Москва»
+    category: walk
+    tags: [city_walk, excursions]
+    organizer: Клуб городских прогулок «Галька»
+    sessions:
+      - key: stroll
+        days: [0, 1, 2, 3, 4]
+        slot: fixed
+        start: "18:00"
+        end: "20:00"
+        min_duration: 2h
+        buffer: 10m
+        access: registration
+        registration_closes_before: 24h
+        availability: registration_required
+  - key: khamovniki-kupecheskaya-moskva
+    place: ekskursionnoe-byuro-yasen
+    title: "Экскурсия «Хамовники: купеческая Москва»"
+    category: tourism
+    tags: [excursions]
+    organizer: Экскурсионное бюро «Ясень»
+    sessions:
+      - key: tour
+        days: [0, 1, 2, 3]
+        slot: fixed
+        start: "10:00"
+        end: "12:00"
+        min_duration: 2h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: range
+            amount: [800, 1500]
+          - audience: senior
+            status: fixed
+            amount: [500]
+            tariff_label: Пенсионный
+          - audience: student
+            status: fixed
+            amount: [600]
+            tariff_label: Студенческий
+      - key: tour-sold-out
+        days: [4]
+        slot: fixed
+        start: "10:00"
+        end: "12:00"
+        min_duration: 2h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: sold_out
+        prices:
+          - audience: general
+            status: range
+            amount: [800, 1500]
+          - audience: senior
+            status: fixed
+            amount: [500]
+            tariff_label: Пенсионный
+          - audience: student
+            status: fixed
+            amount: [600]
+            tariff_label: Студенческий
+  - key: krasnaya-presnya
+    place: ekskursionnoe-byuro-yasen
+    title: Экскурсия «Красная Пресня»
+    category: tourism
+    tags: [excursions, classical_art]
+    organizer: Экскурсионное бюро «Ясень»
+    sessions:
+      - key: tour
+        days: [0, 2, 3, 5]
+        slot: fixed
+        start: "15:00"
+        end: "17:30"
+        min_duration: 150m
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [900]
+          - audience: child
+            status: fixed
+            amount: [400]
+            tariff_label: Детский
+            eligibility_age: [6, 13]
+  - key: vkus-obzharki
+    place: kofeynya-mindal
+    title: Каппинг «Вкус обжарки»
+    category: gastro
+    tags: [gastro_coffee]
+    organizer: Кофейня «Миндаль»
+    sessions:
+      - key: session
+        days: [4, 5, 6]
+        slot: fixed
+        start: "12:00"
+        end: "13:00"
+        min_duration: 1h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [700]
+  - key: meshchanskaya-sloboda
+    place: ekskursionnoe-byuro-klenovyy
+    title: Экскурсия «Мещанская слобода»
+    category: tourism
+    tags: [excursions]
+    organizer: Экскурсионное бюро «Кленовый»
+    sessions:
+      - key: tour
+        days: [0, 1, 2, 3, 4]
+        slot: fixed
+        start: "10:00"
+        end: "12:00"
+        min_duration: 2h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: unknown
+          - audience: senior
+            status: fixed
+            amount: [500]
+            tariff_label: Пенсионный
+          - audience: student
+            status: fixed
+            amount: [600]
+            tariff_label: Студенческий
+  - key: pokrovka-i-chistye-prudy
+    place: ekskursionnoe-byuro-klenovyy
+    title: Экскурсия «Покровка и Чистые пруды»
+    category: tourism
+    tags: [excursions, classical_art]
+    organizer: Экскурсионное бюро «Кленовый»
+    sessions:
+      - key: tour
+        days: [0, 2, 3, 5]
+        slot: fixed
+        start: "15:00"
+        end: "17:30"
+        min_duration: 150m
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1400]
+          - audience: child
+            status: fixed
+            amount: [400]
+            tariff_label: Детский
+            eligibility_age: [6, 13]
+  - key: dvoriki-zamoskvorechya
+    place: ekskursionnoe-byuro-tetrad
+    title: Экскурсия «Дворики Замоскворечья»
+    category: tourism
+    tags: [excursions]
+    organizer: Экскурсионное бюро «Тетрадь»
+    sessions:
+      - key: tour
+        slot: fixed
+        start: "10:00"
+        end: "12:00"
+        min_duration: 2h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: range
+            amount: [800, 1500]
+          - audience: senior
+            status: fixed
+            amount: [500]
+            tariff_label: Пенсионный
+          - audience: student
+            status: fixed
+            amount: [600]
+            tariff_label: Студенческий
+  - key: arbatskie-pereulki
+    place: ekskursionnoe-byuro-tetrad
+    title: Экскурсия «Арбатские переулки»
+    category: tourism
+    tags: [excursions, classical_art]
+    organizer: Экскурсионное бюро «Тетрадь»
+    sessions:
+      - key: tour
+        days: [4, 5, 6]
+        slot: fixed
+        start: "15:00"
+        end: "17:30"
+        min_duration: 150m
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1200]
+          - audience: child
+            status: fixed
+            amount: [400]
+            tariff_label: Детский
+            eligibility_age: [6, 13]
+  - key: pomoshch-na-gorodskom-prazdnike
+    place: molodezhnyy-tsentr-garnitur
+    title: Смена «Помощь на городском празднике»
+    category: volunteer
+    tags: [social_volunteer]
+    organizer: Молодёжный центр «Гарнитур»
+    sessions:
+      - key: shift
+        days: [5, 6]
+        slot: fixed
+        start: "10:00"
+        end: "16:00"
+        min_duration: 6h
+        buffer: 15m
+        access: registration
+        registration_closes_before: 72h
+        availability: registration_required
+  - key: russkiy-lubok
+    place: zal-talnik
+    title: Выставка «Русский лубок»
+    category: culture
+    tags: [classical_art]
+    organizer: Зал «Тальник»
+    sessions:
+      - key: daily
+        slot: window
+        start: "10:00"
+        end: "18:00"
+        min_duration: 1h
+        recommended_duration: 90m
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [600]
+          - audience: child
+            status: fixed
+            amount: [300]
+            tariff_label: Детский
+            eligibility_age: [3, 13]
+          - audience: student
+            status: fixed
+            amount: [500]
+            tariff_label: Студенческий
+  - key: osenniy-listopad
+    place: klub-gorodskikh-progulok-tandem
+    title: Прогулка «Осенний листопад»
+    category: walk
+    tags: [city_walk]
+    organizer: Клуб городских прогулок «Тандем»
+    sessions:
+      - key: stroll
+        days: [4, 5, 6]
+        slot: fixed
+        start: "15:00"
+        end: "17:00"
+        min_duration: 2h
+        access: free
+        availability: available
+  - key: vecher-odnoaktnykh-pes
+    place: teatr-studiya-mayskiy
+    title: Спектакль «Вечер одноактных пьес»
+    category: culture
+    tags: [performing_arts]
+    organizer: Театр-студия «Майский»
+    sessions:
+      - key: evening
+        days: [0, 1, 2, 3, 4]
+        slot: fixed
+        start: "19:30"
+        end: "21:30"
+        min_duration: 2h
+        buffer: 20m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1100]
+  - key: kamernaya-muzyka-pri-svechakh
+    place: muzykalnaya-gostinaya-kedr
+    title: Концерт «Камерная музыка при свечах»
+    category: culture
+    tags: [performing_arts]
+    organizer: Музыкальная гостиная «Кедр»
+    sessions:
+      - key: evening
+        days: [5]
+        slot: fixed
+        start: "20:00"
+        end: "22:00"
+        min_duration: 2h
+        buffer: 15m
+        late_entry: true
+        last_entry: "20:20"
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1000]
+      - key: evening-sold-out
+        days: [6]
+        slot: fixed
+        start: "20:00"
+        end: "22:00"
+        min_duration: 2h
+        buffer: 15m
+        late_entry: true
+        last_entry: "20:20"
+        access: ticket
+        availability: sold_out
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1000]
+  - key: kalligrafiya-perom
+    place: masterskaya-briz
+    title: Мастер-класс «Каллиграфия пером»
+    category: culture
+    tags: [lectures_workshops, contemporary_art]
+    organizer: Мастерская «Бриз»
+    sessions:
+      - key: weekend
+        days: [1, 3, 5]
+        slot: fixed
+        start: "15:00"
+        end: "17:00"
+        min_duration: 2h
+        buffer: 10m
+        late_entry: true
+        access: ticket
+        availability: unknown
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1500]
+  - key: tikhie-berega
+    place: galereya-izluchina
+    title: Выставка «Тихие берега»
+    category: culture
+    tags: [contemporary_art]
+    organizer: Галерея «Излучина»
+    sessions:
+      - key: daily
+        slot: window
+        start: "10:00"
+        end: "19:00"
+        min_duration: 1h
+        recommended_duration: 90m
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [450]
+          - audience: student
+            status: fixed
+            amount: [350]
+            tariff_label: Студенческий
+  - key: svet-i-liniya
+    place: galereya-vorsinka
+    title: Выставка «Свет и линия»
+    category: culture
+    tags: [contemporary_art]
+    organizer: Галерея «Ворсинка»
+    sessions:
+      - key: daily
+        slot: window
+        start: "10:00"
+        end: "18:00"
+        min_duration: 1h
+        recommended_duration: 90m
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [300]
+            benefit_programs: [pushkin_card]
+          - audience: child
+            status: fixed
+            amount: [150]
+            tariff_label: Детский
+            eligibility_age: [3, 13]
+  - key: keramika-chasha
+    place: tvorcheskaya-masterskaya-flag-dva
+    title: "Мастер-класс «Керамика: чаша»"
+    category: culture
+    tags: [lectures_workshops, contemporary_art]
+    organizer: Творческая мастерская «Флаг-Два»
+    sessions:
+      - key: weekend
+        days: [5, 6]
+        slot: fixed
+        start: "17:30"
+        end: "19:30"
+        min_duration: 2h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: unknown
+  - key: ulichnaya-eda-so-vsego-sveta
+    place: gastromarket-vitrazh
+    title: Ужин «Уличная еда со всего света»
+    category: gastro
+    tags: [gastro_coffee]
+    organizer: Гастромаркет «Витраж»
+    sessions:
+      - key: session
+        days: [5, 6]
+        slot: fixed
+        start: "18:00"
+        end: "20:00"
+        min_duration: 90m
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [700]
+      - key: session-cancelled
+        days: [4]
+        slot: fixed
+        start: "18:00"
+        end: "20:00"
+        min_duration: 90m
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: cancelled
+        cancellation_reason: Технические работы в зале
+        prices:
+          - audience: general
+            status: fixed
+            amount: [700]
+  - key: osenniy-urozhay
+    place: gastromarket-vitrazh
+    title: Ярмарка «Осенний урожай»
+    category: gastro
+    tags: [gastro_coffee, city_walk]
+    organizer: Гастромаркет «Витраж»
+    sessions:
+      - key: session
+        days: [5, 6]
+        slot: fixed
+        start: "12:00"
+        end: "15:00"
+        min_duration: 2h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [900]
+  - key: kruassany-doma
+    place: khlebnaya-lavka-prichal
+    title: Мастер-класс «Круассаны дома»
+    category: gastro
+    tags: [gastro_coffee]
+    organizer: Хлебная лавка «Причал»
+    sessions:
+      - key: class
+        days: [4, 5, 6]
+        slot: fixed
+        start: "10:00"
+        end: "12:30"
+        min_duration: 2h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1900]
+  - key: legkie-3-km
+    place: vorkaut-ploshchadka-niva
+    title: Пробежка «Лёгкие 3 км»
+    category: sport
+    tags: [running_park]
+    organizer: Воркаут-площадка «Нива»
+    sessions:
+      - key: morning
+        days: [0, 2, 4, 6]
+        slot: fixed
+        start: "07:30"
+        end: "08:30"
+        min_duration: 1h
+        access: free
+        availability: available
+  - key: turnik-i-brusya
+    place: vorkaut-ploshchadka-niva
+    title: Тренировка «Турник и брусья»
+    category: sport
+    tags: [street_workout]
+    organizer: Воркаут-площадка «Нива»
+    sessions:
+      - key: evening
+        days: [1, 3, 5]
+        slot: fixed
+        start: "18:30"
+        end: "19:30"
+        min_duration: 1h
+        access: free
+        availability: available
+  - key: kak-rabotaet-pamyat
+    place: lektoriy-ladya
+    title: Лекция «Как работает память»
+    category: culture
+    tags: [lectures_workshops, science_tech]
+    organizer: Лекторий «Ладья»
+    sessions:
+      - key: evening
+        days: [1, 3, 5]
+        slot: fixed
+        start: "18:00"
+        end: "19:30"
+        min_duration: 90m
+        buffer: 15m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [300]
+          - audience: student
+            status: fixed
+            amount: [150]
+            tariff_label: Студенческий
+  - key: istoriya-gorodskikh-ulits
+    place: lektoriy-ladya
+    title: Лекция «История городских улиц»
+    category: culture
+    tags: [lectures_workshops, science_tech]
+    organizer: Лекторий «Ладья»
+    sessions:
+      - key: evening
+        days: [4, 5]
+        slot: fixed
+        start: "19:00"
+        end: "20:30"
+        min_duration: 90m
+        buffer: 15m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: range
+            amount: [200, 500]
+          - audience: student
+            status: fixed
+            amount: [150]
+            tariff_label: Студенческий
+      - key: evening-sold-out
+        days: [6]
+        slot: fixed
+        start: "19:00"
+        end: "20:30"
+        min_duration: 90m
+        buffer: 15m
+        late_entry: false
+        access: ticket
+        availability: sold_out
+        prices:
+          - audience: general
+            status: range
+            amount: [200, 500]
+          - audience: student
+            status: fixed
+            amount: [150]
+            tariff_label: Студенческий
+  - key: starye-karty
+    place: vystavochnyy-zal-fonarik
+    title: Выставка «Старые карты»
+    category: culture
+    tags: [classical_art]
+    organizer: Выставочный зал «Фонарик»
+    sessions:
+      - key: daily
+        days: [0, 2, 4, 6]
+        slot: window
+        start: "11:00"
+        end: "20:00"
+        min_duration: 1h
+        recommended_duration: 90m
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [350]
+            benefit_programs: [pushkin_card]
+          - audience: child
+            status: fixed
+            amount: [175]
+            tariff_label: Детский
+            eligibility_age: [3, 13]
+  - key: lefortovo-i-nemetskaya-sloboda
+    place: klub-puteshestvennikov-shkhuna
+    title: Экскурсия «Лефортово и Немецкая слобода»
+    category: tourism
+    tags: [excursions]
+    organizer: Клуб путешественников «Шхуна»
+    sessions:
+      - key: tour
+        slot: fixed
+        start: "10:00"
+        end: "12:00"
+        min_duration: 2h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: range
+            amount: [800, 1500]
+          - audience: senior
+            status: fixed
+            amount: [500]
+            tariff_label: Пенсионный
+          - audience: student
+            status: fixed
+            amount: [600]
+            tariff_label: Студенческий
+  - key: tverskie-bulvary
+    place: klub-puteshestvennikov-shkhuna
+    title: Экскурсия «Тверские бульвары»
+    category: tourism
+    tags: [excursions, classical_art]
+    organizer: Клуб путешественников «Шхуна»
+    sessions:
+      - key: tour
+        days: [5, 6]
+        slot: fixed
+        start: "15:00"
+        end: "17:30"
+        min_duration: 150m
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1400]
+          - audience: child
+            status: fixed
+            amount: [400]
+            tariff_label: Детский
+            eligibility_age: [6, 13]
+      - key: tour-cancelled
+        days: [4]
+        slot: fixed
+        start: "15:00"
+        end: "17:30"
+        min_duration: 150m
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: cancelled
+        cancellation_reason: Болезнь ведущего
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1400]
+          - audience: child
+            status: fixed
+            amount: [400]
+            tariff_label: Детский
+            eligibility_age: [6, 13]
+  - key: latte-art-dlya-nachinayushchikh
+    place: kofeynya-otzvuk
+    title: Латте-арт для начинающих
+    category: gastro
+    tags: [gastro_coffee]
+    organizer: Кофейня «Отзвук»
+    sessions:
+      - key: session
+        days: [1, 3, 5]
+        slot: fixed
+        start: "12:00"
+        end: "13:00"
+        min_duration: 1h
+        buffer: 10m
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [1100]
+  - key: klassika-sovetskoy-komedii
+    place: kinozal-ezhevika
+    title: Кинопоказ «Классика советской комедии»
+    category: culture
+    tags: [cinema]
+    organizer: Кинозал «Ежевика»
+    sessions:
+      - key: show
+        slot: fixed
+        start: "20:00"
+        end: "22:00"
+        min_duration: 2h
+        late_entry: false
+        access: ticket
+        availability: available
+        prices:
+          - audience: general
+            status: fixed
+            amount: [350]
+          - audience: student
+            status: fixed
+            amount: [250]
+            tariff_label: Студенческий
