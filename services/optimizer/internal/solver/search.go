@@ -114,6 +114,10 @@ func (s *Solver) newRun(p *Problem, pool []domain.Candidate) (*searchRun, error)
 		run.utilities[i] = pool[i].BaseScore * s.score.affinity(p.Interests, pool[i].InterestMask(), p.Archetype)
 		run.quotes[i], run.priced[i] = p.Pricing.Quote(&pool[i])
 		if p.Lunch != nil && !isAnchor[i] && lunchVenue(&pool[i], p.Lunch.Duration) {
+			mealPolicy := p.Pricing
+			mealPolicy.PushkinCardOnly = false
+			mealPolicy.AcceptUnknownPrice = true
+			run.quotes[i], run.priced[i] = mealPolicy.Quote(&pool[i])
 			run.lunchVenues = append(run.lunchVenues, i)
 			run.lunchOnly[i] = true
 		}

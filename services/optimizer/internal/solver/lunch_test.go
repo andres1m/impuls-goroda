@@ -93,6 +93,17 @@ func TestSearchLunchVenueFromWiderRing(t *testing.T) {
 	}
 }
 
+func TestSearchLunchVenueOutsideTicketBudgetAndCardFilter(t *testing.T) {
+	p := lunchProblem(at(13, 0), at(14, 30))
+	p.Pricing.PushkinCardOnly = true
+	p.Pricing.Budget = domain.Budget{Mode: domain.BudgetStrict, Limit: &domain.Money{Currency: p.Pricing.Currency}}
+	routes := search(t, wide, p, []domain.Candidate{cafe(1, north(origin, 250))})
+	requireLunch(t, p, routes)
+	if !routes[0].Lunch.Venue || routes[0].KnownCost.AmountMinor != 0 || routes[0].UnknownCost {
+		t.Fatalf("meal affected ticket budget: %+v", routes[0])
+	}
+}
+
 func TestSearchFreeLunch(t *testing.T) {
 	museum := place(9, domain.CategoryCulture, 0, north(origin, 400))
 	closed := cafe(1, north(origin, 200))

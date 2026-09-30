@@ -110,8 +110,7 @@ func branchesInRadius(venues []lunchVenueBranch, radius float64) []*domain.Branc
 // the venue's own hours.
 func (r *searchRun) lunchAt(parent *domain.Branch, i int) (*domain.Branch, bool) {
 	c := &r.pool[i]
-	if _, visited := parent.VisitedPlaces[c.Place.ID]; visited || !r.priced[i] ||
-		!r.problem.Pricing.Fits(parent.KnownCost, r.quotes[i]) {
+	if _, visited := parent.VisitedPlaces[c.Place.ID]; visited || !r.priced[i] {
 		return nil, false
 	}
 	leg, ok := r.transit.Estimate(parent.Position, c.Place.Location, parent.Now, r.problem.Modes)
@@ -136,6 +135,8 @@ func (r *searchRun) lunchAt(parent *domain.Branch, i int) (*domain.Branch, bool)
 		EndAt:     slot.EndAt,
 	}
 	child := r.extend(parent, &visit, finish, r.utilities[i], r.quotes[i], true)
+	// Meals are outside the ticket budget, but their price remains on the visit.
+	child.KnownCost, child.UnknownCost = parent.KnownCost, parent.UnknownCost
 	child.Lunch = &domain.Lunch{At: len(child.Visits) - 1, Venue: true, StartAt: slot.StartAt, EndAt: slot.EndAt}
 	return child, r.anchorsReachable(child)
 }

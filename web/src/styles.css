@@ -701,6 +701,13 @@ button { cursor: pointer; }
 .lunch-search-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 16px 0; }
 .lunch-search-modes .scenario-option { min-height: 48px; margin: 0; padding: 10px; font-size: 13px; }
 .lunch-search-modes .scenario-option[aria-pressed="true"] { background: #fff0c4; border-color: #e2c979; color: #644915; }
+.lunch-search-origin { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.lunch-search-origin .scenario-option { width: auto; margin: 0; }
+.lunch-search-origin .scenario-option[aria-pressed="true"] { background: #fff0c4; border-color: #e2c979; color: #644915; }
+.lunch-search-manual { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin: 12px 0; }
+.lunch-search-manual label { display: grid; gap: 5px; flex: 1 1 120px; font-size: 12px; }
+.lunch-search-manual input { box-sizing: border-box; width: 100%; min-height: 44px; padding: 8px; border: 1px solid #dbe2ea; border-radius: 12px; font: inherit; }
+.lunch-search-manual .scenario-option { width: auto; margin: 0; }
 .lunch-time-form { display: grid; gap: 14px; }
 .lunch-time-form p { margin: 0; color: #5d6877; font-size: 13px; line-height: 1.5; }
 .lunch-time-form label { display: grid; gap: 7px; min-width: 0; font-size: 13px; }

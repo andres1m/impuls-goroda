@@ -144,16 +144,19 @@ func checkRouteSteps(
 		if s.Cost == nil {
 			continue
 		}
+		meal := slices.ContainsFunc(s.AppliedConstraints, func(c domain.AppliedConstraint) bool {
+			return c.Code == lunchWindowCode
+		})
 		switch {
 		case s.Cost.Price.Status == domain.PriceUnknown:
-			if route.Result == domain.ResultReady &&
+			if !meal && route.Result == domain.ResultReady &&
 				(req.Constraints.Budget.Mode == domain.BudgetStrict || req.Constraints.PushkinCardOnly) {
 				fail("route %d is ready on an unknown price under a strict budget or card-only mode", i)
 			}
 			if s.Cost.PersonalAmount != nil && s.Cost.PersonalAmount.AmountMinor == 0 {
 				fail("route %d turns an unknown price into zero", i)
 			}
-		case s.Cost.Price.UpperMinor != nil:
+		case !meal && s.Cost.Price.UpperMinor != nil:
 			upper += *s.Cost.Price.UpperMinor
 		}
 	}

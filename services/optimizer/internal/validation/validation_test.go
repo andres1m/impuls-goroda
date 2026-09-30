@@ -47,6 +47,8 @@ func TestAllowedVariationsPass(t *testing.T) {
 				Outcome:  domain.OutcomeSatisfied,
 				Message:  "Lunch",
 			})
+			p.Cost.TotalLower, p.Cost.TotalUpper = new(rub(50000)), new(rub(50000))
+			p.Cost.UnknownComponents = nil
 		},
 		"accepted unknown price under a strict budget": func(p *domain.Plan, in *Input) {
 			in.Constraints.Budget = domain.Budget{Mode: domain.BudgetStrict, Limit: new(rub(60000))}

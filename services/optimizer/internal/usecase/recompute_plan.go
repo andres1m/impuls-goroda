@@ -364,12 +364,23 @@ func (w *rework) plan(
 	for i := range plan.Steps {
 		plan.Steps[i].Position = i + 1
 	}
-	summary, err := policy.Summarize(snapshots)
+	// The route budget covers tickets; lunch prices stay on their visits.
+	ticketSnapshots := make([]domain.CostSnapshot, 0, len(snapshots))
+	for i := range plan.Steps {
+		step := &plan.Steps[i]
+		meal := slices.ContainsFunc(step.AppliedConstraints, func(c domain.AppliedConstraint) bool {
+			return c.Code == lunchWindowCode
+		})
+		if step.Kind == domain.StepVisit && step.Cost != nil && !meal {
+			ticketSnapshots = append(ticketSnapshots, *step.Cost)
+		}
+	}
+	summary, err := policy.Summarize(ticketSnapshots)
 	if err != nil {
 		return domain.Plan{}, validation.Input{}, err
 	}
 	plan.Cost = summary
-	w.finalizeRecomputedPlan(&plan, &constraints, snapshots, degraded)
+	w.finalizeRecomputedPlan(&plan, &constraints, ticketSnapshots, degraded)
 	return plan, in, nil
 }
 
