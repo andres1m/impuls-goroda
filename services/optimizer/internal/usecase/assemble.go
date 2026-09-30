@@ -32,6 +32,13 @@ func (p *Planner) assemble(
 	if err != nil {
 		return domain.Plan{}, validation.Input{}, err
 	}
+	if lunch := r.branch.Lunch; lunch != nil && lunch.Venue {
+		ticketCosts := append(slices.Clone(costs[:lunch.At]), costs[lunch.At+1:]...)
+		summary, err = policy.Summarize(ticketCosts)
+		if err != nil {
+			return domain.Plan{}, validation.Input{}, err
+		}
+	}
 	plan := domain.Plan{
 		Archetype: r.archetype, Start: req.Start, End: req.End, Origin: req.Origin, Destination: req.Destination,
 		CatalogRevision: data.CatalogRevision, Result: domain.ResultReady, Cost: summary,
@@ -58,7 +65,7 @@ func (p *Planner) assemble(
 		c := v.Candidate
 		in.Candidates[id] = *c
 		state.addVisit(i, v, id, &costs[i])
-		if costs[i].Price.Status == domain.PriceUnknown {
+		if costs[i].Price.Status == domain.PriceUnknown && (r.branch.Lunch == nil || !r.branch.Lunch.Venue || r.branch.Lunch.At != i) {
 			unknownPrice = true
 		}
 	}
@@ -189,6 +196,12 @@ func (s *assembleState) addVisit(i int, v *domain.SearchVisit, id domain.VisitID
 	}
 	lunch := s.route.branch.Lunch
 	if lunch != nil && lunch.Venue && lunch.At == i {
+		if cost.Price.Status == domain.PriceUnknown {
+			s.plan.Warnings = append(s.plan.Warnings, domain.Warning{
+				Code: "LUNCH_PRICE_UNKNOWN", Scope: domain.ScopeVisit, VisitID: &id,
+				Message: "The meal price is unknown; check it before visiting",
+			})
+		}
 		step.AppliedConstraints = append(step.AppliedConstraints, domain.AppliedConstraint{
 			Code: lunchWindowCode, Strength: domain.StrengthSoft, Outcome: domain.OutcomeSatisfied,
 			Message: "Lunch at a place to eat near the route",

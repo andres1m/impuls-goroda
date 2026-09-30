@@ -2,6 +2,7 @@ import React, { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { coordinate } from './routeProjection.js';
 import { externalLegLink, openExternalNavigation } from './externalNavigation.js';
 import { localDateTime } from './scenarioForm.js';
+import TwoGisRouteMap from './TwoGisRouteMap.jsx';
 
 const radii = [300, 500, 800, 1000];
 
@@ -25,13 +26,18 @@ function searchMessage(status, code) {
   return 'Не удалось получить кафе рядом. Попробуйте снова.';
 }
 
-export default function LunchSearch({ routeID, plan, apiBaseUrl, accessToken, disabled, onChoose, onSchedule, openRequest = 0, hideLauncher = false }) {
+export default function LunchSearch({ routeID, city, plan, apiBaseUrl, accessToken, mapApiKey, disabled, onChoose, onSchedule, openRequest = 0, hideLauncher = false }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState('nearby');
   const [radius, setRadius] = useState(500);
   const [phase, setPhase] = useState('idle');
   const [message, setMessage] = useState('');
   const [results, setResults] = useState(null);
+  const [searchSource, setSearchSource] = useState('device');
+  const [selectedPosition, setSelectedPosition] = useState(null);
+  const [picking, setPicking] = useState(false);
+  const [manualLatitude, setManualLatitude] = useState('');
+  const [manualLongitude, setManualLongitude] = useState('');
   const [lunchStart, setLunchStart] = useState(() => localDateTime(plan?.constraints?.lunch_window?.start_at, plan?.timezone).slice(11) || '13:00');
   const [lunchEnd, setLunchEnd] = useState(() => localDateTime(plan?.constraints?.lunch_window?.end_at, plan?.timezone).slice(11) || '14:30');
   const [lunchDuration, setLunchDuration] = useState(() => String(plan?.constraints?.lunch_window?.min_duration_seconds || 2700));
@@ -55,7 +61,8 @@ export default function LunchSearch({ routeID, plan, apiBaseUrl, accessToken, di
 
   function close() {
     current.current?.abort(); current.current = null;
-    setOpen(false); setMode('nearby'); setResults(null); setMessage(''); setPhase('idle'); setScheduleError('');
+    setOpen(false); setMode('nearby'); setResults(null); setMessage(''); setPhase('idle'); setScheduleError(''); setPicking(false);
+    setSearchSource('device'); setSelectedPosition(null); setManualLatitude(''); setManualLongitude('');
     if (opener.current?.isConnected) opener.current.focus({ preventScroll: true });
     opener.current = null;
   }
@@ -68,7 +75,7 @@ export default function LunchSearch({ routeID, plan, apiBaseUrl, accessToken, di
 
   function showSchedule() {
     current.current?.abort(); current.current = null;
-    setMode('time'); setScheduleError('');
+    setMode('time'); setScheduleError(''); setPicking(false);
   }
 
   async function schedule(event) {
@@ -82,21 +89,31 @@ export default function LunchSearch({ routeID, plan, apiBaseUrl, accessToken, di
     } catch { setScheduleError('Не удалось рассчитать новый вариант. Попробуйте снова.'); }
   }
 
-  async function search(nextRadius) {
+  function choosePosition(position) {
+    if (!coordinate(position)) return;
+    setSelectedPosition(position); setSearchSource('selected'); setPicking(false);
+    setManualLatitude(String(position.latitude)); setManualLongitude(String(position.longitude));
+    search(radius, position);
+  }
+
+  async function search(nextRadius, overridePosition, forceDevice = false) {
     if (disabled) return;
     if (!open) opener.current = document.activeElement;
     current.current?.abort();
     const controller = new AbortController();
     current.current = controller;
-    setOpen(true); setMode('nearby'); setRadius(nextRadius); setResults(null); setMessage(''); setPhase('locating');
+    const chosen = overridePosition || (!forceDevice && searchSource === 'selected' ? selectedPosition : null);
+    setOpen(true); setMode('nearby'); setRadius(nextRadius); setResults(null); setMessage(''); setPhase(chosen ? 'searching' : 'locating');
     let timer;
     let timedOut = false;
     try {
-      if (!navigator.geolocation) throw { geo: true };
-      const position = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(
-        ({ coords }) => resolve({ latitude: coords.latitude, longitude: coords.longitude }),
-        () => reject({ geo: true }), { enableHighAccuracy: true, maximumAge: 0, timeout: 12000 },
-      ));
+      const position = chosen || await new Promise((resolve, reject) => {
+        if (!navigator.geolocation) { reject({ geo: true }); return; }
+        navigator.geolocation.getCurrentPosition(
+          ({ coords }) => resolve({ latitude: coords.latitude, longitude: coords.longitude }),
+          () => reject({ geo: true }), { enableHighAccuracy: true, maximumAge: 0, timeout: 12000 },
+        );
+      });
       if (controller.signal.aborted) return;
       if (!coordinate(position)) throw { geo: true };
       setPhase('searching');
@@ -113,7 +130,7 @@ export default function LunchSearch({ routeID, plan, apiBaseUrl, accessToken, di
       setResults({ candidates: body.candidates, position }); setPhase('ready');
     } catch (error) {
       if (current.current !== controller || controller.signal.aborted && !timedOut) return;
-      setMessage(error.geo ? 'Разрешите геолокацию, чтобы найти кафе рядом с вами.' : searchMessage(error.status, error.code));
+      setMessage(error.geo ? 'Геопозиция недоступна. Выберите точку на карте или укажите координаты.' : searchMessage(error.status, error.code));
       setPhase('error');
     } finally {
       clearTimeout(timer);
@@ -133,6 +150,13 @@ export default function LunchSearch({ routeID, plan, apiBaseUrl, accessToken, di
         {scheduleError && <p className="scenario-error" role="alert">{scheduleError}</p>}
         <button type="submit" className="scenario-option scenario-primary" disabled={disabled}>Рассчитать новый вариант</button>
       </form> : <>
+      <div className="lunch-search-origin" aria-label="Центр поиска">
+        <button type="button" className="scenario-option" aria-pressed={searchSource === 'device'} disabled={disabled} onClick={() => { setSearchSource('device'); setPicking(false); search(radius, null, true); }}>Моя геопозиция</button>
+        {mapApiKey && <button type="button" className="scenario-option" aria-pressed={searchSource === 'selected'} disabled={disabled} onClick={() => { current.current?.abort(); setResults(null); setPhase('idle'); setPicking(true); }}>Указать на карте</button>}
+        {coordinate(plan?.origin) && <button type="button" className="scenario-option" disabled={disabled} onClick={() => choosePosition(plan.origin)}>У старта маршрута</button>}
+      </div>
+      {picking && <TwoGisRouteMap apiKey={mapApiKey} city={city} stops={[]} startPoint={coordinate(plan?.origin)} pickMode="search" onCancelPick={() => setPicking(false)} onPick={([latitude, longitude]) => choosePosition({ latitude, longitude })} />}
+      <div className="lunch-search-manual"><label>Широта<input inputMode="decimal" value={manualLatitude} onChange={(event) => setManualLatitude(event.target.value)} placeholder="58.0100" /></label><label>Долгота<input inputMode="decimal" value={manualLongitude} onChange={(event) => setManualLongitude(event.target.value)} placeholder="56.2500" /></label><button type="button" className="scenario-option" disabled={disabled || !coordinate({ latitude: Number(manualLatitude), longitude: Number(manualLongitude) }) || !manualLatitude.trim() || !manualLongitude.trim()} onClick={() => choosePosition({ latitude: Number(manualLatitude), longitude: Number(manualLongitude) })}>Искать от точки</button></div>
       <div className="lunch-search-radii" aria-label="Радиус поиска">{radii.map((value) => <button type="button" className="scenario-option" key={value} aria-pressed={radius === value} disabled={disabled} onClick={() => search(value)}>{value === 1000 ? '1 км' : `${value} м`}</button>)}</div>
       {busy && <p role="status">{phase === 'locating' ? 'Определяем вашу позицию…' : 'Ищем кафе рядом…'}</p>}
       {message && <p className="scenario-error" role="alert">{message}</p>}
@@ -147,7 +171,7 @@ export default function LunchSearch({ routeID, plan, apiBaseUrl, accessToken, di
           </li>;
         })}</ul>
       </>}
-      <button type="button" className="scenario-option" disabled={disabled || busy} onClick={() => search(radius)}>Обновить рядом со мной</button>
+      <button type="button" className="scenario-option" disabled={disabled || busy} onClick={() => search(radius)}>{searchSource === 'selected' ? 'Обновить от выбранной точки' : 'Обновить рядом со мной'}</button>
       </>}
     </div>}
   </section>;

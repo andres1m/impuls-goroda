@@ -323,7 +323,12 @@ func (c *checker) cost() {
 		if step.Kind != domain.StepVisit {
 			continue
 		}
-		c.checkStepCost(&step.VisitID, step, &totals, strict, acceptedUnknown)
+		if hasLunchConstraint(step.AppliedConstraints) {
+			var mealTotals costTotals
+			c.checkStepCost(&step.VisitID, step, &mealTotals, false, true)
+		} else {
+			c.checkStepCost(&step.VisitID, step, &totals, strict, acceptedUnknown)
+		}
 	}
 	if strict && totals.upper > cons.Budget.Limit.AmountMinor {
 		c.add("BUDGET_EXCEEDED", nil, "The known prices exceed the strict budget")
@@ -369,7 +374,9 @@ func (c *checker) checkStepCost(
 		return
 	}
 	c.checkStepShares(id, snapshot, offer, top, known)
-	c.checkStepPriceRules(id, offer, top, known, strict, acceptedUnknown)
+	if !hasLunchConstraint(step.AppliedConstraints) {
+		c.checkStepPriceRules(id, offer, top, known, strict, acceptedUnknown)
+	}
 }
 
 func (c *checker) checkStepShares(
