@@ -11,6 +11,11 @@ function validSegments(segments) {
 
 const maxRememberedPaths = 200;
 const rememberedPaths = new Map();
+let directionsLimitedUntil = 0;
+
+function samePoint(left, right) {
+  return left[0] === right[0] && left[1] === right[1];
+}
 
 // A route is reloaded after every command; asking the provider again for legs that did not move would
 // spend its request limit on answers we already hold. Only successful answers are kept.
@@ -18,10 +23,18 @@ async function streetPath(apiBaseUrl, points, mode, signal) {
   const key = `${apiBaseUrl}|${mode}|${points.map((point) => point.join(',')).join('|')}`;
   const known = rememberedPaths.get(key);
   if (known) return known;
+  if (Date.now() < directionsLimitedUntil) throw new Error('DIRECTIONS_RATE_LIMITED');
   const response = await fetch(`${apiBaseUrl}/api/v1/prototype/directions`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, signal, body: JSON.stringify({ points, mode }),
   });
-  if (!response.ok) throw new Error('Directions unavailable');
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    if (body?.code === 'DIRECTIONS_RATE_LIMITED' || response.status === 429) {
+      directionsLimitedUntil = Date.now() + 60_000;
+      throw new Error('DIRECTIONS_RATE_LIMITED');
+    }
+    throw new Error('Directions unavailable');
+  }
   const { segments } = await response.json();
   if (!validSegments(segments)) throw new Error('Invalid directions');
   if (rememberedPaths.size >= maxRememberedPaths) rememberedPaths.delete(rememberedPaths.keys().next().value);
@@ -56,25 +69,46 @@ export default function ServerRouteMap({ apiKey, apiBaseUrl = '', projection, lu
       async function drawPaths() {
         let failed = 0;
         let built = 0;
+        let rateLimited = false;
+        const jobs = [];
         for (const leg of projection.legs) {
           if (!active) return;
           const saved = projection.segments.find((segment) => segment.leg === leg)?.points;
           if (saved?.length > 2) {
-            objects.push(new mapgl.Polyline(map, { coordinates: saved.map(([lat, lon]) => [lon, lat]), width: 5, color: '#087af5' }));
-            built++; continue;
+            jobs.push({ saved });
+            continue;
           }
           const from = saved?.[0] || (leg.from_kind === 'origin' ? projection.origin : projection.visits.find((visit) => visit.id === leg.from_visit_id)?.point);
           const to = saved?.at(-1) || (leg.to_kind === 'destination' ? projection.destination : projection.visits.find((visit) => visit.id === leg.to_visit_id)?.point);
           if (!from || !to || leg.verification === 'unavailable') { failed++; continue; }
-          if (from[0] === to[0] && from[1] === to[1]) continue;
+          if (samePoint(from, to)) continue;
+          const mode = leg.mode === 'car' ? 'driving' : leg.mode === 'transit' ? 'transit' : 'walking';
+          const previous = jobs.at(-1);
+          if (mode !== 'transit' && previous?.mode === mode && previous.points.length < (mode === 'walking' ? 5 : 10) && samePoint(previous.points.at(-1), from)) {
+            previous.points.push(to);
+          } else {
+            jobs.push({ mode, points: [from, to] });
+          }
+        }
+        for (const job of jobs) {
+          if (!active) return;
+          if (job.saved) {
+            objects.push(new mapgl.Polyline(map, { coordinates: job.saved.map(([lat, lon]) => [lon, lat]), width: 5, color: '#087af5' }));
+            built++;
+            continue;
+          }
           try {
-            const segments = await streetPath(apiBaseUrl, [from, to], leg.mode === 'car' ? 'driving' : leg.mode === 'transit' ? 'transit' : 'walking', controller.signal);
+            const segments = await streetPath(apiBaseUrl, job.points, job.mode, controller.signal);
             if (!active) return;
             segments.forEach((segment) => objects.push(new mapgl.Polyline(map, { coordinates: segment.map(([lat, lon]) => [lon, lat]), width: 6, color: '#087af5' })));
             built++;
-          } catch { if (!active) return; failed++; }
+          } catch (error) {
+            if (!active) return;
+            failed++;
+            if (error.message === 'DIRECTIONS_RATE_LIMITED') { rateLimited = true; break; }
+          }
         }
-        if (active) setPathState(failed ? built ? 'partial' : 'error' : 'ready');
+        if (active) setPathState(rateLimited ? 'rate-limited' : failed ? built ? 'partial' : 'error' : 'ready');
       }
       drawPaths();
       projection.visits.filter((visit) => visit.point).forEach((visit) => {
@@ -143,7 +177,7 @@ export default function ServerRouteMap({ apiKey, apiBaseUrl = '', projection, lu
     <div className="workspace-map-canvas"><div ref={container} className="workspace-2gis-map" aria-hidden={state !== 'ready'} />
       {state !== 'ready' && <div className="workspace-map-state server-map-state" role="status"><p>{state === 'loading' ? 'Загружаем карту…' : state === 'no-key' ? 'Карта не настроена. Расписание доступно ниже.' : state === 'empty' ? 'В маршруте нет координат для карты.' : 'Не удалось загрузить карту. Расписание доступно ниже.'}</p>{state === 'error' && <button className="scenario-option" onClick={() => setAttempt((value) => value + 1)}>Повторить</button>}</div>}
     </div>
-    <div className="workspace-map-caption"><span>{pathState === 'loading' ? 'Строим путь по улицам…' : pathState === 'ready' ? 'Путь по улицам' : pathState === 'partial' ? 'Часть пути недоступна. Можно открыть переход в 2ГИС.' : 'Путь не загрузился. Попробуйте снова или откройте 2ГИС.'}{missing ? ` Без координат: ${missing} точек.` : ''}</span>{['error', 'partial'].includes(pathState) && <button className="scenario-option" onClick={() => setAttempt((value) => value + 1)}>Повторить</button>}</div>
+    <div className="workspace-map-caption"><span>{pathState === 'loading' ? 'Строим путь по улицам…' : pathState === 'ready' ? 'Путь по улицам' : pathState === 'rate-limited' ? 'Лимит запросов 2ГИС. Откройте переход в 2ГИС и повторите позже.' : pathState === 'partial' ? 'Часть пути недоступна. Можно открыть переход в 2ГИС.' : 'Путь не загрузился. Попробуйте снова или откройте 2ГИС.'}{missing ? ` Без координат: ${missing} точек.` : ''}</span>{['error', 'partial'].includes(pathState) && <button className="scenario-option" onClick={() => setAttempt((value) => value + 1)}>Повторить</button>}</div>
     {lunchPreview && <div className="server-map-lunch-preview" role="status"><div><span>Выбрано кафе</span><strong>{lunchPreview.cafe.title}</strong><small>{state !== 'ready' ? 'Карта пока недоступна. Кафе можно открыть в 2ГИС.' : lunchPathState === 'loading' ? 'Строим пеший путь…' : lunchPathState === 'ready' ? 'Пеший путь от вашей позиции показан на карте' : lunchPathState === 'error' ? 'Путь по улицам пока недоступен. Кафе показано на карте.' : 'Кафе показано на карте.'}</small><small>Это просмотр: расписание маршрута пока не изменилось.</small></div><div className="server-map-lunch-actions">{lunchLink && <a href={lunchLink} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" onClick={openExternalNavigation}>Открыть в 2ГИС</a>}<button type="button" onClick={onClearLunch}>Убрать с карты</button></div></div>}
     <RouteNavigation projection={projection} />
   </section>;

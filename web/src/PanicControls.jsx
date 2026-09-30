@@ -45,7 +45,11 @@ export default function PanicControls({ route, mapApiKey, disabled, onPanic, ope
     const input = { delay_mode: mode, position: point, position_source: source };
     if (mode === 'already_delayed') input.effective_start_at = new Date().toISOString();
     else input.delay_seconds = seconds;
-    onPanic(input);
+    const result = await onPanic(input);
+    if (active.current && result?.status === 'PROPOSED') {
+      setOpen(false);
+      setPicking(false);
+    }
   }
 
   return <section className="owner-route-actions panic-controls" aria-label="Опоздание">
