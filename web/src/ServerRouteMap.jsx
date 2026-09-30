@@ -9,6 +9,26 @@ function validSegments(segments) {
     && segment.every((point) => Array.isArray(point) && point.length === 2 && point.every(Number.isFinite) && Math.abs(point[0]) <= 90 && Math.abs(point[1]) <= 180));
 }
 
+const maxRememberedPaths = 200;
+const rememberedPaths = new Map();
+
+// A route is reloaded after every command; asking the provider again for legs that did not move would
+// spend its request limit on answers we already hold. Only successful answers are kept.
+async function streetPath(apiBaseUrl, points, mode, signal) {
+  const key = `${apiBaseUrl}|${mode}|${points.map((point) => point.join(',')).join('|')}`;
+  const known = rememberedPaths.get(key);
+  if (known) return known;
+  const response = await fetch(`${apiBaseUrl}/api/v1/prototype/directions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, signal, body: JSON.stringify({ points, mode }),
+  });
+  if (!response.ok) throw new Error('Directions unavailable');
+  const { segments } = await response.json();
+  if (!validSegments(segments)) throw new Error('Invalid directions');
+  if (rememberedPaths.size >= maxRememberedPaths) rememberedPaths.delete(rememberedPaths.keys().next().value);
+  rememberedPaths.set(key, segments);
+  return segments;
+}
+
 export default function ServerRouteMap({ apiKey, apiBaseUrl = '', projection, lunchPreview, onClearLunch, onSelect }) {
   const container = useRef(null);
   const mapRef = useRef(null);
@@ -48,15 +68,9 @@ export default function ServerRouteMap({ apiKey, apiBaseUrl = '', projection, lu
           if (!from || !to || leg.verification === 'unavailable') { failed++; continue; }
           if (from[0] === to[0] && from[1] === to[1]) continue;
           try {
-            const response = await fetch(`${apiBaseUrl}/api/v1/prototype/directions`, {
-              method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
-              body: JSON.stringify({ points: [from, to], mode: leg.mode === 'car' ? 'driving' : leg.mode === 'transit' ? 'transit' : 'walking' }),
-            });
-            if (!response.ok) throw new Error('Directions unavailable');
-            const body = await response.json();
+            const segments = await streetPath(apiBaseUrl, [from, to], leg.mode === 'car' ? 'driving' : leg.mode === 'transit' ? 'transit' : 'walking', controller.signal);
             if (!active) return;
-            if (!Array.isArray(body.segments) || !body.segments.length || body.segments.some((segment) => !Array.isArray(segment) || segment.length < 2 || segment.some((p) => !Array.isArray(p) || p.length !== 2 || !p.every(Number.isFinite) || Math.abs(p[0]) > 90 || Math.abs(p[1]) > 180))) throw new Error('Invalid directions');
-            body.segments.forEach((segment) => objects.push(new mapgl.Polyline(map, { coordinates: segment.map(([lat, lon]) => [lon, lat]), width: 6, color: '#087af5' })));
+            segments.forEach((segment) => objects.push(new mapgl.Polyline(map, { coordinates: segment.map(([lat, lon]) => [lon, lat]), width: 6, color: '#087af5' })));
             built++;
           } catch { if (!active) return; failed++; }
         }
@@ -110,15 +124,9 @@ export default function ServerRouteMap({ apiKey, apiBaseUrl = '', projection, lu
     setLunchPathState('loading');
     async function drawWalk() {
       try {
-        const response = await fetch(`${apiBaseUrl}/api/v1/prototype/directions`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
-          body: JSON.stringify({ points: [origin, cafe], mode: 'walking' }),
-        });
-        if (!response.ok) throw new Error('Directions unavailable');
-        const body = await response.json();
+        const segments = await streetPath(apiBaseUrl, [origin, cafe], 'walking', controller.signal);
         if (!active) return;
-        if (!validSegments(body.segments)) throw new Error('Invalid directions');
-        body.segments.forEach((segment) => objects.push(new mapgl.Polyline(map, { coordinates: segment.map(([lat, lon]) => [lon, lat]), width: 7, color: '#dc8b19' })));
+        segments.forEach((segment) => objects.push(new mapgl.Polyline(map, { coordinates: segment.map(([lat, lon]) => [lon, lat]), width: 7, color: '#dc8b19' })));
         setLunchPathState('ready');
       } catch { if (active) setLunchPathState('error'); }
     }
