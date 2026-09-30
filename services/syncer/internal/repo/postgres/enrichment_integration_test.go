@@ -79,7 +79,7 @@ func TestEnrichmentStoreIntegration(t *testing.T) {
 	}
 	for i := range cands {
 		if cands[i].Place != nil && cands[i].Place.String() == id &&
-			(string(cands[i].StoredHash) != string(done[0].Hash) || !cands[i].HasTags) {
+			(string(cands[i].StoredHash) != string(done[0].Hash) || cands[i].StoredModel != "test/model" || !cands[i].HasTags) {
 			t.Fatalf("candidate after publish %+v", cands[i])
 		}
 	}

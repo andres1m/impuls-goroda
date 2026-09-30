@@ -27,6 +27,8 @@ type Candidate struct {
 	Category   string
 	HasTags    bool
 	StoredHash []byte
+	// StoredModel is the model that produced the stored enrichment; empty when there is none.
+	StoredModel string
 }
 
 // Input is everything the model sees about the entity, and what the stored hash covers.

@@ -369,6 +369,37 @@ func advanceWatermark(ctx context.Context, tx pgx.Tx, city domain.City, settledI
 	return nil
 }
 
+// Replay makes the source's raw records of the city that stopped as failed or quarantined pending again
+// and returns them with the records still pending, so a run that stopped before signalling them resumes.
+// Every version is reopened, not only the latest: an outdated failed version would hold the materialized
+// watermark back for good, and materialization retires it as superseded without touching the catalog.
+func (s *MaterializeStore) Replay(ctx context.Context, source domain.SourceKey, city domain.City) ([]string, error) {
+	pool, err := s.connected()
+	if err != nil {
+		return nil, err
+	}
+	ids, err := returnedIDs(pool.Query(ctx, `
+		WITH reopened AS (
+			UPDATE integration.raw_ingest ri SET processing_state = 'pending'
+			FROM integration.source_record sr
+			JOIN integration.source src ON src.id = sr.source_id
+			WHERE ri.source_record_id = sr.id AND src.source_key = $1 AND sr.city = $2
+				AND ri.processing_state IN ('failed', 'quarantined')
+			RETURNING ri.id
+		)
+		SELECT id::text FROM reopened
+		UNION
+		SELECT ri.id::text FROM integration.raw_ingest ri
+		JOIN integration.source_record sr ON sr.id = ri.source_record_id
+		JOIN integration.source src ON src.id = sr.source_id
+		WHERE src.source_key = $1 AND sr.city = $2 AND ri.processing_state = 'pending'
+		ORDER BY 1`, source, city))
+	if err != nil {
+		return nil, fmt.Errorf("replay %s %s: %w", source, city, err)
+	}
+	return ids, nil
+}
+
 // Reopen makes the latest raw record of every source record of the source and city pending again and
 // forgets its accepted content, so the next batch materializes it against the current clock. Records
 // already pending are returned too: a run that stopped before signalling them resumes.

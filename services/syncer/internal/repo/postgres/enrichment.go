@@ -40,20 +40,20 @@ func (s *EnrichmentStore) Vocabulary(ctx context.Context) ([]enrich.Tag, error) 
 }
 
 const enrichmentCandidatesSQL = `
-SELECT p.id, NULL::uuid, p.title, coalesce(c.title, ''), p.tag_mask <> 0::bit(64), en.input_hash
+SELECT p.id, NULL::uuid, p.title, coalesce(c.title, ''), p.tag_mask <> 0::bit(64), en.input_hash, coalesce(en.model, '')
 FROM catalog.place p
 LEFT JOIN ref.category c ON c.code = p.category
 LEFT JOIN catalog.entity_enrichment en ON en.place_id = p.id AND en.city = p.city
 WHERE p.city = $1 AND p.is_active
 UNION ALL
-SELECT NULL::uuid, e.id, e.title, c.title, e.tag_mask <> 0::bit(64), en.input_hash
+SELECT NULL::uuid, e.id, e.title, c.title, e.tag_mask <> 0::bit(64), en.input_hash, coalesce(en.model, '')
 FROM catalog.event e
 JOIN ref.category c ON c.code = e.category
 LEFT JOIN catalog.entity_enrichment en ON en.event_id = e.id AND en.city = e.city
 WHERE e.city = $1 AND e.is_active
 ORDER BY 1, 2`
 
-// Candidates lists the city's active places and events with the input hash of their stored
+// Candidates lists the city's active places and events with the input hash and model of their stored
 // enrichment, if they have one.
 func (s *EnrichmentStore) Candidates(ctx context.Context, city domain.City) ([]enrich.Candidate, error) {
 	rows, err := s.pool.Query(ctx, enrichmentCandidatesSQL, string(city))
@@ -62,7 +62,7 @@ func (s *EnrichmentStore) Candidates(ctx context.Context, city domain.City) ([]e
 	}
 	out, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (enrich.Candidate, error) {
 		c := enrich.Candidate{City: string(city)}
-		return c, row.Scan(&c.Place, &c.Event, &c.Title, &c.Category, &c.HasTags, &c.StoredHash)
+		return c, row.Scan(&c.Place, &c.Event, &c.Title, &c.Category, &c.HasTags, &c.StoredHash, &c.StoredModel)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("read entities to enrich: %w", err)

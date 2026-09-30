@@ -14,10 +14,10 @@ import (
 	"github.com/andres1m/impuls-goroda/services/syncer/internal/temporal/activity"
 )
 
-func parseRematerializeArgs(args []string) (domain.SourceKey, domain.City, error) {
-	usage := errors.New("usage: syncer rematerialize <kudago|mkrf_events|osm> <moscow|perm>")
-	const rematerializeArgCount = 2
-	if len(args) != rematerializeArgCount {
+func parseSourceCityArgs(command string, args []string) (domain.SourceKey, domain.City, error) {
+	usage := fmt.Errorf("usage: syncer %s <kudago|mkrf_events|osm> <moscow|perm>", command)
+	const argCount = 2
+	if len(args) != argCount {
 		return "", "", usage
 	}
 	source := domain.SourceKey(args[0])
@@ -35,10 +35,29 @@ func parseRematerializeArgs(args []string) (domain.SourceKey, domain.City, error
 	return source, city, nil
 }
 
+func parseRematerializeArgs(args []string) (domain.SourceKey, domain.City, error) {
+	return parseSourceCityArgs("rematerialize", args)
+}
+
+// rawSelector picks the raw records of a source and city that the city's materializing workflow has to
+// be signalled about.
+type rawSelector func(*postgres.MaterializeStore, context.Context, domain.SourceKey, domain.City) ([]string, error)
+
 // runRematerialize runs the source's stored records of the city through materialization again, which moves
 // the session horizon forward for records whose content has not changed.
-func runRematerialize(ctx context.Context, args []string) (resultErr error) {
-	source, city, err := parseRematerializeArgs(args)
+func runRematerialize(ctx context.Context, args []string) error {
+	return signalRawRecords(ctx, "rematerialize", args, (*postgres.MaterializeStore).Reopen)
+}
+
+// runReplay retries the records of a source and city that stopped as failed or quarantined or were never
+// picked up, for example after a normalizer fix. Records outdated by a later version are retired without
+// touching the catalog.
+func runReplay(ctx context.Context, args []string) error {
+	return signalRawRecords(ctx, "replay", args, (*postgres.MaterializeStore).Replay)
+}
+
+func signalRawRecords(ctx context.Context, command string, args []string, selectRaw rawSelector) (resultErr error) {
+	source, city, err := parseSourceCityArgs(command, args)
 	if err != nil {
 		return err
 	}
@@ -57,7 +76,8 @@ func runRematerialize(ctx context.Context, args []string) (resultErr error) {
 	}
 	defer func() { resultErr = errors.Join(resultErr, workflows.Stop(context.Background())) }()
 
-	ids, err := postgres.NewMaterializeStore(func() *pgxpool.Pool { return database.Pool }).Reopen(ctx, source, city)
+	store := postgres.NewMaterializeStore(func() *pgxpool.Pool { return database.Pool })
+	ids, err := selectRaw(store, ctx, source, city)
 	if err != nil {
 		return err
 	}

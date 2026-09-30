@@ -65,7 +65,7 @@ func Run(
 	s := Summary{Entities: len(all)}
 	var stale []Candidate
 	for i := range all {
-		if !bytes.Equal(Hash(Input(&all[i])), all[i].StoredHash) {
+		if !bytes.Equal(Hash(Input(&all[i])), all[i].StoredHash) || all[i].StoredModel != model.Model() {
 			stale = append(stale, all[i])
 		}
 	}

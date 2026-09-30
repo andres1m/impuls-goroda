@@ -701,3 +701,197 @@ func TestUrgentChangesAreAnnouncedToCachesIntegration(t *testing.T) {
 		t.Fatalf("recorded %v urgent changes, want 1", got)
 	}
 }
+
+func rawByID(t *testing.T, raws []materialize.Raw, id string) materialize.Raw {
+	t.Helper()
+	for i := range raws {
+		if raws[i].ID == id {
+			return raws[i]
+		}
+	}
+	t.Fatalf("raw %s is not in the batch", id)
+	return materialize.Raw{}
+}
+
+func (f *materializeFixture) placeTitle(t *testing.T, externalID string) string {
+	t.Helper()
+	var title string
+	id := normalize.EntityID(string(f.source) + ":" + externalID)
+	if err := f.pool.QueryRow(f.ctx, `SELECT title FROM catalog.place WHERE id = $1 AND city = 'perm'`, id).
+		Scan(&title); err != nil {
+		t.Fatal(err)
+	}
+	return title
+}
+
+func TestReplayIntegration(t *testing.T) {
+	f := newMaterializeFixture(t)
+	base := time.Now().UTC().Truncate(time.Microsecond)
+	older := f.save(t, "node/1", `{"v":1}`, base)
+	latest := f.save(t, "node/1", `{"v":2}`, base.Add(time.Second))
+	broken := f.save(t, "node/2", `{"v":3}`, base.Add(2*time.Second))
+	waiting := f.save(t, "node/3", `{"v":4}`, base.Add(3*time.Second))
+	fixable := f.save(t, "node/4", `{"v":5}`, base.Add(4*time.Second))
+
+	raws := f.pending(t, older.ID, latest.ID, broken.ID, fixable.ID)
+	if _, _, err := f.store.Publish(f.ctx, domain.Perm, &materialize.Outcome{
+		Apply: []materialize.Normalized{{Raw: rawByID(t, raws, latest.ID), Place: draft("node/1", "gastro", "Кофейня", "gastro_coffee")}},
+		Failed: []materialize.Rejected{
+			{Raw: rawByID(t, raws, older.ID), Code: "missing_name"},
+			{Raw: rawByID(t, raws, broken.ID), Code: "missing_name"},
+		},
+		Quarantined: []materialize.Quarantined{{
+			Raw: rawByID(t, raws, fixable.ID), Reason: domain.InvalidSchema,
+			Details: materialize.QuarantineDetails{Code: "bad_payload"},
+		}},
+	}, base); err != nil {
+		t.Fatal(err)
+	}
+	var marked int
+	if err := f.pool.QueryRow(f.ctx, `SELECT count(*) FROM integration.sync_cursor
+		WHERE source_id = $1 AND city = 'perm' AND materialized_watermark IS NOT NULL`, uuidParam(f.sourceID)).
+		Scan(&marked); err != nil || marked != 0 {
+		t.Fatalf("watermark moved past a failed version: %d, %v", marked, err)
+	}
+
+	want := []string{older.ID, broken.ID, waiting.ID, fixable.ID}
+	slices.Sort(want)
+	ids, err := f.store.Replay(f.ctx, f.source, domain.Perm)
+	if err != nil || !slices.Equal(ids, want) {
+		t.Fatalf("replayed %v, want %v, err %v", ids, want, err)
+	}
+	if again, againErr := f.store.Replay(f.ctx, f.source, domain.Perm); againErr != nil || !slices.Equal(again, want) {
+		t.Fatalf("second replay %v, %v", again, againErr)
+	}
+	for _, id := range want {
+		if f.state(t, id) != "pending" {
+			t.Fatalf("%s is %s after replay", id, f.state(t, id))
+		}
+	}
+	if f.state(t, latest.ID) != "applied" {
+		t.Fatalf("replay touched the applied version: %s", f.state(t, latest.ID))
+	}
+
+	// The outdated failed version is retired without a catalog write; the repaired record is applied;
+	// the record that is still broken stops as failed again.
+	replayed := f.pending(t, want...)
+	if rawByID(t, replayed, older.ID).Latest {
+		t.Fatal("an outdated version is taken as the latest")
+	}
+	revision := f.revision(t)
+	if _, _, err = f.store.Publish(f.ctx, domain.Perm, &materialize.Outcome{
+		Superseded: []materialize.Raw{rawByID(t, replayed, older.ID)},
+		Apply: []materialize.Normalized{
+			{Raw: rawByID(t, replayed, waiting.ID), Place: draft("node/3", "culture", "Музей", "classical_art")},
+			{Raw: rawByID(t, replayed, fixable.ID), Place: draft("node/4", "gastro", "Пекарня", "gastro_coffee")},
+		},
+		Failed: []materialize.Rejected{{Raw: rawByID(t, replayed, broken.ID), Code: "missing_name"}},
+	}, base.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if f.revision(t) != revision+1 {
+		t.Fatalf("revision %d, want %d", f.revision(t), revision+1)
+	}
+	states := map[string]string{older.ID: "applied", waiting.ID: "applied", fixable.ID: "applied", broken.ID: "failed"}
+	for id, state := range states {
+		if f.state(t, id) != state {
+			t.Errorf("%s is %s, want %s", id, f.state(t, id), state)
+		}
+	}
+	if title := f.placeTitle(t, "node/1"); title != "Кофейня" {
+		t.Fatalf("catalog title %q was changed by a replayed outdated version", title)
+	}
+	if rows := f.quarantine(t, fixable.ID); len(rows) != 1 || rows[0].state != "resolved" || !rows[0].resolved {
+		t.Fatalf("quarantine of the repaired record: %+v", rows)
+	}
+	wantMark := base.Add(time.Second)
+	if got := f.watermark(t); got == nil || !got.Equal(wantMark) {
+		t.Fatalf("watermark %v, want %v: only the still failed record may hold it back", got, wantMark)
+	}
+}
+
+func TestReplayDoesNotRepeatDeadLetterIntegration(t *testing.T) {
+	f := newMaterializeFixture(t)
+	base := time.Now().UTC().Truncate(time.Microsecond)
+	broken := f.save(t, "node/1", `not json`, base)
+	quarantine := func(at time.Time) {
+		t.Helper()
+		raws := f.pending(t, broken.ID)
+		if len(raws) != 1 {
+			t.Fatalf("pending %d", len(raws))
+		}
+		if _, _, err := f.store.Publish(f.ctx, domain.Perm, &materialize.Outcome{Quarantined: []materialize.Quarantined{{
+			Raw: raws[0], Reason: domain.InvalidSchema, Details: materialize.QuarantineDetails{Code: "bad_payload"},
+		}}}, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	quarantine(base)
+	if _, err := f.pool.Exec(f.ctx, `UPDATE integration.change_delivery SET state = 'delivered'
+		WHERE raw_ingest_id = $1`, broken.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	for range 2 {
+		ids, err := f.store.Replay(f.ctx, f.source, domain.Perm)
+		if err != nil || !slices.Equal(ids, []string{broken.ID}) {
+			t.Fatalf("replayed %v, %v", ids, err)
+		}
+		quarantine(base.Add(time.Minute))
+	}
+	if letters := f.deadLetters(t, broken.ID); len(letters) != 1 {
+		t.Fatalf("%d dead letters after replays, want the one already sent", len(letters))
+	}
+	if rows := f.quarantine(t, broken.ID); len(rows) != 1 || rows[0].state != "open" {
+		t.Fatalf("quarantine rows %+v", rows)
+	}
+	if f.state(t, broken.ID) != "quarantined" {
+		t.Fatalf("state %s", f.state(t, broken.ID))
+	}
+}
+
+func TestReplayOfOutdatedVersionKeepsWithdrawnSessionCancelledIntegration(t *testing.T) {
+	f := newMaterializeFixture(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	day1, day2 := now.Add(24*time.Hour), now.Add(48*time.Hour)
+	event := normalize.EntityID(string(f.source) + ":event:1@place:a")
+	withdrawn := normalize.SessionID(event, day2)
+
+	f.publishEvent(t, 1, now, "a", day1, day2)
+	f.publishEvent(t, 3, now, "a", day1)
+	before := f.session(t, withdrawn)
+	if before.status != "cancelled" || before.reason == nil || *before.reason != "source_removed" {
+		t.Fatalf("session was not withdrawn: %+v", before)
+	}
+
+	// The first version, which still lists the session, stopped as failed earlier.
+	var outdated string
+	if err := f.pool.QueryRow(f.ctx, `
+		UPDATE integration.raw_ingest SET processing_state = 'failed'
+		WHERE id = (SELECT ri.id FROM integration.raw_ingest ri
+			JOIN integration.source_record sr ON sr.id = ri.source_record_id
+			WHERE sr.source_id = $1 ORDER BY ri.fetched_at LIMIT 1)
+		RETURNING id::text`, uuidParam(f.sourceID)).Scan(&outdated); err != nil {
+		t.Fatal(err)
+	}
+	ids, err := f.store.Replay(f.ctx, f.source, domain.Perm)
+	if err != nil || !slices.Equal(ids, []string{outdated}) {
+		t.Fatalf("replayed %v, %v", ids, err)
+	}
+	raws := f.pending(t, outdated)
+	if len(raws) != 1 || raws[0].Latest {
+		t.Fatalf("the outdated version must not count as the latest: %+v", raws)
+	}
+	revision := f.revision(t)
+	if _, _, err := f.store.Publish(f.ctx, domain.Perm, &materialize.Outcome{Superseded: raws}, now); err != nil {
+		t.Fatal(err)
+	}
+	after := f.session(t, withdrawn)
+	if after.status != before.status || *after.reason != *before.reason || after.version != before.version ||
+		after.priceActive != before.priceActive {
+		t.Fatalf("session changed by a replayed outdated version: %+v, was %+v", after, before)
+	}
+	if f.revision(t) != revision || f.state(t, outdated) != "applied" {
+		t.Fatalf("revision %d -> %d, state %s", revision, f.revision(t), f.state(t, outdated))
+	}
+}
